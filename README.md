@@ -42,7 +42,15 @@ psql tokyo -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
 Either way, the app expects `DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo`
 (see `.env.example`). Integration tests use a second database, `tokyo_test`,
-with the same credentials.
+with the same credentials:
+
+```bash
+createdb tokyo_test --owner=tokyo   # Homebrew install only; Docker Compose
+                                     # only provisions `tokyo` — create this
+                                     # database inside the container instead
+psql tokyo_test -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+psql tokyo_test -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+```
 
 ## 2. Install dependencies
 
@@ -64,6 +72,26 @@ pnpm derive       # compute derived neighborhood metrics
 ```bash
 pnpm dev:api   # Fastify API
 pnpm dev:web   # Next.js frontend
+```
+
+## Testing
+
+`pnpm test` runs the Vitest suite. Most tests are pure unit tests and need
+no setup. Database integration tests (e.g. `scripts/src/migrate.test.ts`)
+read `DATABASE_URL` directly from the environment — no `.env` loading — and
+`describe`/`it.skip` themselves with an explicit message when it's unset, so
+they never silently pass. Point `DATABASE_URL` at `tokyo_test` (not the dev
+database) to run them:
+
+```bash
+DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test
+```
+
+`pnpm db:migrate` also supports `--dry-run`, which prints which migration
+files would be applied without running them:
+
+```bash
+DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo pnpm db:migrate --dry-run
 ```
 
 ## Data sources

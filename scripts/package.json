@@ -7,10 +7,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tokyo/shared": "workspace:*"
+    "@tokyo/shared": "workspace:*",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
+    "@types/pg": "^8.23.1",
     "typescript": "^6.0.3"
   }
 }
