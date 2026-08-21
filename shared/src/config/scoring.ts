@@ -59,6 +59,20 @@ export const LAND_PRICE_MULTIPLIER_MAX = 1.15;
  */
 export const MIN_LAND_PRICE_POINTS = 3;
 
+/**
+ * A rent stat "vintage" (source period) counts as recent if it is at most
+ * this many years older than the current year. Used both to prefer a REINS
+ * row over an e-Stat row in `pickRentStat`, and to decide whether
+ * `estimateRent` should step confidence down for a stale source period.
+ */
+export const RENT_STAT_RECENT_MAX_AGE_YEARS = 2;
+
+/**
+ * A rent stat older than this many years is considered stale enough for
+ * `pickRentStat` to assign `low` confidence.
+ */
+export const RENT_STAT_OLD_MIN_AGE_YEARS = 5;
+
 // ---------------------------------------------------------------------------
 // Catchment
 // ---------------------------------------------------------------------------
