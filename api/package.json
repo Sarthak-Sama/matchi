@@ -1,0 +1,17 @@
+{
+  "name": "@tokyo/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tokyo/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.12",
+    "typescript": "^6.0.3"
+  }
+}

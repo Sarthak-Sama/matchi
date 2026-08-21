@@ -1,0 +1,20 @@
+services:
+  postgis:
+    image: postgis/postgis:16-3.4
+    container_name: tokyo-postgis
+    environment:
+      POSTGRES_USER: tokyo
+      POSTGRES_PASSWORD: tokyo
+      POSTGRES_DB: tokyo
+    ports:
+      - "5432:5432"
+    volumes:
+      - tokyo-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tokyo -d tokyo"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  tokyo-pgdata:

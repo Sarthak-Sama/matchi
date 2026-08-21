@@ -1,0 +1,10 @@
+packages:
+  - "web"
+  - "api"
+  - "shared"
+  - "scripts"
+allowBuilds:
+  esbuild: true
+  sharp: false
+minimumReleaseAgeExclude:
+  - eslint@10.9.0
