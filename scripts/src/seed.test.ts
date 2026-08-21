@@ -15,6 +15,9 @@
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { CATCHMENT_RADIUS_M } from "@tokyo/shared";
+
+import { PINNED_POI_COUNTS } from "./fixtures/seed/index.js";
 import { runMigrations } from "./migrate.js";
 import { runSeed } from "./seed.js";
 
@@ -117,6 +120,29 @@ describe.runIf(Boolean(databaseUrl))("seed", () => {
       [ISOLATED_STATION],
     );
     expect(unreached, "real stations unreachable from sg-shibuya").toEqual([]);
+  });
+
+  it("pinned POI counts (fixtures/seed/pois.ts) match a live ST_DWithin count", async () => {
+    // Guards against a filler point silently drifting into a pinned
+    // station's catchment (this caught a real bug — see task-5-report.md's
+    // fix-up entry: a Daikanyama filler point once landed inside Shibuya's
+    // 800m catchment, making the live count 38 instead of the documented 37).
+    const stationGroupIds = Object.keys(PINNED_POI_COUNTS);
+    const { rows } = await pool.query<{ station_group_id: string; count: string }>(
+      `SELECT sg.station_group_id, count(p.id)::text AS count
+       FROM station_groups sg
+       LEFT JOIN pois p ON ST_DWithin(p.point::geography, sg.point::geography, $2)
+       WHERE sg.station_group_id = ANY($1)
+       GROUP BY sg.station_group_id`,
+      [stationGroupIds, CATCHMENT_RADIUS_M],
+    );
+    const actual = new Map(rows.map((r) => [r.station_group_id, Number(r.count)]));
+    for (const [stationGroupId, expected] of Object.entries(PINNED_POI_COUNTS)) {
+      expect(
+        actual.get(stationGroupId),
+        `live POI count within ${CATCHMENT_RADIUS_M}m of ${stationGroupId}`,
+      ).toBe(expected);
+    }
   });
 
   it("is idempotent: a second seed run leaves row counts unchanged", async () => {

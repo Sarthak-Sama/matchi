@@ -45,6 +45,10 @@ export const WARDS: readonly WardFixture[] = [
     // Simple rectangle north of Shibuya-ku; also stretched west to cover
     // Nakano (whose real ward, Nakano-ku, is not one of the 4 in this
     // slice — folded into the Shinjuku polygon instead, see task-5-report.md).
+    // NOTE: this makes sg-nakano's ward assignment a disclosed fixture
+    // fiction, not merely a simplification — the polygon reaches ~3km west
+    // of real Shinjuku Station to contain it, so roughly three-quarters of
+    // this rectangle's area is real Nakano-ku, not Shinjuku-ku.
     ring: [
       [139.66, 35.688],
       [139.706, 35.688],
