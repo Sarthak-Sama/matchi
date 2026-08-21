@@ -81,6 +81,13 @@ export const CATCHMENT_RADIUS_M = 800;
 
 export const CATCHMENT_LABEL = "approximate 10-minute station area";
 
+/**
+ * Buffer distance (metres) used to compute `road_rail_exposure_share`: the
+ * share of a station's catchment within this distance of a major road or
+ * rail line. Added in Task 7.
+ */
+export const ROAD_RAIL_BUFFER_M = 100;
+
 // ---------------------------------------------------------------------------
 // Commute constants
 // ---------------------------------------------------------------------------
