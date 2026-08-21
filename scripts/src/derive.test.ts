@@ -39,7 +39,7 @@ const CHECKSUM_QUERY = `
     SELECT
       station_group_id, ward_code, rent_low_yen, rent_median_yen, rent_high_yen,
       rent_confidence, rent_source, rent_source_period, rent_per_sqm_yen, management_fee_yen,
-      land_price_multiplier, land_price_point_count, supermarket_count, grocery_count,
+      land_price_multiplier, land_price_point_count, land_price_used_fallback, supermarket_count, grocery_count,
       convenience_count, amenity_supermarket_equiv, restaurant_count, cafe_count, nightlife_count,
       flood_share_by_category, flood_exposure_score, residential_zoning_share,
       road_rail_exposure_share, quietness_raw, norm_amenity_supermarket, norm_amenity_restaurant,
@@ -202,14 +202,16 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
     }
   });
 
-  it("the two land-price-poor catchments (sg-isolated-test, sg-toritsudaigaku) get multiplier 1.0 and lowered confidence", async () => {
+  it("the two deliberately land-price-poor catchments (sg-isolated-test, sg-toritsudaigaku — not the only stations that can hit the fallback) get multiplier 1.0, land_price_used_fallback=true, and lowered confidence", async () => {
     const { rows } = await pool.query<{
       station_group_id: string;
       land_price_point_count: number;
       land_price_multiplier: number;
+      land_price_used_fallback: boolean;
       rent_confidence: string;
     }>(
-      `SELECT station_group_id, land_price_point_count, land_price_multiplier, rent_confidence
+      `SELECT station_group_id, land_price_point_count, land_price_multiplier,
+              land_price_used_fallback, rent_confidence
        FROM neighborhood_metrics
        WHERE station_group_id IN ('sg-isolated-test', 'sg-toritsudaigaku')`,
     );
@@ -220,11 +222,34 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
       // sg-toritsudaigaku: exactly 2 (< MIN_LAND_PRICE_POINTS = 3).
       expect(row.land_price_point_count, row.station_group_id).toBeLessThan(3);
       expect(Number(row.land_price_multiplier), row.station_group_id).toBe(1.0);
+      expect(row.land_price_used_fallback, row.station_group_id).toBe(true);
       // Both wards' only rent_stats row is the 2023 e-Stat row (baseConfidence
       // "medium" per pickRentStat), so a confidence of "low" here proves the
       // land-price fallback (and/or stale-source) lowering actually fired.
       expect(row.rent_confidence, row.station_group_id).toBe("low");
     }
+  });
+
+  it("land_price_used_fallback is false for a station with a genuinely computed (non-1.0) multiplier", async () => {
+    // sg-yoyogi has 3 land_prices points (>= MIN_LAND_PRICE_POINTS) and
+    // usable catchment/ward medians, so computeLandPriceMultiplier computes
+    // a real ratio rather than falling back — its multiplier is != 1.0,
+    // which land_price_point_count alone couldn't distinguish from a
+    // coincidental fallback-to-1.0 case (the exact ambiguity
+    // land_price_used_fallback exists to resolve for Task 10).
+    const { rows } = await pool.query<{
+      land_price_point_count: number;
+      land_price_multiplier: number;
+      land_price_used_fallback: boolean;
+    }>(
+      `SELECT land_price_point_count, land_price_multiplier, land_price_used_fallback
+       FROM neighborhood_metrics WHERE station_group_id = 'sg-yoyogi'`,
+    );
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    expect(row?.land_price_point_count).toBeGreaterThanOrEqual(3);
+    expect(Number(row?.land_price_multiplier)).not.toBe(1.0);
+    expect(row?.land_price_used_fallback).toBe(false);
   });
 
   it("is idempotent: running derive twice produces a byte-identical checksum of the sorted metric rows", async () => {

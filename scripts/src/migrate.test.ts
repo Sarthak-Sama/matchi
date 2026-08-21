@@ -134,6 +134,7 @@ const EXPECTED_COLUMNS: Record<string, readonly string[]> = {
     "management_fee_yen",
     "land_price_multiplier",
     "land_price_point_count",
+    "land_price_used_fallback",
     "supermarket_count",
     "grocery_count",
     "convenience_count",
@@ -222,7 +223,11 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
     const { rows } = await adminPool.query<{ filename: string }>(
       `SELECT filename FROM "${scratchSchema}".schema_migrations ORDER BY filename`,
     );
-    expect(rows.map((r) => r.filename)).toEqual(["0001_init.sql", "0002_geography_indexes.sql"]);
+    expect(rows.map((r) => r.filename)).toEqual([
+      "0001_init.sql",
+      "0002_geography_indexes.sql",
+      "0003_land_price_used_fallback.sql",
+    ]);
   });
 
   it("has the postgis and pg_trgm extensions installed", async () => {
@@ -282,7 +287,7 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
     const { rows } = await adminPool.query<{ filename: string }>(
       `SELECT filename FROM "${scratchSchema}".schema_migrations`,
     );
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
   });
 });
 

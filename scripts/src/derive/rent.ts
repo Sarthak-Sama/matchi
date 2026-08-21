@@ -21,6 +21,13 @@
  * `computeLandPriceMultiplier` also reports `usedFallback: true` when a
  * median is missing or non-positive even with enough points. Re-deriving
  * from the count alone was a real bug caught in Task 6.
+ *
+ * That same flag is also persisted verbatim to
+ * `neighborhood_metrics.land_price_used_fallback` (added in
+ * `0003_land_price_used_fallback.sql`) — Task 10 needs it to recompute a
+ * per-layout rent estimate honestly, and re-deriving it from
+ * `land_price_point_count` alone at that call site would reintroduce the
+ * exact same bug.
  */
 
 import type { Pool } from "pg";
@@ -163,7 +170,8 @@ export async function runRentStep(pool: Pool): Promise<StepResult> {
           rent_per_sqm_yen = $8,
           management_fee_yen = $9,
           land_price_multiplier = $10,
-          land_price_point_count = $11
+          land_price_point_count = $11,
+          land_price_used_fallback = $12
         WHERE station_group_id = $1
         `,
         [
@@ -178,6 +186,12 @@ export async function runRentStep(pool: Pool): Promise<StepResult> {
           rentResult.managementFeeYen,
           rentResult.landPriceMultiplier,
           rentResult.landPricePointCount,
+          // `estimateRent` doesn't echo `landPriceUsedFallback` back on its
+          // result shape (it only feeds the confidence step-down), so this
+          // reads straight from computeLandPriceMultiplier's own output —
+          // not re-derived from pointCount, for the same reason described
+          // in the module doc comment above.
+          usedFallback,
         ],
       );
       written += 1;
