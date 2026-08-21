@@ -48,9 +48,15 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
       "cafe_count",
       "flood_exposure_score",
       "quietness_raw",
+      // rent_source: the source_dates rent lookup below joins rent_stats
+      // on nm.rent_source / nm.rent_source_period, both written by step 6.
+      // Without this check, running --only=normalization before rent had
+      // ever run would silently omit the "rent_stats" key from
+      // source_dates (via jsonb_strip_nulls) instead of failing loudly.
+      "rent_source",
     ],
     "normalization",
-    "the full pipeline up through `--only=quietness`",
+    "the full pipeline up through `--only=rent`",
   );
 
   const rowsWritten = await withTransaction(pool, async (client) => {
