@@ -165,6 +165,11 @@ const EXPECTED_GIST_INDEXES = [
   "flood_zones_geom_gist_idx",
   "pois_point_gist_idx",
   "major_roads_geom_gist_idx",
+  // Added in 0002_geography_indexes.sql (Task 7): expression indexes on
+  // `(point::geography)`, needed because a plain geometry GiST index isn't
+  // used by the planner for a geography-cast ST_DWithin predicate.
+  "pois_point_geog_gist_idx",
+  "land_prices_point_geog_gist_idx",
 ];
 
 describe.runIf(Boolean(databaseUrl))("migrate", () => {
@@ -217,7 +222,7 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
     const { rows } = await adminPool.query<{ filename: string }>(
       `SELECT filename FROM "${scratchSchema}".schema_migrations ORDER BY filename`,
     );
-    expect(rows.map((r) => r.filename)).toEqual(["0001_init.sql"]);
+    expect(rows.map((r) => r.filename)).toEqual(["0001_init.sql", "0002_geography_indexes.sql"]);
   });
 
   it("has the postgis and pg_trgm extensions installed", async () => {
@@ -277,7 +282,7 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
     const { rows } = await adminPool.query<{ filename: string }>(
       `SELECT filename FROM "${scratchSchema}".schema_migrations`,
     );
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(2);
   });
 });
 
