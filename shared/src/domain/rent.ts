@@ -91,13 +91,18 @@ export interface RentEstimateInput {
   readonly managementFeeYen: number;
   /** The already-computed multiplier, e.g. from `computeLandPriceMultiplier`. */
   readonly landPriceMultiplier: number;
-  /**
-   * The point count backing `landPriceMultiplier`. Used here (independently
-   * of `computeLandPriceMultiplier`) to decide whether the land-price
-   * fallback applies for confidence purposes: `< MIN_LAND_PRICE_POINTS`
-   * means the fallback was used.
-   */
+  /** The point count backing `landPriceMultiplier`. Carried through to the output shape. */
   readonly landPricePointCount: number;
+  /**
+   * `computeLandPriceMultiplier`'s own `usedFallback` flag, threaded
+   * through by the caller. NOT re-derived from `landPricePointCount` here:
+   * `computeLandPriceMultiplier` also falls back to `1.0` when a median is
+   * missing or non-positive, which can happen even with
+   * `landPricePointCount >= MIN_LAND_PRICE_POINTS`, and `landPriceMultiplier`
+   * alone can't be told apart from a genuinely-computed `1.0` (e.g. when
+   * catchment and ward medians are equal).
+   */
+  readonly landPriceUsedFallback: boolean;
   readonly source: string;
   readonly sourcePeriod: string;
   readonly baseConfidence: Confidence;
@@ -140,6 +145,7 @@ export function estimateRent(input: RentEstimateInput): RentEstimateResult {
     managementFeeYen,
     landPriceMultiplier,
     landPricePointCount,
+    landPriceUsedFallback,
     source,
     sourcePeriod,
     baseConfidence,
@@ -170,8 +176,7 @@ export function estimateRent(input: RentEstimateInput): RentEstimateResult {
 
   let confidence: Confidence = baseConfidence;
 
-  const usedLandPriceFallback = landPricePointCount < MIN_LAND_PRICE_POINTS;
-  if (usedLandPriceFallback) {
+  if (landPriceUsedFallback) {
     confidence = lowerConfidence(confidence);
   }
 
@@ -261,7 +266,19 @@ export function pickRentStat<T extends RentStatRow>(
 // helpers
 // ---------------------------------------------------------------------------
 
-/** Picks the row with the lexicographically greatest `period` (e.g. "2024" > "2023", "2026Q2" > "2026Q1"). */
+/**
+ * Picks the row with the lexicographically greatest `period`.
+ *
+ * Only ever compares rows within a single source group (`pickRentStat`
+ * filters by `source` before calling this), so the two period formats in
+ * use never mix within one comparison: e-Stat periods are bare 4-digit
+ * years (`"2023"` < `"2024"`), REINS periods are `YYYYQn` (`"2026Q1"` <
+ * `"2026Q2"`). Both formats are fixed-width and left-to-right
+ * most-significant-first, so plain string comparison agrees with
+ * chronological order within each format. If a source ever starts mixing
+ * period formats (e.g. REINS periods without a quarter), this needs to
+ * change to parse an explicit (year, quarter) tuple instead.
+ */
 function mostRecentByPeriod<T extends RentStatRow>(rows: readonly T[]): T | undefined {
   return rows.reduce<T | undefined>((best, row) => {
     if (!best || row.period > best.period) return row;

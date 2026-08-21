@@ -39,6 +39,7 @@ const FIXED_INPUT_BASE = {
   managementFeeYen: 7000,
   landPriceMultiplier: 1,
   landPricePointCount: 5,
+  landPriceUsedFallback: false,
   source: "estat",
   sourcePeriod: "2025",
   baseConfidence: "high" as const,
@@ -176,21 +177,58 @@ describe("estimateRent — management fee handling", () => {
 // ---------------------------------------------------------------------------
 
 describe("estimateRent — confidence downgrades", () => {
-  it("pointCount = 2 (< MIN_LAND_PRICE_POINTS) lowers confidence by one step", () => {
+  it("landPriceUsedFallback: true (threaded from computeLandPriceMultiplier's pointCount fallback) lowers confidence by one step", () => {
+    // Realistic wiring: pointCount = 2 < MIN_LAND_PRICE_POINTS (3), so
+    // computeLandPriceMultiplier falls back, and estimateRent is given
+    // its multiplier AND its usedFallback flag (not re-derived from pointCount).
     expect(MIN_LAND_PRICE_POINTS).toBe(3);
+    const landPrice = computeLandPriceMultiplier({
+      catchmentMedianLandPrice: 550_000,
+      wardMedianLandPrice: 500_000,
+      pointCount: 2,
+    });
+    expect(landPrice).toEqual({ multiplier: 1.0, usedFallback: true });
+
     const result = estimateRent({
       ...FIXED_INPUT_BASE,
       layout: "1R",
       landPricePointCount: 2,
+      landPriceMultiplier: landPrice.multiplier,
+      landPriceUsedFallback: landPrice.usedFallback,
     });
     expect(result.confidence).toBe("medium"); // high -> medium
   });
 
-  it("pointCount = 3 (== MIN_LAND_PRICE_POINTS) does not trigger the land-price downgrade", () => {
+  it("landPricePointCount >= MIN_LAND_PRICE_POINTS but landPriceUsedFallback: true (median-missing case) still lowers confidence by one step", () => {
+    // This is the plumbing gap the review caught: pointCount alone can't
+    // tell estimateRent a fallback happened, because
+    // computeLandPriceMultiplier also falls back to 1.0 when a median is
+    // missing/non-positive, independent of pointCount. Here pointCount = 5
+    // (well above MIN_LAND_PRICE_POINTS = 3) but the caller still threads
+    // usedFallback: true through, because the ward median came back null.
+    const landPrice = computeLandPriceMultiplier({
+      catchmentMedianLandPrice: 550_000,
+      wardMedianLandPrice: null,
+      pointCount: 5,
+    });
+    expect(landPrice).toEqual({ multiplier: 1.0, usedFallback: true });
+
+    const result = estimateRent({
+      ...FIXED_INPUT_BASE,
+      layout: "1R",
+      landPricePointCount: 5,
+      landPriceMultiplier: landPrice.multiplier,
+      landPriceUsedFallback: landPrice.usedFallback,
+    });
+    expect(result.confidence).toBe("medium"); // high -> medium, exactly one step
+  });
+
+  it("landPriceUsedFallback: false does not trigger the land-price downgrade, regardless of pointCount", () => {
     const result = estimateRent({
       ...FIXED_INPUT_BASE,
       layout: "1R",
       landPricePointCount: 3,
+      landPriceUsedFallback: false,
     });
     expect(result.confidence).toBe("high"); // no downgrade
   });
@@ -209,6 +247,7 @@ describe("estimateRent — confidence downgrades", () => {
       ...FIXED_INPUT_BASE,
       layout: "1R",
       landPricePointCount: 2,
+      landPriceUsedFallback: true,
       sourcePeriod: "2020",
     });
     expect(result.confidence).toBe("low");
@@ -220,6 +259,7 @@ describe("estimateRent — confidence downgrades", () => {
       layout: "1R",
       baseConfidence: "low",
       landPricePointCount: 2,
+      landPriceUsedFallback: true,
       sourcePeriod: "2020",
     });
     expect(result.confidence).toBe("low");
