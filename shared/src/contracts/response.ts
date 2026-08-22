@@ -137,6 +137,12 @@ export const stationSuggestionSchema = z.object({
 });
 export type StationSuggestion = z.infer<typeof stationSuggestionSchema>;
 
+/** `GET /v1/stations`'s full response envelope. */
+export const stationsResponseSchema = z.object({
+  results: z.array(stationSuggestionSchema),
+});
+export type StationsResponse = z.infer<typeof stationsResponseSchema>;
+
 // ---------------------------------------------------------------------------
 // dataStatusSchema
 // ---------------------------------------------------------------------------

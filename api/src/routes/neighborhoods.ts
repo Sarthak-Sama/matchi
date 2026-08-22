@@ -14,7 +14,13 @@
  */
 
 import type { FactorEvidence, Importance, RentEstimateResult } from "@tokyo/shared";
-import { CATCHMENT_LABEL, factorEvidenceSchema, layoutSchema, rentEstimateSchema } from "@tokyo/shared";
+import {
+  CATCHMENT_LABEL,
+  factorEvidenceSchema,
+  layoutSchema,
+  NEIGHBORHOOD_DEFAULT_LAYOUT,
+  rentEstimateSchema,
+} from "@tokyo/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -26,10 +32,10 @@ import { assertDevResponseShape } from "./lib/dev-response-check.js";
 import { recomputeRentForLayout } from "./lib/rent.js";
 import { parseOrThrow } from "./lib/validation.js";
 
-const DEFAULT_LAYOUT = "1LDK";
-
 const paramsSchema = z.object({ stationGroupId: z.string().min(1) }).strict();
-const querySchema = z.object({ layout: layoutSchema.default(DEFAULT_LAYOUT) }).strict();
+const querySchema = z
+  .object({ layout: layoutSchema.default(NEIGHBORHOOD_DEFAULT_LAYOUT) })
+  .strict();
 
 /**
  * A uniform "medium" importance on every axis — this route displays a
@@ -39,7 +45,10 @@ const querySchema = z.object({ layout: layoutSchema.default(DEFAULT_LAYOUT) }).s
  * 4`) purely to reuse its already-tested raw-value/label/direction
  * assembly, not because these weights represent anyone's real request.
  */
-const NEUTRAL_PREFERENCES: Record<"floodSafety" | "supermarkets" | "restaurants" | "quietness", Importance> = {
+const NEUTRAL_PREFERENCES: Record<
+  "floodSafety" | "supermarkets" | "restaurants" | "quietness",
+  Importance
+> = {
   floodSafety: "medium",
   supermarkets: "medium",
   restaurants: "medium",
@@ -117,7 +126,11 @@ interface NeighborhoodDetailResponse {
   readonly nameEn: string;
   readonly nameJa: string;
   readonly aliases: string[];
-  readonly ward: { readonly wardCode: string; readonly nameEn: string; readonly nameJa: string } | null;
+  readonly ward: {
+    readonly wardCode: string;
+    readonly nameEn: string;
+    readonly nameJa: string;
+  } | null;
   readonly centroid: { readonly lat: number; readonly lon: number };
   readonly catchment: {
     readonly radiusM: number | null;

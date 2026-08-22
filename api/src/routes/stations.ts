@@ -12,7 +12,7 @@
  */
 
 import type { StationSuggestion } from "@tokyo/shared";
-import { stationSuggestionSchema } from "@tokyo/shared";
+import { STATIONS_DEFAULT_LIMIT, STATIONS_MAX_LIMIT, stationsResponseSchema } from "@tokyo/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
@@ -20,17 +20,14 @@ import type { AppDeps } from "../app.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
 import { parseOrThrow } from "./lib/validation.js";
 
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 50;
-
-// `limit` is capped (not rejected) at `MAX_LIMIT` — see the route handler
-// below — rather than validated with `.max(MAX_LIMIT)` here, so a caller
-// asking for more than the cap gets a friendly, silently-truncated
-// autocomplete result instead of a 400.
+// `limit` is capped (not rejected) at `STATIONS_MAX_LIMIT` — see the route
+// handler below — rather than validated with `.max(STATIONS_MAX_LIMIT)`
+// here, so a caller asking for more than the cap gets a friendly,
+// silently-truncated autocomplete result instead of a 400.
 const stationsQuerySchema = z
   .object({
     query: z.string().min(1),
-    limit: z.coerce.number().int().min(1).default(DEFAULT_LIMIT),
+    limit: z.coerce.number().int().min(1).default(STATIONS_DEFAULT_LIMIT),
   })
   .strict();
 
@@ -79,7 +76,7 @@ interface StationRow {
 export function registerStationsRoute(app: FastifyInstance, deps: AppDeps): void {
   app.get("/v1/stations", async (request, reply) => {
     const { query, limit } = parseOrThrow(stationsQuerySchema, request.query);
-    const effectiveLimit = Math.min(limit, MAX_LIMIT);
+    const effectiveLimit = Math.min(limit, STATIONS_MAX_LIMIT);
 
     const result = (await deps.pool.query(STATIONS_SQL, [query, effectiveLimit])) as {
       rows: StationRow[];
@@ -99,7 +96,7 @@ export function registerStationsRoute(app: FastifyInstance, deps: AppDeps): void
     assertDevResponseShape(
       deps.config,
       request.log,
-      z.object({ results: z.array(stationSuggestionSchema) }),
+      stationsResponseSchema,
       body,
       "GET /v1/stations",
     );
