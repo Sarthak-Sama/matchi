@@ -7,10 +7,14 @@ import {
   LAYOUT_IDS,
   LAYOUTS,
   lowerConfidence,
+  NEIGHBORHOOD_DEFAULT_LAYOUT,
   OVERALL_WEIGHTS,
   QUIETNESS_WEIGHTS,
   REASON_NEGATIVE_THRESHOLD,
   REASON_POSITIVE_THRESHOLD,
+  RESULTS_LIMIT,
+  STATIONS_DEFAULT_LIMIT,
+  STATIONS_MAX_LIMIT,
 } from "./scoring.js";
 
 describe("OVERALL_WEIGHTS", () => {
@@ -148,5 +152,28 @@ describe("lowerConfidence", () => {
     expect(lowerConfidence("high")).toBe("medium");
     expect(lowerConfidence("medium")).toBe("low");
     expect(lowerConfidence("low")).toBe("low");
+  });
+});
+
+describe("RESULTS_LIMIT", () => {
+  it("matches the spec literal value (POST /v1/optimize returns the top 20)", () => {
+    expect(RESULTS_LIMIT).toBe(20);
+  });
+});
+
+describe("STATIONS_DEFAULT_LIMIT and STATIONS_MAX_LIMIT", () => {
+  it("match the spec literal values (GET /v1/stations defaults to 10, caps at 50)", () => {
+    expect(STATIONS_DEFAULT_LIMIT).toBe(10);
+    expect(STATIONS_MAX_LIMIT).toBe(50);
+  });
+});
+
+describe("NEIGHBORHOOD_DEFAULT_LAYOUT", () => {
+  it("matches the spec literal value (GET /v1/neighborhoods/:id defaults to 1LDK)", () => {
+    expect(NEIGHBORHOOD_DEFAULT_LAYOUT).toBe("1LDK");
+  });
+
+  it("is one of the defined LAYOUT_IDS", () => {
+    expect(LAYOUT_IDS).toContain(NEIGHBORHOOD_DEFAULT_LAYOUT);
   });
 });

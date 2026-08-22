@@ -13,13 +13,9 @@
  */
 
 import type { Candidate, LifestyleMetricsInput } from "../domain/scoring.js";
-import {
-  applyHardFilters,
-  rankCandidates,
-  scoreCandidate,
-} from "../domain/scoring.js";
+import { applyHardFilters, rankCandidates, scoreCandidate } from "../domain/scoring.js";
 import type { Confidence, LayoutId, OptimizationRequest, OptimizeResponse } from "@tokyo/shared";
-import { optimizationRequestSchema, optimizeResponseSchema } from "@tokyo/shared";
+import { optimizationRequestSchema, optimizeResponseSchema, RESULTS_LIMIT } from "@tokyo/shared";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 
 import type { AppDeps } from "../app.js";
@@ -33,8 +29,6 @@ import { recomputeRentForLayout } from "./lib/rent.js";
 import type { NameLookups } from "./lib/station-names.js";
 import { loadNameLookups, resolvePathNames } from "./lib/station-names.js";
 import { parseOrThrow } from "./lib/validation.js";
-
-const RESULTS_LIMIT = 20;
 
 /**
  * `neighborhood_metrics` has no per-axis confidence column (only

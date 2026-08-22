@@ -205,6 +205,22 @@ export const COMMUTE_LABEL = "typical weekday estimate";
 export const QUIETNESS_LABEL = "quietness proxy";
 
 // ---------------------------------------------------------------------------
+// API route defaults (spec-given numeric literals for the /v1 routes)
+// ---------------------------------------------------------------------------
+
+/** `POST /v1/optimize` returns at most this many ranked results. */
+export const RESULTS_LIMIT = 20;
+
+/** `GET /v1/stations`'s `limit` query param default when omitted. */
+export const STATIONS_DEFAULT_LIMIT = 10;
+
+/** `GET /v1/stations`'s `limit` query param is capped (not rejected) at this value. */
+export const STATIONS_MAX_LIMIT = 50;
+
+/** `GET /v1/neighborhoods/:id`'s `layout` query param default when omitted. */
+export const NEIGHBORHOOD_DEFAULT_LAYOUT = "1LDK" as const;
+
+// ---------------------------------------------------------------------------
 // Confidence
 // ---------------------------------------------------------------------------
 

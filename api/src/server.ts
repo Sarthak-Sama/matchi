@@ -48,11 +48,29 @@ export async function reloadGraph(pool: DbPool): Promise<TransitGraphs> {
   return buildGraphs(edges);
 }
 
+/**
+ * Loads the transit graph, exiting the process the same way
+ * `loadConfigOrExit` does (a readable `console.error` + `process.exit(1)`,
+ * no raw unhandled-rejection stack trace) if it throws — e.g. the database
+ * is unreachable at startup. Distinct from `reloadGraph` itself staying
+ * throw-free for the "loaded, but zero rows" case (see its own doc
+ * comment): THIS wrapper only guards against `reloadGraph` REJECTING
+ * outright, which is a startup failure, not an empty-graph warning.
+ */
+async function reloadGraphOrExit(pool: DbPool): Promise<TransitGraphs> {
+  try {
+    return await reloadGraph(pool);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+}
+
 /** Runs the real server: connects to Postgres, loads the graph, listens, and wires shutdown. */
 export async function main(): Promise<void> {
   const config = loadConfigOrExit();
   const pool = createPool(config.DATABASE_URL);
-  const graphs = await reloadGraph(pool);
+  const graphs = await reloadGraphOrExit(pool);
   const app = buildApp({ config, pool, graphs });
 
   let shuttingDown = false;
