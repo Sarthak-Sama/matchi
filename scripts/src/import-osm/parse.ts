@@ -14,19 +14,38 @@
  *   amenity=bar|pub|nightclub              -> pois.category = "bar"
  *   highway=motorway|trunk|primary         -> major_roads.road_class
  *
- * Tag-precedence rule (not specified by the brief — an element carrying
- * more than one mapped tag is possible in adversarial/hand-edited input,
- * even though a real Overpass extract built from this module's own query
- * should never produce one): `highway` is checked first, so a road-tagged
- * element is always written to `major_roads` regardless of any `shop`/
- * `amenity` tag also present. Failing that, `shop` is checked before
- * `amenity` — so an element with both a mapped `shop=*` and a mapped
- * `amenity=*` tag (e.g. `shop=supermarket` + `amenity=cafe`) becomes a
- * `supermarket` POI, not a `cafe` one. This mirrors the brief's own
- * listing order (shop rules are listed before amenity rules) and is the
- * more specific classifier of the two for retail-shaped data. Any element
- * that hits this ambiguous case prints a loud warning naming both tags and
- * the tag that won, rather than resolving silently — see `classifyElement`.
+ * Tag-precedence rule (not specified by the brief): `highway` is checked
+ * first, so a road-tagged element is always written to `major_roads`
+ * regardless of any `shop`/`amenity` tag also present. Failing that, `shop`
+ * is checked before `amenity` — so an element with both a mapped `shop=*`
+ * and a mapped `amenity=*` tag (e.g. `shop=supermarket` + `amenity=cafe`)
+ * becomes a `supermarket` POI, not a `cafe` one. This mirrors the brief's
+ * own listing order (shop rules are listed before amenity rules) and is the
+ * more specific classifier of the two for retail-shaped data.
+ *
+ * The `highway` half of this is a genuine impossibility from a real
+ * Overpass response: `highway=*` is a way-only tag in real OSM data, so our
+ * own query's `node[...]`/`relation[...]` POI filters can never match an
+ * element that also carries a mapped `highway` value.
+ *
+ * The `shop`/`amenity` half is NOT a defensive guard against unreachable or
+ * adversarial input — it fires on genuine `--download` output against real
+ * Tokyo data, and should be expected to. `buildOverpassQuery` unions
+ * several `node/way/relation[filter]` statements into one Overpass QL
+ * block; Overpass deduplicates that union by element identity and returns
+ * each matched element's *complete* real tag set, not just the tag that
+ * matched the filter which found it. A single real element carrying both a
+ * mapped `shop=*` and a mapped `amenity=*` tag therefore satisfies more
+ * than one of our filters independently and comes back dual-tagged. This is
+ * not exotic: `shop=bakery` + `amenity=cafe` (a bakery with a café counter)
+ * is a common, legitimate OSM tagging pattern, and `bakery` is one of our
+ * own mapped `GROCERY_SHOP_VALUES` — so this case is expected to fire on a
+ * nontrivial fraction of a real Tokyo extract, not a rare edge case. The
+ * `shop`-wins rule above is a deliberate modeling choice for that
+ * expected, recurring situation, not an impossibility guard. Every time it
+ * fires, `classifyElement` prints a loud warning naming both tags and the
+ * tag that won rather than resolving silently — that warning is genuinely
+ * worth reading after a live `--download` import, not noise to ignore.
  *
  * Skip vs. error, kept deliberately sharp per the brief:
  *   - An element whose tags match none of the rules above is SKIPPED

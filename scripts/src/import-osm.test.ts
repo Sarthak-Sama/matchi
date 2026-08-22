@@ -191,6 +191,16 @@ describe("parseOverpassResponse: malformed input shapes", () => {
     expect(() => parseOverpassResponse(raw)).toThrowError(/only "way" elements are supported/);
   });
 
+  it("a highway tag on a relation (not a way) is also a hard error", () => {
+    const raw = JSON.stringify({
+      osm3s: { timestamp_osm_base: "2026-01-01T00:00:00Z" },
+      elements: [
+        { type: "relation", id: 1, center: { lat: 35.6, lon: 139.7 }, tags: { highway: "trunk" } },
+      ],
+    });
+    expect(() => parseOverpassResponse(raw)).toThrowError(/only "way" elements are supported/);
+  });
+
   it("a highway way missing its geometry array is a hard error", () => {
     const raw = JSON.stringify({
       osm3s: { timestamp_osm_base: "2026-01-01T00:00:00Z" },
