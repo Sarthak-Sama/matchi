@@ -22,11 +22,16 @@
  *                      (e.g. "2026Q2"); OR, split across "year" | "年" and
  *                      "quarter" | "Q" | "四半期番号" columns, combined
  *                      into `${year}Q${quarter}`.
- *       rent/m²      : "rent_per_sqm_yen" | "家賃(1㎡当たり)"
+ *       rent/area    : "rent_per_sqm_yen" | "家賃(1㎡当たり)"
  *       mgmt fee     : "management_fee_yen" | "共益費・サービス費"
  *                      (defaults to 0 when absent)
  *       sample count : "sample_count" | "成約件数" (optional)
  *   - `rent_stats.source` is the fixed literal `"reins"` for every row.
+ *   - Same caller-declared unit as e-Stat: `import:rent`'s
+ *     `--rent-unit=sqm|tsubo` flag applies uniformly to both files in one
+ *     run (see `import-rent/estat.ts`'s doc comment for why this can't be
+ *     inferred from the numbers). REINS listings commonly quote per-tsubo
+ *     rents too, so this matters here just as much as for e-Stat.
  *
  * REINS data is licensed for members' internal use; `import-rent.ts`'s
  * `runRentImport` prints `REINS_LICENCE_NOTICE` every time this path runs
@@ -34,8 +39,10 @@
  */
 
 import { expectColumns } from "../lib/validate.js";
-import { parseCsvRecords, parseNumericCell, pickColumn } from "./csv.js";
+import { parseCsvRecords, parseNumericCell, pickColumn } from "../lib/csv.js";
 import type { ParsedRentStat } from "./estat.js";
+import type { RentUnit } from "./rent-unit.js";
+import { convertToPerSqm, DEFAULT_RENT_UNIT } from "./rent-unit.js";
 import { assertRentRanges } from "./validate-ranges.js";
 import type { WardLookupEntry } from "./ward-match.js";
 import { matchWard } from "./ward-match.js";
@@ -63,7 +70,8 @@ export interface RawReinsRow {
   readonly wardCode?: string;
   readonly wardName?: string;
   readonly period: string;
-  readonly rentPerSqmYen: number;
+  /** As read from the source column, in whatever unit `--rent-unit` declares — NOT yet known to be per-m². */
+  readonly rentValueRawYen: number;
   readonly managementFeeYen: number;
   readonly sampleCount?: number;
 }
@@ -112,9 +120,9 @@ export function parseReinsRow(record: Readonly<Record<string, string>>, rowIndex
 
   const canonical = { rent_per_sqm_yen: pickColumn(record, RENT_PER_SQM_KEYS) };
   expectColumns(canonical, ["rent_per_sqm_yen"], context);
-  const rentPerSqmYen = parseNumericCell(canonical.rent_per_sqm_yen, `${context} rent/m²`);
-  if (rentPerSqmYen === undefined) {
-    throw new Error(`${context}: rent/m² cell was empty`);
+  const rentValueRawYen = parseNumericCell(canonical.rent_per_sqm_yen, `${context} rent`);
+  if (rentValueRawYen === undefined) {
+    throw new Error(`${context}: rent cell was empty`);
   }
 
   const managementFeeYen =
@@ -126,7 +134,7 @@ export function parseReinsRow(record: Readonly<Record<string, string>>, rowIndex
   );
   const sampleCount = sampleCountRaw !== undefined ? Math.round(sampleCountRaw) : undefined;
 
-  return { rowIndex, wardCode, wardName, period, rentPerSqmYen, managementFeeYen, sampleCount };
+  return { rowIndex, wardCode, wardName, period, rentValueRawYen, managementFeeYen, sampleCount };
 }
 
 /** Strips a leading UTF-8 BOM character, if present, then parses every data row. */
@@ -135,18 +143,23 @@ export function parseReinsCsv(text: string): RawReinsRow[] {
   return parseCsvRecords(stripped).map((record, index) => parseReinsRow(record, index));
 }
 
-export function mapReinsRow(raw: RawReinsRow, wards: readonly WardLookupEntry[]): ParsedRentStat {
+export function mapReinsRow(
+  raw: RawReinsRow,
+  wards: readonly WardLookupEntry[],
+  rentUnit: RentUnit = DEFAULT_RENT_UNIT,
+): ParsedRentStat {
   const label = raw.wardCode ?? raw.wardName ?? "?";
   const context = `REINS row #${raw.rowIndex} (${label})`;
 
   const wardCode = matchWard(raw.wardCode, raw.wardName, wards, context);
-  assertRentRanges(raw.rentPerSqmYen, raw.managementFeeYen, context);
+  const rentPerSqmYen = convertToPerSqm(raw.rentValueRawYen, rentUnit);
+  assertRentRanges(rentPerSqmYen, raw.managementFeeYen, context);
 
   return {
     wardCode,
     period: raw.period,
     source: REINS_SOURCE,
-    rentPerSqmYen: raw.rentPerSqmYen,
+    rentPerSqmYen,
     managementFeeYen: raw.managementFeeYen,
     sampleCount: raw.sampleCount,
   };
@@ -155,6 +168,7 @@ export function mapReinsRow(raw: RawReinsRow, wards: readonly WardLookupEntry[])
 export function mapReinsRows(
   rows: readonly RawReinsRow[],
   wards: readonly WardLookupEntry[],
+  rentUnit: RentUnit = DEFAULT_RENT_UNIT,
 ): ParsedRentStat[] {
-  return rows.map((row) => mapReinsRow(row, wards));
+  return rows.map((row) => mapReinsRow(row, wards, rentUnit));
 }

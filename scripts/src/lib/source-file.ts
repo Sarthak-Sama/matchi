@@ -89,6 +89,21 @@ export async function resolveSource(options: ResolveSourceOptions): Promise<stri
         `${label}: download failed (${String(response.status)} ${response.statusText}) from ${url}`,
       );
     }
+    // NOTE: this used to be `await response.text()`, which honors a
+    // server-declared charset from the response's `Content-Type` header.
+    // Decoding the raw bytes ourselves with `encoding` (needed so a caller
+    // can request "latin1" and get lossless bytes back — see this file's
+    // module doc comment) means the default `"utf8"` case no longer
+    // consults that header; a server that declares e.g. ISO-8859-1 but
+    // sends UTF-8-shaped bytes would previously have been decoded per its
+    // header and is now decoded as UTF-8 regardless. This is a deliberate
+    // tradeoff, not an oversight: no caller uses this branch today (every
+    // import script's tests inject `localPath`, never `url`+credentials —
+    // see this file's own doc comment), so it's both inconsequential right
+    // now and untestable under the no-network rule. If a real download
+    // caller lands and needs charset-aware decoding, restore it by reading
+    // `response.headers.get("content-type")` and defaulting to `encoding`
+    // only when the header is absent or unparseable.
     const buffer = Buffer.from(await response.arrayBuffer());
     const text = buffer.toString(encoding);
     const dir = options.downloadDir ?? "data";
