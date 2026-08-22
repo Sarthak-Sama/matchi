@@ -24,15 +24,25 @@
  *
  * Parsing (`import-osm/parse.ts`) is pure and DB-free: it classifies every
  * element's tags against the brief's exact mapping (see that file's doc
- * comment for the full table and the tag-precedence rule this script uses
- * when an element carries more than one mapped tag), resolves coordinates
- * (a node's own lat/lon; a way/relation's `center`), and resolves road
- * geometry (a highway way's `geometry` array, kept as real linework — never
- * a centroid, since `derive`'s road-exposure metric needs genuine geometry
- * to intersect against). An element with no mapped tag is skipped, counted,
- * and reported — never an error. An element that DOES match a mapped tag
- * but is missing the coordinates/geometry its kind needs is a hard error
- * that aborts the whole run.
+ * comment for the full table), resolves coordinates (a node's own lat/lon;
+ * a way/relation's `center`), and resolves road geometry (a highway way's
+ * `geometry` array, kept as real linework — never a centroid, since
+ * `derive`'s road-exposure metric needs genuine geometry to intersect
+ * against). An element with no mapped tag is skipped, counted, and
+ * reported — never an error. An element that DOES match a mapped tag but
+ * is missing the coordinates/geometry its kind needs is a hard error that
+ * aborts the whole run.
+ *
+ * An element can genuinely carry more than one mapped tag in a real
+ * `--download` response — e.g. `shop=bakery` + `amenity=cafe` is a common,
+ * legitimate OSM pattern, and Overpass returns each matched element's full
+ * tag set regardless of which of our query's filters found it (see
+ * `import-osm/parse.ts`'s doc comment for why). `shop` wins over `amenity`
+ * by deliberate choice in that case, not because the situation is rare or
+ * unreachable; `highway` always wins over both, which genuinely IS
+ * unreachable from our own query (`highway` is a way-only tag in real OSM).
+ * Every dual-tag resolution prints a warning naming both tags and the one
+ * that won — worth reading after a live import, not noise.
  *
  * Following this repo's house pattern (Tasks 11-12): loading and parsing
  * happen inside the `fn` passed to `runImport` (`scripts/src/lib/
