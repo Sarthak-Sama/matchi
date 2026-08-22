@@ -153,6 +153,21 @@ export const AFFORDABILITY_FULL_SCORE_RATIO = 0.6;
  */
 export const COMMUTE_FULL_SCORE_MINUTES = 15;
 
+/**
+ * `buildReasons` (and each `FactorEvidence`'s own `direction`) classifies a
+ * factor as a positive reason when its contribution relative to what it
+ * could have contributed (`pointContribution / (100 * effectiveWeight)`)
+ * is above this. Added in Task 9.
+ */
+export const REASON_POSITIVE_THRESHOLD = 0.66;
+
+/**
+ * The negative-reason counterpart of `REASON_POSITIVE_THRESHOLD`: a factor
+ * is classified as a negative reason when that same ratio is below this.
+ * Added in Task 9.
+ */
+export const REASON_NEGATIVE_THRESHOLD = 0.34;
+
 // ---------------------------------------------------------------------------
 // Quietness proxy weights
 // ---------------------------------------------------------------------------

@@ -9,6 +9,8 @@ import {
   lowerConfidence,
   OVERALL_WEIGHTS,
   QUIETNESS_WEIGHTS,
+  REASON_NEGATIVE_THRESHOLD,
+  REASON_POSITIVE_THRESHOLD,
 } from "./scoring.js";
 
 describe("OVERALL_WEIGHTS", () => {
@@ -131,6 +133,13 @@ describe("AFFORDABILITY_FULL_SCORE_RATIO", () => {
 describe("COMMUTE_FULL_SCORE_MINUTES", () => {
   it("matches the spec literal value", () => {
     expect(COMMUTE_FULL_SCORE_MINUTES).toBe(15);
+  });
+});
+
+describe("REASON_POSITIVE_THRESHOLD and REASON_NEGATIVE_THRESHOLD", () => {
+  it("match the spec literal values", () => {
+    expect(REASON_POSITIVE_THRESHOLD).toBe(0.66);
+    expect(REASON_NEGATIVE_THRESHOLD).toBe(0.34);
   });
 });
 

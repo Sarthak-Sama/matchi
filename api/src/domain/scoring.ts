@@ -27,6 +27,8 @@ import {
   IMPORTANCE_VALUES,
   OVERALL_WEIGHTS,
   QUIETNESS_LABEL,
+  REASON_NEGATIVE_THRESHOLD,
+  REASON_POSITIVE_THRESHOLD,
   RENT_LABEL,
 } from "@tokyo/shared";
 import type { RentEstimateResult } from "@tokyo/shared";
@@ -263,6 +265,21 @@ function percentile(sortedAscending: readonly number[], p: number): number {
   return lower + (upper - lower) * weight;
 }
 
+/**
+ * Rounds to one decimal place. Used to round every `FactorEvidence`'s
+ * `pointContribution` AT THE POINT IT'S STORED, so that `overallScore` (the
+ * sum of those already-rounded contributions — see `scoreCandidate`) is
+ * guaranteed to equal what a reader gets by adding up the displayed
+ * contributions by hand. Rounding the total separately from its parts, as
+ * an earlier version of this module did, only reconciles by coincidence
+ * (when the unrounded total already happens to land on a 0.1 boundary) —
+ * see the "point contributions sum to overallScore" tests for a
+ * non-boundary counterexample.
+ */
+function roundToOneDecimal(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
 // ---------------------------------------------------------------------------
 // scoreAffordability
 // ---------------------------------------------------------------------------
@@ -401,10 +418,15 @@ export function scoreLifestyle(
       rawValueLabel,
       componentScore,
       effectiveWeight,
-      pointContribution: componentScore * effectiveWeight,
+      pointContribution: roundToOneDecimal(componentScore * effectiveWeight),
       sourceDate: metrics.sourceDate,
       confidence: metrics.confidence,
-      explanation: `${rawValueLabel} scores ${Math.round(componentScore)}/100 on ${label.toLowerCase()}.`,
+      // Deliberately does NOT restate `componentScore` in the same "X/100"
+      // form `rawValueLabel` already uses for floodSafety/quietness (that
+      // would read as "80/100 flood safety score scores 80/100 on flood
+      // safety" — pure repetition). The effective weight is new
+      // information `rawValueLabel` never carries, for every axis.
+      explanation: `${rawValueLabel}, weighted at ${(effectiveWeight * 100).toFixed(1)}% of your overall score.`,
       direction: classifyDirection(componentScore),
     };
   });
@@ -421,14 +443,18 @@ export function scoreLifestyle(
  * `pointContribution / (100 * effectiveWeight)`. Since
  * `pointContribution === componentScore * effectiveWeight`, that ratio
  * algebraically reduces to `componentScore / 100` — the weight cancels
- * out. So classifying direction from `componentScore` alone (thresholds
- * at 66 and 34, i.e. the spec's 0.66/0.34 on a 0-100 scale) is exactly the
- * spec's formula, just computed the numerically simpler way. `buildReasons`
- * reuses this same classification rather than recomputing the ratio.
+ * out (note: this uses the UNROUNDED `componentScore * effectiveWeight`
+ * product, not the rounded `pointContribution` that gets stored — rounding
+ * for display must never feed back into which bucket a factor lands in).
+ * So classifying direction from `componentScore` alone, against
+ * `REASON_POSITIVE_THRESHOLD`/`REASON_NEGATIVE_THRESHOLD` scaled onto the
+ * 0-100 `componentScore` scale, is exactly the spec's formula, just
+ * computed the numerically simpler way. `buildReasons` reuses this same
+ * classification rather than recomputing the ratio.
  */
 function classifyDirection(componentScore: number): FactorEvidence["direction"] {
-  if (componentScore > 66) return "positive";
-  if (componentScore < 34) return "negative";
+  if (componentScore > REASON_POSITIVE_THRESHOLD * 100) return "positive";
+  if (componentScore < REASON_NEGATIVE_THRESHOLD * 100) return "negative";
   return "neutral";
 }
 
@@ -443,10 +469,15 @@ export type ScoredCandidate = Omit<NeighborhoodResult, "rank">;
  * `candidate.commute` is non-null — this throws otherwise, since scoring a
  * disconnected candidate is a caller bug, not a data condition to handle
  * gracefully). `overallScore = 0.30*affordability + 0.30*commute +
- * 0.40*lifestyle`, rounded to one decimal place; `factors` carries one
- * `FactorEvidence` per component (affordability, commute, and the four
- * lifestyle axes) whose `pointContribution`s sum to the UNROUNDED overall
- * score.
+ * 0.40*lifestyle`. Every `factors[].pointContribution` is rounded to one
+ * decimal place AT THE POINT IT'S COMPUTED (see `roundToOneDecimal`), and
+ * `overallScore` is the sum of those already-rounded contributions (passed
+ * through `roundToOneDecimal` once more only to absorb floating-point
+ * summation noise, e.g. `0.1 + 0.2`-style artifacts — not to re-round a
+ * meaningfully different value). This is reconciliation BY CONSTRUCTION:
+ * `factors[].pointContribution` summed by a caller always equals
+ * `overallScore` exactly, for every input, not just ones whose raw total
+ * happens to land on a 0.1 boundary.
  */
 export function scoreCandidate(
   candidate: Candidate,
@@ -475,7 +506,7 @@ export function scoreCandidate(
     rawValueLabel: `¥${candidate.rent.medianYen.toLocaleString("en-US")} ${RENT_LABEL}`,
     componentScore: affordabilityScore,
     effectiveWeight: OVERALL_WEIGHTS.affordability,
-    pointContribution: affordabilityScore * OVERALL_WEIGHTS.affordability,
+    pointContribution: roundToOneDecimal(affordabilityScore * OVERALL_WEIGHTS.affordability),
     sourceDate: candidate.rent.sourcePeriod,
     confidence: candidate.rent.confidence,
     explanation: `¥${candidate.rent.medianYen.toLocaleString("en-US")} ${RENT_LABEL} against a ¥${request.monthlyBudgetYen.toLocaleString("en-US")} budget scores ${Math.round(affordabilityScore)}/100 on affordability.`,
@@ -489,7 +520,7 @@ export function scoreCandidate(
     rawValueLabel: `${Math.round(commute.totalMinutes)} min ${COMMUTE_LABEL}`,
     componentScore: commuteScore,
     effectiveWeight: OVERALL_WEIGHTS.commute,
-    pointContribution: commuteScore * OVERALL_WEIGHTS.commute,
+    pointContribution: roundToOneDecimal(commuteScore * OVERALL_WEIGHTS.commute),
     // Commute is computed live from the current graph, not sourced from a
     // dated table — there is no vintage to report.
     sourceDate: null,
@@ -500,8 +531,11 @@ export function scoreCandidate(
 
   const factors: FactorEvidence[] = [affordabilityFactor, commuteFactor, ...lifestyleFactors];
 
-  const overallScoreRaw = factors.reduce((sum, factor) => sum + factor.pointContribution, 0);
-  const overallScore = Math.round(overallScoreRaw * 10) / 10;
+  // Sum of the six ALREADY-ROUNDED pointContributions — see this
+  // function's doc comment for why this is reconciliation by construction
+  // rather than a coincidence of the inputs.
+  const roundedContributionSum = factors.reduce((sum, factor) => sum + factor.pointContribution, 0);
+  const overallScore = roundToOneDecimal(roundedContributionSum);
 
   const { reasonsFor, reasonsAgainst } = buildReasons(factors);
 
@@ -535,14 +569,14 @@ export function scoreCandidate(
 
 /**
  * Selects up to three `reasonsFor` (from factors classified `"positive"`,
- * i.e. `componentScore > 66`) and up to three `reasonsAgainst` (from
- * factors classified `"negative"`, i.e. `componentScore < 34`) — see
+ * i.e. `componentScore > REASON_POSITIVE_THRESHOLD * 100`) and up to three
+ * `reasonsAgainst` (from factors classified `"negative"`, i.e.
+ * `componentScore < REASON_NEGATIVE_THRESHOLD * 100`) — see
  * `classifyDirection` for why that's equivalent to the spec's
- * `contribution / (100 * effectiveWeight)` thresholds of 0.66/0.34.
- * Candidates are sorted by `effectiveWeight` descending first (a factor
- * that carries more of the overall score is a more important reason),
- * then by "gap size" — how far past the threshold the factor sits —
- * descending as the tiebreaker.
+ * `contribution / (100 * effectiveWeight)` formula. Candidates are sorted
+ * by `effectiveWeight` descending first (a factor that carries more of the
+ * overall score is a more important reason), then by "gap size" — how far
+ * past the threshold the factor sits — descending as the tiebreaker.
  */
 export function buildReasons(factors: readonly FactorEvidence[]): {
   reasonsFor: string[];
@@ -551,8 +585,8 @@ export function buildReasons(factors: readonly FactorEvidence[]): {
   const positive = factors.filter((f) => f.direction === "positive");
   const negative = factors.filter((f) => f.direction === "negative");
 
-  const gapFor = (f: FactorEvidence) => f.componentScore / 100 - 0.66;
-  const gapAgainst = (f: FactorEvidence) => 0.34 - f.componentScore / 100;
+  const gapFor = (f: FactorEvidence) => f.componentScore / 100 - REASON_POSITIVE_THRESHOLD;
+  const gapAgainst = (f: FactorEvidence) => REASON_NEGATIVE_THRESHOLD - f.componentScore / 100;
 
   const byWeightThenGap =
     (gap: (f: FactorEvidence) => number) =>
