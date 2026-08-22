@@ -54,6 +54,11 @@ describe("estimateCommute", () => {
   });
 
   it("adds the access walk exactly once even across a multi-hop journey", () => {
+    // sg-before3 -(rl-direct, 3min)-> sg-origin3 -(rl-direct, 5min)-> sg-dest3,
+    // both hops on the SAME line -> one boarding wait, not two.
+    // By hand (offpeak, OFFPEAK_WAIT_MINUTES = 6, ACCESS_WALK_MINUTES = 8):
+    //   dijkstra totalMinutes = 3 + 5 + 6 = 14
+    //   estimateCommute totalMinutes = 14 + 8 = 22
     const multiHop: RailEdgeRow[] = [
       ...DIRECT_EDGE,
       {
@@ -71,11 +76,11 @@ describe("estimateCommute", () => {
     ];
     const graph = buildGraph(multiHop, "offpeak");
     const result = reverseDijkstra(graph, "sg-dest3");
-    const dijkstraTotal = result.get("sg-before3")?.totalMinutes;
+    const dijkstraState = result.get("sg-before3");
     const estimate = estimateCommute(result, "sg-before3");
 
-    expect(dijkstraTotal).toBeDefined();
-    expect(estimate?.totalMinutes).toBe((dijkstraTotal ?? 0) + ACCESS_WALK_MINUTES);
+    expect(dijkstraState?.totalMinutes).toBe(14);
+    expect(estimate?.totalMinutes).toBe(22);
   });
 
   it("returns null when the origin is unreachable (disconnected node)", () => {

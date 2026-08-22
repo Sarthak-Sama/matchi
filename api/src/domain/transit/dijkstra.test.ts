@@ -373,3 +373,101 @@ describe("reverseDijkstra picks the genuinely cheapest route", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Third fixture: a BRANCHING station, where the node's own cheapest state
+// uses a different line than the state a cheaper path through it actually
+// needs. This is the fixture from the task-8 review's Important-1 finding
+// — `MAIN_EDGES` and `HUB_VS_LONG_EDGES` above are both unbranched (every
+// node has exactly one settled line-state relevant to any path through
+// it), so neither could have caught a `reconstructPath` that re-looked-up
+// a node's own best state instead of following the specific state chain a
+// path used.
+//
+//   sg-branch-u -(rl-branch-l, 3min)-> sg-branch-v -(rl-branch-l, 14min)-> sg-branch-dest
+//                                       sg-branch-v -(rl-branch-m, 12min)-> sg-branch-dest
+//
+// By hand (offpeak, OFFPEAK_WAIT_MINUTES = 6, TRANSFER_PENALTY_MINUTES = 5):
+//   (v, rl-branch-m): boarding 12 + 6 = 18  <- v's OWN cheapest state
+//   (v, rl-branch-l): boarding 14 + 6 = 20
+//   (u, rl-branch-l) via (v, rl-branch-l), SAME line -> no new wait:
+//     18 is NOT usable here (different line, non-null -> would need
+//     TRANSFER_PENALTY_MINUTES + a fresh wait: 18 + 3 + 6 + 5 = 32)
+//     20 + 3 (same line, continues the run) = 23  <- cheaper, and correct
+//   So u's best is 23 via (v, rl-branch-l) — NOT via v's own best state
+//   (v, rl-branch-m) at 18, which would cost 32 from u.
+//   railMinutes = 3 + 14 = 17, waitMinutes = 6 (one boarding), totalMinutes = 23.
+// ---------------------------------------------------------------------------
+const BRANCHING_EDGES: RailEdgeRow[] = [
+  {
+    fromStationGroupId: "sg-branch-u",
+    toStationGroupId: "sg-branch-v",
+    railLineId: "rl-branch-l",
+    railLineName: "Branch L",
+    edgeType: "ride",
+    peakTravelMinutes: 3,
+    offpeakTravelMinutes: 3,
+    peakWaitMinutes: 0,
+    offpeakWaitMinutes: 0,
+    confidence: "high",
+  },
+  {
+    fromStationGroupId: "sg-branch-v",
+    toStationGroupId: "sg-branch-dest",
+    railLineId: "rl-branch-l",
+    railLineName: "Branch L",
+    edgeType: "ride",
+    peakTravelMinutes: 14,
+    offpeakTravelMinutes: 14,
+    peakWaitMinutes: 0,
+    offpeakWaitMinutes: 0,
+    confidence: "high",
+  },
+  {
+    fromStationGroupId: "sg-branch-v",
+    toStationGroupId: "sg-branch-dest",
+    railLineId: "rl-branch-m",
+    railLineName: "Branch M",
+    edgeType: "ride",
+    peakTravelMinutes: 12,
+    offpeakTravelMinutes: 12,
+    peakWaitMinutes: 0,
+    offpeakWaitMinutes: 0,
+    confidence: "high",
+  },
+];
+
+describe("reconstructPath at a branching station follows the actual state chain, not each node's own best state", () => {
+  it("sg-branch-v's own best state uses rl-branch-m, but sg-branch-u's cheapest path through it uses rl-branch-l", () => {
+    const graph = buildGraph(BRANCHING_EDGES, "offpeak");
+    const result = reverseDijkstra(graph, "sg-branch-dest");
+
+    // sg-branch-v's OWN best state really is via rl-branch-m (18), confirming
+    // this fixture actually branches rather than trivially agreeing.
+    expect(result.get("sg-branch-v")?.totalMinutes).toBe(18);
+
+    const uState = result.get("sg-branch-u");
+    expect(uState?.totalMinutes).toBe(23);
+    expect(uState?.railMinutes).toBe(17);
+    expect(uState?.waitMinutes).toBe(6);
+    expect(uState?.transferCount).toBe(0);
+    expect(uState?.transferPenaltyMinutes).toBe(0);
+
+    const hops = reconstructPath(result, "sg-branch-u");
+    expect(hops).toEqual([
+      { stationGroupId: "sg-branch-u", railLineId: "rl-branch-l", edgeType: "ride" },
+      { stationGroupId: "sg-branch-v", railLineId: "rl-branch-l", edgeType: "ride" },
+      { stationGroupId: "sg-branch-dest", railLineId: null, edgeType: null },
+    ]);
+
+    // Invariant: the reconstructed route's own cost, recomputed independently
+    // from the hand-computed per-edge minutes above (NOT by re-invoking any
+    // Dijkstra/relax logic), must equal the reported totalMinutes. This is
+    // exactly the check that catches a path/total mismatch: the buggy
+    // version of this code reported 23 correctly while reconstructing a
+    // route through (v, rl-branch-m) that actually costs 32.
+    const recomputedRailMinutes = 3 + 14; // sg-branch-u->v (3) + sg-branch-v->dest via rl-branch-l (14)
+    const recomputedWaitMinutes = OFFPEAK_WAIT_MINUTES; // one boarding, rl-branch-l used for both ride hops
+    expect(recomputedRailMinutes + recomputedWaitMinutes).toBe(uState?.totalMinutes);
+  });
+});
