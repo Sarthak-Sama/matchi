@@ -33,31 +33,43 @@
  * arrived on.
  *
  * ---------------------------------------------------------------------
- * Why "charge on entry" during the reverse walk is correct
+ * Why "charge on entry" is not a workaround — it is the only correct
+ * formulation for a REVERSE search
  * ---------------------------------------------------------------------
- * In FORWARD time, the boarding wait for a run of same-line ride edges
- * belongs to the run's FIRST edge (where you actually wait for the
- * train) — which, walking BACKWARDS from the destination, is the LAST
- * edge of that run to be processed. Rather than deferring the charge
- * until that (unknowable in advance, at the moment of relaxation) edge,
- * this implementation charges the wait on the run's FIRST-processed
- * backward edge instead (i.e. the edge nearest the destination end of the
- * run) — whenever the search state's current line changes (including
- * from "none"). This is the `!sameLine` branch below.
+ * It's tempting to describe this as an approximation of "the true forward
+ * boarding edge" — it isn't. In a reverse search, EVERY node visited is
+ * itself a candidate origin whose reported cost must be final the moment
+ * it's settled. A ride edge run doesn't belong to one single traveller
+ * walking end to end; every intermediate node on that run is a distinct
+ * possible origin, and each one needs its OWN boarding wait already
+ * included in its own settled cost. If the charge were deferred to the
+ * run's true forward-boarding edge (the LAST edge processed walking
+ * backward), every node settled *before* that point — i.e. every
+ * mid-run origin — would be settled with zero wait recorded, undercounting
+ * exactly the origins this search exists to estimate for. Charging on
+ * entry (the `!sameLine` branch below, whenever the search state's
+ * current line changes, including from "none") is what makes every
+ * settled state's cost already complete and correct as a real commute
+ * estimate for that node as an origin, which a forward search (single
+ * traveller, single origin, wait deferred until you know it precedes a
+ * transfer) doesn't need to guarantee for its intermediate nodes.
  *
- * This produces an IDENTICAL total to charging on the true forward
- * boarding edge, because addition is commutative: the sum of a run's
- * travelMinutes plus exactly one wait charge is the same regardless of
- * which edge in the run nominally carries the wait, AS LONG AS every ride
- * edge of a given line/period carries the same `waitMinutes` value — true
- * here because `buildGraph` derives `waitMinutes` from the line's period
- * wait column (or the global constant), not a value that varies edge to
- * edge within one line's run. Deferring the charge to the "true" boarding
- * edge instead would require revising an already-computed state's cost
- * downward as the search extends deeper into a run, which is incompatible
- * with Dijkstra's requirement that a popped/settled state's cost never
- * decreases afterwards. "Charge on entry" avoids that entirely while
- * producing the same totals. See task-8-report.md for a worked trace.
+ * A useful cross-check, not the reason this is correct: it also happens
+ * to produce the same TOTAL at the true origin as attributing the wait to
+ * the true forward boarding edge would, because addition is commutative —
+ * the sum of a run's travelMinutes plus exactly one wait charge doesn't
+ * depend on which edge in the run nominally carries it. That equivalence
+ * relies on every ride edge of a given line/period carrying the SAME
+ * `waitMinutes` value. `buildGraph`/`resolveWaitMinutes` (`graph.ts`)
+ * reads `peak_wait_minutes`/`offpeak_wait_minutes` per ROW, so nothing
+ * stops two edges on the same line from carrying different values if a
+ * future importer (e.g. Task 14's GTFS import) sets them inconsistently.
+ * Should that happen, this search would charge whichever edge sits at the
+ * destination-end of the run, not necessarily the smallest or most
+ * "correct" one — harmless under the current uniform seed data, but worth
+ * knowing about before trusting per-edge wait overrides at scale. Trying
+ * to "fix" this by deferring to the forward boarding edge instead would
+ * reintroduce the undercounting bug described above — don't.
  */
 
 import type { Confidence } from "@tokyo/shared";
@@ -74,6 +86,17 @@ export interface DijkstraPrevious {
   readonly node: GraphNode;
   /** The line ridden (or `null` for a transfer) to get from this node to `node`. */
   readonly railLineId: string | null;
+  /**
+   * The `currentLineId` of the EXACT predecessor state — `(node,
+   * previousLineId)` — that this state was relaxed from. Needed because a
+   * node can be settled at more than one `(node, line)` state (a
+   * branching station), and that node's own independently-best state can
+   * differ from the specific state a path passing through it actually
+   * used. `reconstructPath` uses this to keep walking the same state
+   * chain instead of falling back to `node`'s own best state, which could
+   * silently substitute a costlier route next to a correct `totalMinutes`.
+   */
+  readonly previousLineId: string | null;
   readonly edgeType: EdgeType;
 }
 
@@ -90,8 +113,44 @@ export interface DijkstraState {
   readonly previous: DijkstraPrevious | null;
 }
 
-/** Per station_group id, the best (lowest `totalMinutes`) path to the destination. Unreachable nodes are absent. */
-export type DijkstraResult = ReadonlyMap<GraphNode, DijkstraState>;
+/**
+ * Per station_group id, the best (lowest `totalMinutes`) path to the
+ * destination — `get`/`has` behave exactly like the
+ * `Map<stationGroupId, {...}>` described in the task brief. Unreachable
+ * nodes are absent (`get` returns `undefined`, `has` returns `false`).
+ *
+ * Internally this also carries every settled `(node, line)` state (not
+ * just the per-node winner), because `reconstructPath` needs to walk the
+ * exact state chain a path used rather than re-looking-up each
+ * intermediate node's own independently-best state — see
+ * `DijkstraPrevious.previousLineId`'s doc comment. That index is
+ * intentionally not part of the public `get`/`has` surface.
+ */
+export class DijkstraResult {
+  private readonly byNode: ReadonlyMap<GraphNode, DijkstraState>;
+  private readonly byState: ReadonlyMap<string, SearchState>;
+
+  constructor(
+    byNode: ReadonlyMap<GraphNode, DijkstraState>,
+    byState: ReadonlyMap<string, SearchState>,
+  ) {
+    this.byNode = byNode;
+    this.byState = byState;
+  }
+
+  get(node: GraphNode): DijkstraState | undefined {
+    return this.byNode.get(node);
+  }
+
+  has(node: GraphNode): boolean {
+    return this.byNode.has(node);
+  }
+
+  /** `reconstructPath`-only: the full settled state for a `(node, line)` key (see `stateKey`). */
+  getState(key: string): SearchState | undefined {
+    return this.byState.get(key);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Binary-heap priority queue
@@ -211,6 +270,7 @@ function relax(current: SearchState, edge: GraphEdge): SearchState {
   const previous: DijkstraPrevious = {
     node: current.node,
     railLineId: edge.railLineId,
+    previousLineId: current.currentLineId,
     edgeType: edge.edgeType,
   };
 
@@ -270,7 +330,9 @@ function relax(current: SearchState, edge: GraphEdge): SearchState {
  * the returned map.
  */
 export function reverseDijkstra(graph: TransitGraph, destinationId: GraphNode): DijkstraResult {
-  const result = new Map<GraphNode, DijkstraState>();
+  const byNode = new Map<GraphNode, DijkstraState>();
+  /** Every settled `(node, line)` state, not just each node's winner — see `DijkstraResult`'s doc comment. */
+  const byState = new Map<string, SearchState>();
   const settled = new Set<string>();
   /** Best known `totalMinutes` per `(node, line)` state seen so far, settled or not — guards duplicate heap entries. */
   const bestSeen = new Map<string, number>();
@@ -297,10 +359,11 @@ export function reverseDijkstra(graph: TransitGraph, destinationId: GraphNode): 
     const key = stateKey(current.node, current.currentLineId);
     if (settled.has(key)) continue;
     settled.add(key);
+    byState.set(key, current);
 
-    const existing = result.get(current.node);
+    const existing = byNode.get(current.node);
     if (!existing || current.totalMinutes < existing.totalMinutes) {
-      result.set(current.node, {
+      byNode.set(current.node, {
         totalMinutes: current.totalMinutes,
         railMinutes: current.railMinutes,
         waitMinutes: current.waitMinutes,
@@ -325,7 +388,7 @@ export function reverseDijkstra(graph: TransitGraph, destinationId: GraphNode): 
     }
   }
 
-  return result;
+  return new DijkstraResult(byNode, byState);
 }
 
 // ---------------------------------------------------------------------------
@@ -341,35 +404,51 @@ export interface PathHop {
 }
 
 /**
- * Walks `result`'s `previous` chain from `fromStationGroupId` to the
- * destination, returning the ordered list of stations with the line used
- * to depart each one. Returns `null` when `fromStationGroupId` is
- * unreachable (absent from `result`).
+ * Walks the EXACT `(node, line)` state chain that produced
+ * `fromStationGroupId`'s best cost, returning the ordered list of
+ * stations with the line used to depart each one. Returns `null` when
+ * `fromStationGroupId` is unreachable (absent from `result`).
+ *
+ * This deliberately does NOT re-look-up each intermediate node's own
+ * best state via `result.get(node)` — at a branching station, a node's
+ * own independently-cheapest state can differ from the specific state
+ * that a path passing through it actually used (e.g. arriving on a
+ * different line than the one that node's own best path arrives on),
+ * which would silently substitute a costlier route next to a correct
+ * `totalMinutes`. Instead it follows `DijkstraPrevious.previousLineId`
+ * through `result`'s internal per-`(node, line)` state index at every
+ * step after the first.
  */
 export function reconstructPath(
   result: DijkstraResult,
   fromStationGroupId: GraphNode,
 ): PathHop[] | null {
-  if (!result.has(fromStationGroupId)) return null;
+  const startState = result.get(fromStationGroupId);
+  if (!startState) return null;
 
   const hops: PathHop[] = [];
-  let currentNode: GraphNode | undefined = fromStationGroupId;
+  let node: GraphNode = fromStationGroupId;
+  let previous: DijkstraPrevious | null = startState.previous;
 
-  while (currentNode !== undefined) {
-    const state: DijkstraState | undefined = result.get(currentNode);
-    if (!state) {
+  for (;;) {
+    hops.push({
+      stationGroupId: node,
+      railLineId: previous?.railLineId ?? null,
+      edgeType: previous?.edgeType ?? null,
+    });
+
+    if (!previous) return hops;
+
+    const nextState = result.getState(stateKey(previous.node, previous.previousLineId));
+    if (!nextState) {
       throw new Error(
-        `reconstructPath: missing state for node "${currentNode}" while walking the path ` +
-          `from "${fromStationGroupId}" — the previous chain references an unsettled node.`,
+        `reconstructPath: missing settled state for node "${previous.node}" ` +
+          `(line ${previous.previousLineId ?? "none"}) while walking the path ` +
+          `from "${fromStationGroupId}" — the previous chain references an ` +
+          `unsettled state.`,
       );
     }
-    hops.push({
-      stationGroupId: currentNode,
-      railLineId: state.previous?.railLineId ?? null,
-      edgeType: state.previous?.edgeType ?? null,
-    });
-    currentNode = state.previous?.node;
+    node = previous.node;
+    previous = nextState.previous;
   }
-
-  return hops;
 }

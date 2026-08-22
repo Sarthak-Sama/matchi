@@ -104,6 +104,21 @@ export function buildGraph(edges: readonly RailEdgeRow[], period: Period): Trans
   const nodes = new Set<GraphNode>();
 
   for (const row of edges) {
+    // `rail_line_id` is nullable in the schema with no CHECK tying it to
+    // `edge_type` (see db/migrations/0001_init.sql), so a `ride` row with
+    // a null line is representable even though it violates the model: a
+    // null-line ride would silently be treated as "same line" as any
+    // other null-line ride (never charging a wait, never registering an
+    // implicit transfer against a real line). Fail loudly instead of
+    // producing a plausible-looking wrong commute time.
+    if (row.edgeType === "ride" && row.railLineId === null) {
+      throw new Error(
+        `buildGraph: ride edge from "${row.fromStationGroupId}" to ` +
+          `"${row.toStationGroupId}" has a null railLineId — only transfer ` +
+          `edges may omit a line.`,
+      );
+    }
+
     const edge: GraphEdge = {
       from: row.fromStationGroupId,
       to: row.toStationGroupId,

@@ -76,6 +76,11 @@ describe("buildGraph", () => {
     expect(edge?.railLineId).toBeNull();
     expect(edge?.confidence).toBe("medium");
   });
+
+  it("throws on a `ride` row with a null railLineId (only transfer edges may omit a line)", () => {
+    const invalidRow: RailEdgeRow = { ...RIDE_ROW, railLineId: null };
+    expect(() => buildGraph([invalidRow], "peak")).toThrow(/null railLineId/);
+  });
 });
 
 describe("buildGraphs", () => {
