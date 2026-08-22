@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AFFORDABILITY_FULL_SCORE_RATIO,
+  COMMUTE_FULL_SCORE_MINUTES,
   IMPORTANCE_VALUES,
   LAYOUT_IDS,
   LAYOUTS,
@@ -117,6 +119,18 @@ describe("IMPORTANCE_VALUES", () => {
       high: 4,
       essential: 8,
     });
+  });
+});
+
+describe("AFFORDABILITY_FULL_SCORE_RATIO", () => {
+  it("matches the spec literal value", () => {
+    expect(AFFORDABILITY_FULL_SCORE_RATIO).toBe(0.6);
+  });
+});
+
+describe("COMMUTE_FULL_SCORE_MINUTES", () => {
+  it("matches the spec literal value", () => {
+    expect(COMMUTE_FULL_SCORE_MINUTES).toBe(15);
   });
 });
 
