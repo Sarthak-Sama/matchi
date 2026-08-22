@@ -337,6 +337,25 @@ describe("scoreCandidate — fully worked example", () => {
     expect(result.overallScore).toBe(68.5);
   });
 
+  it("wires buildReasons(factors) end-to-end: affordability/supermarkets/floodSafety are the reasonsFor, sorted by effective weight", () => {
+    // Directions (componentScore vs the 66/34 thresholds): affordability
+    // (75), supermarkets (90), and floodSafety (80) are all > 66 ->
+    // positive. commute (50), restaurants (40), and quietness (60) all
+    // fall in [34, 66] -> neutral. Nothing is < 34, so reasonsAgainst is
+    // empty. The three positives, sorted by effectiveWeight descending
+    // (0.3, 0.2, 0.1), are affordability, supermarkets, then floodSafety —
+    // this is `scoreCandidate`'s REAL output, not a synthetic factors
+    // array handed straight to `buildReasons`, so it proves the wiring
+    // (not just `buildReasons`'s own selection logic, already covered by
+    // the dedicated `buildReasons` describe block below).
+    expect(result.reasonsFor).toEqual([
+      "Affordability is a strength: ¥140,000 modeled area rent.",
+      "Supermarkets is a strength: 12 supermarkets within 800 m.",
+      "Flood safety is a strength: 80/100 flood safety score.",
+    ]);
+    expect(result.reasonsAgainst).toEqual([]);
+  });
+
   it("does not use any forbidden rent language anywhere in generated strings", () => {
     const strings = [
       ...result.factors.map((f) => f.rawValueLabel),
@@ -350,7 +369,22 @@ describe("scoreCandidate — fully worked example", () => {
 });
 
 describe("scoreCandidate — point contributions sum to overallScore across several candidates", () => {
-  const request = makeRequest({ monthlyBudgetYen: 300_000, maxCommuteMinutes: 90 });
+  // Preferences deliberately chosen so importance total = 2+2+2+1 = 7 —
+  // shares of 2/7 and 1/7 are non-terminating in decimal, so (unlike an
+  // all-"low" request, where every share is a clean 0.25) these
+  // candidates' raw per-factor contributions are NOT already 1-decimal
+  // numbers. That's what makes the reconciliation assertion below
+  // meaningful rather than coincidental.
+  const request = makeRequest({
+    monthlyBudgetYen: 300_000,
+    maxCommuteMinutes: 90,
+    preferences: {
+      floodSafety: "medium",
+      supermarkets: "medium",
+      restaurants: "medium",
+      quietness: "low",
+    },
+  });
 
   const cases: Candidate[] = [
     makeCandidate({
@@ -393,9 +427,114 @@ describe("scoreCandidate — point contributions sum to overallScore across seve
     (_id, candidate) => {
       const result = scoreCandidate(candidate, request);
       const sum = result.factors.reduce((s, f) => s + f.pointContribution, 0);
+      // Reconciliation holds BY CONSTRUCTION now (each pointContribution
+      // is rounded when stored; overallScore is the sum of those same
+      // rounded values). The only possible remaining discrepancy is
+      // floating-point summation noise on the order of 1e-13 — nowhere
+      // near the ~0.05 a real double-rounding bug would produce — so a
+      // 1e-9 tolerance is float-representation-only, not a hidden gap.
       expect(sum).toBeCloseTo(result.overallScore, 9);
     },
   );
+});
+
+describe("scoreCandidate — reconciliation on a non-boundary score", () => {
+  // A candidate whose TRUE (unrounded) overallScore is nowhere near a
+  // clean 0.1 boundary — every one of the six raw contributions below is
+  // a non-terminating decimal. Under the OLD (broken) implementation,
+  // `factors[].pointContribution` stored the RAW unrounded values while
+  // `overallScore` rounded their sum separately, so this exact candidate
+  // would have exposed the bug: summing the six raw contributions gives
+  // 65.64206349206349, which is 0.042 away from the naively-rounded
+  // 65.6 — a real, non-float-noise discrepancy. The fixed implementation
+  // rounds each contribution to one decimal AT CONSTRUCTION, so the sum
+  // of the (rounded, displayed) contributions is exactly what
+  // `overallScore` is built from.
+  //
+  // By hand:
+  //   affordability: rent 205,000 vs budget 300,000.
+  //     threshold = 0.6*300000 = 180000; 205000 is between 180000 and 300000.
+  //     componentScore = 100*(300000-205000)/(300000-180000) = 100*95000/120000
+  //                     = 9500000/120000 = 475/6 = 79.16666666666667
+  //     raw contribution = (475/6)*0.3 = 142.5/6 = 23.75 -> rounds to 23.8
+  //
+  //   commute: 27 min vs cap 50 min.
+  //     componentScore = 100*(50-27)/(50-15) = 100*23/35 = 2300/35 = 460/7
+  //                     = 65.71428571428571
+  //     raw contribution = (460/7)*0.3 = 138/7 = 19.714285714285714 -> rounds to 19.7
+  //
+  //   preferences: floodSafety=high(4), supermarkets=medium(2),
+  //                restaurants=medium(2), quietness=low(1); total = 9
+  //     shares: floodSafety=4/9, supermarkets=2/9, restaurants=2/9, quietness=1/9
+  //     effectiveWeights (0.4*share): floodSafety=8/45, supermarkets=4/45,
+  //                                   restaurants=4/45, quietness=2/45
+  //
+  //   floodSafety: norm=55 -> raw = 55*8/45 = 440/45 = 9.777... -> rounds to 9.8
+  //   supermarkets: norm=77 -> raw = 77*4/45 = 308/45 = 6.844... -> rounds to 6.8
+  //   restaurants: norm=32 -> raw = 32*4/45 = 128/45 = 2.844... -> rounds to 2.8
+  //   quietness: norm=61 -> raw = 61*2/45 = 122/45 = 2.711... -> rounds to 2.7
+  //
+  //   sum of ROUNDED contributions = 23.8+19.7+9.8+6.8+2.8+2.7 = 65.6
+  //   (sum of the RAW/unrounded contributions is 65.64206349206349 — the
+  //   old, buggy relationship — confirmed separately in the comment above)
+
+  const request = makeRequest({
+    monthlyBudgetYen: 300_000,
+    maxCommuteMinutes: 50,
+    preferences: {
+      floodSafety: "high",
+      supermarkets: "medium",
+      restaurants: "medium",
+      quietness: "low",
+    },
+  });
+
+  const candidate = makeCandidate({
+    rent: makeRent({ medianYen: 205_000 }),
+    commute: makeCommute({ totalMinutes: 27 }),
+    lifestyle: makeLifestyle({
+      normFloodSafety: 55,
+      normAmenitySupermarket: 77,
+      normAmenityRestaurant: 32,
+      normQuietness: 61,
+    }),
+  });
+
+  const result = scoreCandidate(candidate, request);
+  const byKey = Object.fromEntries(result.factors.map((f) => [f.key, f]));
+
+  it("rounds each pointContribution to one decimal at construction", () => {
+    expect(byKey["affordability"]!.pointContribution).toBeCloseTo(23.8, 10);
+    expect(byKey["commute"]!.pointContribution).toBeCloseTo(19.7, 10);
+    expect(byKey["floodSafety"]!.pointContribution).toBeCloseTo(9.8, 10);
+    expect(byKey["supermarkets"]!.pointContribution).toBeCloseTo(6.8, 10);
+    expect(byKey["restaurants"]!.pointContribution).toBeCloseTo(2.8, 10);
+    expect(byKey["quietness"]!.pointContribution).toBeCloseTo(2.7, 10);
+  });
+
+  it("overallScore is exactly the sum of the rounded contributions (65.6), not a round of the raw total", () => {
+    expect(result.overallScore).toBe(65.6);
+
+    const sum = result.factors.reduce((s, f) => s + f.pointContribution, 0);
+    // Exact equality (not toBeCloseTo): overallScore is LITERALLY
+    // `roundToOneDecimal` of this same sum, computed from the same
+    // stored values in the same order, so there is no room for even
+    // floating-point noise to appear between them.
+    expect(sum).toBe(result.overallScore);
+
+    // The old (buggy) relationship, for contrast: summing the RAW
+    // (unrounded) component*weight products gives 65.64206349206349,
+    // which is 0.042+ away from 65.6 — far beyond any float-noise
+    // tolerance. This is the discrepancy the fix eliminates.
+    const rawSum =
+      (475 / 6) * 0.3 +
+      (460 / 7) * 0.3 +
+      55 * (8 / 45) +
+      77 * (4 / 45) +
+      32 * (4 / 45) +
+      61 * (2 / 45);
+    expect(Math.abs(rawSum - result.overallScore)).toBeGreaterThan(0.04);
+  });
 });
 
 // ---------------------------------------------------------------------------
