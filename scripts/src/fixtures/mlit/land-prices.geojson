@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "L01_006": 850000, "L01_005": 2025, "L01_022": "住宅" },
+      "geometry": { "type": "Point", "coordinates": [139.7, 35.66] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "L01_006": 920000, "L01_005": 2025, "L01_022": "residential" },
+      "geometry": { "type": "Point", "coordinates": [139.705, 35.655] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "L01_006": 1500000, "L01_005": 2025, "L01_022": "commercial" },
+      "geometry": { "type": "Point", "coordinates": [139.7, 35.69] }
+    }
+  ]
+}

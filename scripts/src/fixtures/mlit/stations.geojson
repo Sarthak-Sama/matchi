@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "station_id": "mlit-st-1", "N02_005": "渋谷駅" },
+      "geometry": { "type": "Point", "coordinates": [139.7016, 35.658] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "station_id": "mlit-st-2", "N02_005": "渋谷" },
+      "geometry": { "type": "Point", "coordinates": [139.702, 35.6583] }
+    },
+    {
+      "type": "Feature",
+      "properties": { "station_id": "mlit-st-3", "N02_005": "新宿", "N02_005e": "Shinjuku" },
+      "geometry": { "type": "Point", "coordinates": [139.7006, 35.6896] }
+    }
+  ]
+}

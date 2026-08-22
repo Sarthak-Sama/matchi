@@ -89,6 +89,17 @@ export const CATCHMENT_LABEL = "approximate 10-minute station area";
 export const ROAD_RAIL_BUFFER_M = 100;
 
 // ---------------------------------------------------------------------------
+// Station merging (import scripts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Two station records within this many metres of each other (after their
+ * normalized names match) are collapsed into one `station_group` by the
+ * import scripts. Added in Task 11.
+ */
+export const STATION_MERGE_RADIUS_M = 300;
+
+// ---------------------------------------------------------------------------
 // Commute constants
 // ---------------------------------------------------------------------------
 
