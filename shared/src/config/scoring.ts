@@ -140,6 +140,19 @@ export const IMPORTANCE_VALUES = {
   essential: 8,
 } as const;
 
+/**
+ * `scoreAffordability` awards the full 100 when the modeled median rent is
+ * at or below this fraction of the monthly budget, 0 when it meets or
+ * exceeds the budget, linear in between. Added in Task 9.
+ */
+export const AFFORDABILITY_FULL_SCORE_RATIO = 0.6;
+
+/**
+ * `scoreCommute` awards the full 100 at or below this many minutes, 0 at
+ * the request's `maxCommuteMinutes`, linear in between. Added in Task 9.
+ */
+export const COMMUTE_FULL_SCORE_MINUTES = 15;
+
 // ---------------------------------------------------------------------------
 // Quietness proxy weights
 // ---------------------------------------------------------------------------
