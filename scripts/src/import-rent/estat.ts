@@ -16,20 +16,31 @@
  *     alias second so hand-built fixtures/overrides work too):
  *       ward code   : "地域コード" | "ward_code"
  *       ward name   : "地域" | "市区町村名" | "name_ja" | "ward_name"
- *       rent/m²     : "家賃(1㎡当たり)" | "rent_per_sqm_yen"
+ *       rent/area   : "家賃(1㎡当たり)" | "rent_per_sqm_yen"
  *       mgmt fee    : "共益費・サービス費" | "management_fee_yen" (defaults
  *                     to 0 when the column/cell is absent)
  *       sample count: "標本数" | "sample_count" (optional)
  *   - Numeric cells may be quoted with comma thousands-separators (e.g.
- *     `"4,200"`) — stripped before parsing (see `import-rent/csv.ts`).
- *   - The rent figure is ALREADY expressed as yen per m² in the source
- *     file. This is the single biggest assumption here: e-Stat's raw
- *     Housing and Land Survey tables publish average total monthly rent
- *     and average floor area as separate figures, not a pre-divided
- *     per-m² value, for most publication tables. If the table the user
- *     downloads is one of those, they must divide rent by floor area
+ *     `"4,200"`) — stripped before parsing (see `lib/csv.ts`).
+ *   - The rent column's UNIT is a caller-declared choice, not something
+ *     this script infers: `import:rent`'s `--rent-unit=sqm|tsubo` flag
+ *     (default `sqm`) tells `mapEstatRow`/`mapEstatRows` below whether the
+ *     column already holds yen-per-m² or yen-per-tsubo, and a `tsubo`
+ *     declaration is converted via `rent-unit.ts`'s `convertToPerSqm`
+ *     BEFORE the sane-range check in `validate-ranges.ts` ever runs. This
+ *     exists because `RENT_PER_SQM_YEN_MIN`/`MAX` cannot tell a per-m²
+ *     figure from a per-tsubo one apart at realistic magnitudes — see
+ *     those constants' doc comment in `@tokyo/shared`'s `config/scoring.ts`
+ *     for the arithmetic — and per-tsubo is the dominant convention in
+ *     Japanese real-estate publishing, so guessing "sqm" silently would be
+ *     an easy, undetectable ~3.3x error. Separately, e-Stat's raw Housing
+ *     and Land Survey tables often publish average total monthly rent and
+ *     average floor area as separate figures rather than a pre-divided
+ *     per-unit-area value for most publication tables; if the table the
+ *     user downloads is one of those, they must divide rent by floor area
  *     themselves (or pass `--file` a pre-computed CSV) before running this
- *     script — flagged prominently in task-12-report.md.
+ *     script regardless of `--rent-unit` — flagged prominently in
+ *     task-12-report.md.
  *   - Every row's `period` is the fixed literal `"2023"` (the survey year),
  *     not read from any column.
  *
@@ -44,7 +55,9 @@
 import iconv from "iconv-lite";
 
 import { expectColumns } from "../lib/validate.js";
-import { parseCsvRecords, parseNumericCell, pickColumn } from "./csv.js";
+import { parseCsvRecords, parseNumericCell, pickColumn } from "../lib/csv.js";
+import type { RentUnit } from "./rent-unit.js";
+import { convertToPerSqm, DEFAULT_RENT_UNIT } from "./rent-unit.js";
 import { assertRentRanges } from "./validate-ranges.js";
 import type { WardLookupEntry } from "./ward-match.js";
 import { matchWard } from "./ward-match.js";
@@ -80,7 +93,8 @@ export interface RawEstatRow {
   readonly rowIndex: number;
   readonly wardCode?: string;
   readonly wardName?: string;
-  readonly rentPerSqmYen: number;
+  /** As read from the source column, in whatever unit `--rent-unit` declares — NOT yet known to be per-m². */
+  readonly rentValueRawYen: number;
   readonly managementFeeYen: number;
   readonly sampleCount?: number;
 }
@@ -103,9 +117,9 @@ export function parseEstatRow(record: Readonly<Record<string, string>>, rowIndex
   // a hand-rolled check) produce the "missing required column(s)" error.
   const canonical = { rent_per_sqm_yen: pickColumn(record, RENT_PER_SQM_KEYS) };
   expectColumns(canonical, ["rent_per_sqm_yen"], context);
-  const rentPerSqmYen = parseNumericCell(canonical.rent_per_sqm_yen, `${context} rent/m²`);
-  if (rentPerSqmYen === undefined) {
-    throw new Error(`${context}: rent/m² cell was empty`);
+  const rentValueRawYen = parseNumericCell(canonical.rent_per_sqm_yen, `${context} rent`);
+  if (rentValueRawYen === undefined) {
+    throw new Error(`${context}: rent cell was empty`);
   }
 
   const managementFeeYen =
@@ -117,7 +131,7 @@ export function parseEstatRow(record: Readonly<Record<string, string>>, rowIndex
   );
   const sampleCount = sampleCountRaw !== undefined ? Math.round(sampleCountRaw) : undefined;
 
-  return { rowIndex, wardCode, wardName, rentPerSqmYen, managementFeeYen, sampleCount };
+  return { rowIndex, wardCode, wardName, rentValueRawYen, managementFeeYen, sampleCount };
 }
 
 /** Parses every data row of an already-decoded e-Stat CSV. */
@@ -135,22 +149,28 @@ export interface ParsedRentStat {
 }
 
 /**
- * Resolves `raw`'s ward and validates its numeric ranges against
- * `@tokyo/shared`'s config bounds, throwing a row-specific error on either
- * failure. Never silently skips a row.
+ * Resolves `raw`'s ward, converts its rent value to per-m² per `rentUnit`
+ * (identity for `"sqm"`, the default), and validates numeric ranges
+ * against `@tokyo/shared`'s config bounds, throwing a row-specific error
+ * on any failure. Never silently skips a row.
  */
-export function mapEstatRow(raw: RawEstatRow, wards: readonly WardLookupEntry[]): ParsedRentStat {
+export function mapEstatRow(
+  raw: RawEstatRow,
+  wards: readonly WardLookupEntry[],
+  rentUnit: RentUnit = DEFAULT_RENT_UNIT,
+): ParsedRentStat {
   const label = raw.wardCode ?? raw.wardName ?? "?";
   const context = `e-Stat row #${raw.rowIndex} (${label})`;
 
   const wardCode = matchWard(raw.wardCode, raw.wardName, wards, context);
-  assertRentRanges(raw.rentPerSqmYen, raw.managementFeeYen, context);
+  const rentPerSqmYen = convertToPerSqm(raw.rentValueRawYen, rentUnit);
+  assertRentRanges(rentPerSqmYen, raw.managementFeeYen, context);
 
   return {
     wardCode,
     period: ESTAT_PERIOD,
     source: ESTAT_SOURCE,
-    rentPerSqmYen: raw.rentPerSqmYen,
+    rentPerSqmYen,
     managementFeeYen: raw.managementFeeYen,
     sampleCount: raw.sampleCount,
   };
@@ -159,6 +179,7 @@ export function mapEstatRow(raw: RawEstatRow, wards: readonly WardLookupEntry[])
 export function mapEstatRows(
   rows: readonly RawEstatRow[],
   wards: readonly WardLookupEntry[],
+  rentUnit: RentUnit = DEFAULT_RENT_UNIT,
 ): ParsedRentStat[] {
-  return rows.map((row) => mapEstatRow(row, wards));
+  return rows.map((row) => mapEstatRow(row, wards, rentUnit));
 }

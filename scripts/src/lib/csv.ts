@@ -1,16 +1,23 @@
 /**
- * Small, dependency-free CSV parser shared by both `import-rent/estat.ts`
- * and `import-rent/reins.ts`. Handles RFC 4180-style quoting (`"..."`
- * fields, `""` as an escaped quote inside one, commas and newlines inside
- * quotes) because e-Stat's own CSV exports quote any field containing a
- * comma — including numeric values that carry a thousands separator, e.g.
- * `"4,200"` for a plain 4200. `parseNumericCell` below strips those commas
- * before parsing so a quoted thousands-separated number round-trips
- * correctly either way.
+ * Small, dependency-free CSV parser. Originally built for Task 12's
+ * `import-rent/estat.ts` and `import-rent/reins.ts`; lives in `lib/`
+ * (rather than under `import-rent/`) because Task 14's `import:transit`
+ * reads GTFS, which is also CSV (`stops.txt`, `routes.txt`, `trips.txt`,
+ * `stop_times.txt`) — a second task needing the same primitives is exactly
+ * what this shared-harness directory is for, matching `lib/source-file.ts`
+ * and `lib/validate.ts`'s own reuse-by-every-import-script design.
+ *
+ * Handles RFC 4180-style quoting (`"..."` fields, `""` as an escaped quote
+ * inside one, commas and newlines inside quotes) because e-Stat's own CSV
+ * exports quote any field containing a comma — including numeric values
+ * that carry a thousands separator, e.g. `"4,200"` for a plain 4200.
+ * `parseNumericCell` below strips those commas before parsing so a quoted
+ * thousands-separated number round-trips correctly either way.
  *
  * Deliberately not a general-purpose library: no dialect options, no
- * streaming. Both callers pass an already-fully-decoded, in-memory string
- * (post Shift-JIS/BOM handling for e-Stat, or already-UTF-8 for REINS).
+ * streaming. Every caller passes an already-fully-decoded, in-memory
+ * string (post Shift-JIS/BOM handling for e-Stat, already-UTF-8 for REINS
+ * and GTFS).
  */
 
 /** Parses `text` into rows of raw (still-quoted-stripped) string cells. */

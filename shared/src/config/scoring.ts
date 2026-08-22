@@ -250,9 +250,26 @@ export function lowerConfidence(c: Confidence): Confidence {
 
 /**
  * A `rent_stats.rent_per_sqm_yen` value outside this range fails the
- * import with a clear error rather than being written — catches an
- * obviously wrong unit (e.g. per-tsubo or total monthly rent instead of
- * per-m²) or a parsing mistake before it reaches the database.
+ * import with a clear error rather than being written.
+ *
+ * What this range genuinely catches: a raw total-monthly-rent figure
+ * mistaken for a per-m² one (real Tokyo studio/1LDK rents run
+ * ¥50,000-150,000/month, comfortably above 20,000) and gross parsing
+ * mistakes.
+ *
+ * What it does NOT catch: a per-tsubo figure mistaken for per-m². 1 tsubo
+ * ≈ 3.3058 m² (see `TSUBO_TO_SQM` below), so a realistic per-m² rent of
+ * ¥2,700-4,300 becomes ¥8,926-14,215 when misread as per-tsubo — still
+ * comfortably inside [1,000, 20,000]. Since per-tsubo is the dominant unit
+ * in Japanese real-estate publishing, this is a real and silent failure
+ * mode, not a hypothetical one: it would inflate every ward's rent by
+ * ~3.3x with no error raised anywhere. Narrowing this range cannot fix
+ * that — legitimate premium-ward per-m² rents occupy the same band a
+ * cheap per-tsubo table would. The only correct fix is for the importer
+ * to have the caller declare the unit explicitly rather than guessing;
+ * see `import:rent`'s `--rent-unit=sqm|tsubo` flag, which converts a
+ * declared tsubo figure via `TSUBO_TO_SQM` before this range is ever
+ * checked.
  */
 export const RENT_PER_SQM_YEN_MIN = 1_000;
 export const RENT_PER_SQM_YEN_MAX = 20_000;
@@ -263,3 +280,15 @@ export const RENT_PER_SQM_YEN_MAX = 20_000;
  */
 export const MANAGEMENT_FEE_YEN_MIN = 0;
 export const MANAGEMENT_FEE_YEN_MAX = 50_000;
+
+/**
+ * 1 tsubo (坪), the traditional Japanese unit of floor area still common
+ * in real-estate rent/price publishing, equals this many square metres.
+ * Used by `import:rent`'s `--rent-unit=tsubo` to convert a declared
+ * per-tsubo rent figure to per-m² before it is validated against
+ * `RENT_PER_SQM_YEN_MIN`/`MAX` and written to `rent_stats`. See that
+ * range's own doc comment above for why this conversion has to be an
+ * explicit, user-declared choice rather than something the importer
+ * infers from the numbers.
+ */
+export const TSUBO_TO_SQM = 3.3058;

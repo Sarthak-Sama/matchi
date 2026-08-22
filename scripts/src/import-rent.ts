@@ -3,7 +3,8 @@
  * statistics into `rent_stats`, primarily from e-Stat's 2023 Housing and
  * Land Survey, with an optional REINS quarterly overlay.
  *
- *   pnpm import:rent --file data/estat-rent-2023.csv [--source-date 2023-10-01] \
+ *   pnpm import:rent --file data/estat-rent-2023.csv [--rent-unit sqm] \
+ *     [--source-date 2023-10-01] \
  *     [--reins data/reins-2026q2.csv] [--reins-source-date 2026-07-01]
  *
  * When `--file` is omitted, this script tries to download from e-Stat —
@@ -22,6 +23,15 @@
  * `encoding: "latin1"` here specifically so no byte information is lost
  * before this script gets to choose the real decoding — see
  * `lib/source-file.ts`'s updated doc comment.
+ *
+ * `--rent-unit=sqm|tsubo` (default `sqm`) declares whether BOTH files'
+ * rent column is already yen-per-m² or yen-per-tsubo — see
+ * `import-rent/rent-unit.ts` and `@tokyo/shared`'s `RENT_PER_SQM_YEN_MIN`/
+ * `MAX` doc comment for why this is a caller-declared choice rather than
+ * something inferred from the numbers (a per-tsubo figure at realistic
+ * Tokyo magnitudes lands inside the same "sane" range a per-m² figure
+ * would, so guessing wrong would silently inflate every rent by ~3.3x).
+ * The unit in effect is printed prominently at the start of every run.
  *
  * `rent_stats.source` names the data PROVIDER (`'estat'` | `'reins'`), not
  * this ingesting script — Task 6's `pickRentStat` reads that column
@@ -59,6 +69,8 @@ import { expectRowCount } from "./lib/validate.js";
 import type { ParsedRentStat } from "./import-rent/estat.js";
 import { decodeEstatCsv, ESTAT_SOURCE, mapEstatRows, parseEstatCsv } from "./import-rent/estat.js";
 import { mapReinsRows, parseReinsCsv, REINS_LICENCE_NOTICE, REINS_SOURCE } from "./import-rent/reins.js";
+import type { RentUnit } from "./import-rent/rent-unit.js";
+import { DEFAULT_RENT_UNIT } from "./import-rent/rent-unit.js";
 import type { WardLookupEntry } from "./import-rent/ward-match.js";
 
 const RUN_SOURCE = "rent";
@@ -77,6 +89,8 @@ export interface ImportRentArgs {
   readonly estatSourceDate?: Date;
   readonly reinsPath?: string;
   readonly reinsSourceDate?: Date;
+  /** Declares the unit BOTH files' rent column is in. Defaults to `"sqm"` when omitted. */
+  readonly rentUnit?: RentUnit;
 }
 
 async function loadEstat(localPath: string | undefined): Promise<string> {
@@ -154,11 +168,17 @@ export interface RentImportResult extends ImportResult {
 }
 
 export async function runRentImport(client: PoolClient, args: ImportRentArgs): Promise<RentImportResult> {
+  const rentUnit = args.rentUnit ?? DEFAULT_RENT_UNIT;
+  console.log(
+    `import:rent — rent unit in effect: "${rentUnit}"` +
+      (rentUnit === "tsubo" ? " (converting to yen/m² via TSUBO_TO_SQM before validation)" : ""),
+  );
+
   const wards = await loadWards(client);
 
   const estatText = await loadEstat(args.estatPath);
   const estatRawRows = parseEstatCsv(estatText);
-  const estatRows = mapEstatRows(estatRawRows, wards);
+  const estatRows = mapEstatRows(estatRawRows, wards, rentUnit);
 
   // "Every one of the [known] ward codes present" — checked dynamically
   // against whatever `wards` currently holds, rather than a hardcoded 23,
@@ -180,14 +200,14 @@ export async function runRentImport(client: PoolClient, args: ImportRentArgs): P
     console.log(REINS_LICENCE_NOTICE);
     const reinsText = await loadReins(args.reinsPath);
     const reinsRawRows = parseReinsCsv(reinsText);
-    const reinsRows = mapReinsRows(reinsRawRows, wards);
+    const reinsRows = mapReinsRows(reinsRawRows, wards, rentUnit);
     const reinsSourceUpdatedAt = args.reinsSourceDate ?? null;
     reinsRowsImported = await upsertRentStats(client, REINS_SOURCE, reinsRows, reinsSourceUpdatedAt);
   }
 
   console.log(
     `import:rent — estat=${String(estatRowsImported)} row(s) across ${String(matchedWardCodes.size)} ` +
-      `ward(s), reins=${String(reinsRowsImported)} row(s)`,
+      `ward(s), reins=${String(reinsRowsImported)} row(s), rent unit: "${rentUnit}"`,
   );
 
   return {
@@ -208,6 +228,15 @@ function parseFlagValue(argv: readonly string[], flag: string): string | undefin
   return value;
 }
 
+function parseRentUnitFlag(argv: readonly string[]): RentUnit | undefined {
+  const raw = parseFlagValue(argv, "--rent-unit");
+  if (raw === undefined) return undefined;
+  if (raw !== "sqm" && raw !== "tsubo") {
+    throw new Error(`--rent-unit "${raw}" must be "sqm" or "tsubo"`);
+  }
+  return raw;
+}
+
 function parseDateFlag(argv: readonly string[], flag: string): Date | undefined {
   const raw = parseFlagValue(argv, flag);
   if (raw === undefined) return undefined;
@@ -224,6 +253,7 @@ export function parseArgs(argv: readonly string[]): ImportRentArgs {
     estatSourceDate: parseDateFlag(argv, "--source-date"),
     reinsPath: parseFlagValue(argv, "--reins"),
     reinsSourceDate: parseDateFlag(argv, "--reins-source-date"),
+    rentUnit: parseRentUnitFlag(argv),
   };
 }
 

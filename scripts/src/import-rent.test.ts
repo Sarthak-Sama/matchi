@@ -24,9 +24,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { decodeEstatCsv, mapEstatRows, parseEstatCsv } from "./import-rent/estat.js";
 import { mapReinsRows, parseReinsCsv } from "./import-rent/reins.js";
+import { convertToPerSqm } from "./import-rent/rent-unit.js";
 import { matchWard, normalizeWardName } from "./import-rent/ward-match.js";
 import type { ImportRentArgs, RentImportResult } from "./import-rent.js";
-import { runRentImport } from "./import-rent.js";
+import { parseArgs, runRentImport } from "./import-rent.js";
 import { runImport } from "./lib/import-run.js";
 import { runMigrations } from "./migrate.js";
 import { runSeed } from "./seed.js";
@@ -188,6 +189,59 @@ describe("REINS: row parsing + mapping", () => {
   it("rejects a period not in the YYYYQn shape", () => {
     const csv = "地域コード,地域,period,rent_per_sqm_yen\n13113,渋谷区,2026-Q2,4500\n";
     expect(() => parseReinsCsv(csv)).toThrowError(/is not in the expected "YYYYQn" shape/);
+  });
+});
+
+describe("rent-unit: convertToPerSqm + --rent-unit", () => {
+  it("'sqm' is the identity conversion (hand-computed: unchanged)", () => {
+    expect(convertToPerSqm(4300, "sqm")).toBe(4300);
+    expect(convertToPerSqm(1, "sqm")).toBe(1);
+  });
+
+  it("'tsubo' divides by TSUBO_TO_SQM (hand-computed literal: 3305.8 yen/tsubo -> 1000 yen/m²)", () => {
+    // 3305.8 = 1000 * 3.3058 (TSUBO_TO_SQM), chosen so the division comes
+    // out to a clean integer and the test doesn't need a tolerance.
+    expect(convertToPerSqm(3305.8, "tsubo")).toBe(1000);
+  });
+
+  it("a per-tsubo reading of a fixture row converts into a different, still-sane per-m² value " +
+    "(demonstrating the exact silent-failure mode the range check alone cannot catch)", () => {
+    const text = decodeEstatCsv(fixtureBuffer("estat.csv"));
+    const shibuyaRaw = parseEstatCsv(text).find((r) => r.wardCode === "13113");
+    if (!shibuyaRaw) throw new Error("fixture is missing ward 13113");
+
+    const asSqm = mapEstatRows([shibuyaRaw], SEED_WARDS, "sqm")[0];
+    const asTsubo = mapEstatRows([shibuyaRaw], SEED_WARDS, "tsubo")[0];
+
+    // Raw fixture value is 4300 (already a plausible per-m² figure). Read
+    // as "sqm" it passes through unchanged; read as "tsubo" it converts
+    // down to a DIFFERENT plausible-looking per-m² value instead of
+    // silently equalling itself — this is exactly why the range check
+    // alone can't catch a per-tsubo/per-m² mixup: both readings land
+    // inside [1000, 20000].
+    expect(asSqm?.rentPerSqmYen).toBe(4300);
+    expect(asTsubo?.rentPerSqmYen).toBe(Math.round(4300 / 3.3058));
+    expect(asTsubo?.rentPerSqmYen).not.toBe(asSqm?.rentPerSqmYen);
+  });
+
+  it("mapEstatRows/mapReinsRows default to 'sqm' (unchanged behavior) when rentUnit is omitted", () => {
+    const text = decodeEstatCsv(fixtureBuffer("estat.csv"));
+    const withDefault = mapEstatRows(parseEstatCsv(text), SEED_WARDS);
+    const withExplicitSqm = mapEstatRows(parseEstatCsv(text), SEED_WARDS, "sqm");
+    expect(withDefault).toEqual(withExplicitSqm);
+  });
+
+  it("parseArgs defaults --rent-unit to undefined (runRentImport then applies 'sqm')", () => {
+    const args = parseArgs(["--file", "estat.csv"]);
+    expect(args.rentUnit).toBeUndefined();
+  });
+
+  it("parseArgs accepts --rent-unit sqm|tsubo and rejects anything else", () => {
+    expect(parseArgs(["--file", "x.csv", "--rent-unit", "tsubo"]).rentUnit).toBe("tsubo");
+    expect(parseArgs(["--file", "x.csv", "--rent-unit", "sqm"]).rentUnit).toBe("sqm");
+    expect(() => parseArgs(["--file", "x.csv", "--rent-unit", "acres"])).toThrowError(
+      /--rent-unit "acres" must be "sqm" or "tsubo"/,
+    );
   });
 });
 
