@@ -15,6 +15,7 @@ import {
   RESULTS_LIMIT,
   STATIONS_DEFAULT_LIMIT,
   STATIONS_MAX_LIMIT,
+  STATION_MERGE_RADIUS_M,
 } from "./scoring.js";
 
 describe("OVERALL_WEIGHTS", () => {
@@ -165,6 +166,12 @@ describe("STATIONS_DEFAULT_LIMIT and STATIONS_MAX_LIMIT", () => {
   it("match the spec literal values (GET /v1/stations defaults to 10, caps at 50)", () => {
     expect(STATIONS_DEFAULT_LIMIT).toBe(10);
     expect(STATIONS_MAX_LIMIT).toBe(50);
+  });
+});
+
+describe("STATION_MERGE_RADIUS_M", () => {
+  it("matches the spec literal value (300m)", () => {
+    expect(STATION_MERGE_RADIUS_M).toBe(300);
   });
 });
 
