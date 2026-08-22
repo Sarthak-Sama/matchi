@@ -205,6 +205,53 @@ export function estimateRent(input: RentEstimateInput): RentEstimateResult {
 }
 
 // ---------------------------------------------------------------------------
+// rentStatBaseConfidence
+// ---------------------------------------------------------------------------
+
+/**
+ * Classifies the base confidence tier for a SINGLE already-identified
+ * `(source, period)` pair, independent of `pickRentStat`'s row-SELECTION
+ * logic (choosing among several candidate rows). `pickRentStat` calls this
+ * for both its reins and estat branches below.
+ *
+ * Exported so a caller that already knows which stat backs a stored
+ * estimate (e.g. Task 10's `/v1/optimize` and `/v1/neighborhoods/:id`,
+ * recomputing `estimateRent` for a user-chosen layout from a
+ * `neighborhood_metrics` row's `rent_source` / `rent_source_period`) can
+ * reconstruct the correct `baseConfidence` INPUT to `estimateRent`, rather
+ * than passing that row's own already-adjusted `rent_confidence` column
+ * back in as `baseConfidence`. The latter would double-apply
+ * `estimateRent`'s fallback/staleness downgrades on every subsequent call
+ * (each of which independently checks `landPriceUsedFallback` and
+ * `sourcePeriod` age again), silently ratcheting confidence down every time
+ * the same station is recomputed — e.g. an original `high` that was
+ * downgraded once to `medium` would incorrectly become `low` on the very
+ * next recompute of the same, unchanged data.
+ */
+export function rentStatBaseConfidence(
+  source: string,
+  period: string,
+  currentYear: number,
+): Confidence {
+  if (source === "reins") {
+    // `pickRentStat` only ever selects a reins row when it is at most
+    // `RENT_STAT_RECENT_MAX_AGE_YEARS` old, so the base confidence for a
+    // reins pick is unconditionally "high" here — `estimateRent`'s own
+    // staleness check independently re-evaluates freshness against
+    // whatever `currentYear` the caller supplies, which is what lets a
+    // reins-sourced estimate's confidence legitimately degrade further as
+    // it ages after being stored, without this function double-charging
+    // a downgrade that already happened once.
+    return "high";
+  }
+
+  // estat (or any other future source): a row older than
+  // RENT_STAT_OLD_MIN_AGE_YEARS is "low", otherwise "medium".
+  const age = currentYear - extractYear(period);
+  return age > RENT_STAT_OLD_MIN_AGE_YEARS ? "low" : "medium";
+}
+
+// ---------------------------------------------------------------------------
 // pickRentStat
 // ---------------------------------------------------------------------------
 
@@ -245,15 +292,17 @@ export function pickRentStat<T extends RentStatRow>(
   if (newestReins) {
     const age = currentYear - extractYear(newestReins.period);
     if (age <= RENT_STAT_RECENT_MAX_AGE_YEARS) {
-      return { stat: newestReins, baseConfidence: "high" };
+      return {
+        stat: newestReins,
+        baseConfidence: rentStatBaseConfidence(newestReins.source, newestReins.period, currentYear),
+      };
     }
   }
 
   const estatRows = stats.filter((row) => row.source === "estat");
   const newestEstat = mostRecentByPeriod(estatRows);
   if (newestEstat) {
-    const age = currentYear - extractYear(newestEstat.period);
-    const baseConfidence: Confidence = age > RENT_STAT_OLD_MIN_AGE_YEARS ? "low" : "medium";
+    const baseConfidence = rentStatBaseConfidence(newestEstat.source, newestEstat.period, currentYear);
     return { stat: newestEstat, baseConfidence };
   }
 

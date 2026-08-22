@@ -7,7 +7,12 @@ import {
   MIN_LAND_PRICE_POINTS,
 } from "../config/scoring.js";
 import { rentEstimateSchema } from "../contracts/response.js";
-import { computeLandPriceMultiplier, estimateRent, pickRentStat } from "./rent.js";
+import {
+  computeLandPriceMultiplier,
+  estimateRent,
+  pickRentStat,
+  rentStatBaseConfidence,
+} from "./rent.js";
 
 // ---------------------------------------------------------------------------
 // estimateRent — worked example per layout
@@ -438,5 +443,88 @@ describe("pickRentStat", () => {
 
   it("throws when there is no eligible e-Stat row and no recent REINS row", () => {
     expect(() => pickRentStat([reinsStale2020Q1], { currentYear: 2026 })).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rentStatBaseConfidence
+//
+// Extracted from `pickRentStat`'s two branches specifically so a caller that
+// already knows which (source, period) backs a STORED estimate (Task 10's
+// `/v1/optimize` and `/v1/neighborhoods/:id`, recomputing `estimateRent` for
+// a user-chosen layout) can reconstruct the correct `baseConfidence` INPUT,
+// rather than feeding a row's own already fallback/staleness-ADJUSTED
+// `rent_confidence` column back in as `baseConfidence` — which would
+// double-apply those downgrades on every recompute. These are the same
+// (source, period, currentYear) combinations `pickRentStat`'s own tests
+// above already exercise indirectly; this describes the classification
+// function directly and in isolation.
+// ---------------------------------------------------------------------------
+
+describe("rentStatBaseConfidence", () => {
+  it("a reins source is always 'high', regardless of age", () => {
+    // Mirrors pickRentStat's reins branch: it only ever SELECTS a reins row
+    // when age <= RENT_STAT_RECENT_MAX_AGE_YEARS, so the base confidence
+    // for a reins pick is unconditionally "high" — staleness is instead
+    // re-evaluated independently by estimateRent's own age check, using
+    // whatever currentYear the caller supplies at recompute time.
+    expect(rentStatBaseConfidence("reins", "2026Q2", 2026)).toBe("high");
+  });
+
+  it("a reins source is 'high' even when its period is old (age 11)", () => {
+    // Deliberately calling this with an old reins period some caller might
+    // still be recomputing from (e.g. a station whose stored rent_source
+    // predates a recent pickRentStat run) — rentStatBaseConfidence itself
+    // does not gate on age for reins; estimateRent's separate staleness
+    // check is what would still downgrade the FINAL confidence in that
+    // case.
+    expect(rentStatBaseConfidence("reins", "2015Q1", 2026)).toBe("high");
+  });
+
+  it("an estat source at age 2 (not older than 5) is 'medium'", () => {
+    // currentYear 2026 - period 2024 = age 2.
+    expect(rentStatBaseConfidence("estat", "2024", 2026)).toBe("medium");
+  });
+
+  it("an estat source at age 0 is 'medium'", () => {
+    expect(rentStatBaseConfidence("estat", "2026", 2026)).toBe("medium");
+  });
+
+  it("an estat source at exactly age 5 (the boundary) is still 'medium'", () => {
+    // RENT_STAT_OLD_MIN_AGE_YEARS is 5; the check is "age > 5", so age
+    // exactly 5 does NOT cross into "low" — matches pickRentStat's own
+    // "downgrades to low confidence when...older than 5 years" test, which
+    // uses age 8 (unambiguously past the boundary) rather than the
+    // boundary itself.
+    expect(rentStatBaseConfidence("estat", "2021", 2026)).toBe("medium");
+  });
+
+  it("an estat source older than 5 years (age 6) is 'low'", () => {
+    expect(rentStatBaseConfidence("estat", "2020", 2026)).toBe("low");
+  });
+
+  it("pickRentStat's own results are unchanged by delegating to this function (regression check)", () => {
+    // Re-asserts the exact same (stat, baseConfidence) pairs as the
+    // describe("pickRentStat", ...) block above, confirming the refactor
+    // that extracted rentStatBaseConfidence did not alter pickRentStat's
+    // observable behavior.
+    const reins2026Q2 = {
+      source: "reins",
+      period: "2026Q2",
+      rent_per_sqm_yen: 4450,
+      management_fee_yen: 8500,
+    };
+    const estat2023 = {
+      source: "estat",
+      period: "2023",
+      rent_per_sqm_yen: 4200,
+      management_fee_yen: 8000,
+    };
+    const result = pickRentStat([estat2023, reins2026Q2], { currentYear: 2026 });
+    expect(result.stat).toBe(reins2026Q2);
+    expect(result.baseConfidence).toBe(
+      rentStatBaseConfidence(reins2026Q2.source, reins2026Q2.period, 2026),
+    );
+    expect(result.baseConfidence).toBe("high");
   });
 });
