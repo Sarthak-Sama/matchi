@@ -56,7 +56,13 @@ export async function resolveSource(options: ResolveSourceOptions): Promise<stri
     if (credential !== undefined) {
       headers["Authorization"] = `Bearer ${credential}`;
     }
-    const response = await fetch(url, { headers });
+    let response: Response;
+    try {
+      response = await fetch(url, { headers });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`${label}: download failed (${message}) from ${url}`, { cause: err });
+    }
     if (!response.ok) {
       throw new Error(
         `${label}: download failed (${String(response.status)} ${response.statusText}) from ${url}`,
