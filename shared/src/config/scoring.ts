@@ -243,3 +243,23 @@ export function lowerConfidence(c: Confidence): Confidence {
   if (c === "medium") return "low";
   return "low";
 }
+
+// ---------------------------------------------------------------------------
+// Import validation bounds (Task 12's `import:rent`)
+// ---------------------------------------------------------------------------
+
+/**
+ * A `rent_stats.rent_per_sqm_yen` value outside this range fails the
+ * import with a clear error rather than being written — catches an
+ * obviously wrong unit (e.g. per-tsubo or total monthly rent instead of
+ * per-m²) or a parsing mistake before it reaches the database.
+ */
+export const RENT_PER_SQM_YEN_MIN = 1_000;
+export const RENT_PER_SQM_YEN_MAX = 20_000;
+
+/**
+ * A `rent_stats.management_fee_yen` value outside this range fails the
+ * import the same way.
+ */
+export const MANAGEMENT_FEE_YEN_MIN = 0;
+export const MANAGEMENT_FEE_YEN_MAX = 50_000;
