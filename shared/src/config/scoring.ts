@@ -133,6 +133,19 @@ export const FALLBACK_SPEEDS_KMH = {
 
 export const DWELL_SECONDS_PER_INTERMEDIATE_STATION = 45;
 
+/**
+ * `import:transit`'s GTFS mode derives expected wait from half the average
+ * observed headway (see that script's `expectedWaitFromHeadway`), clamped
+ * to this range. The floor guards against a handful of near-simultaneous
+ * observed departures (e.g. two trips minutes apart at a terminal)
+ * implying an implausibly short wait; the ceiling guards against a sparse
+ * or partial-day GTFS sample (e.g. only late-night departures survived
+ * weekday-service filtering) implying an implausibly long one. Added in
+ * Task 14.
+ */
+export const MIN_EXPECTED_WAIT_MINUTES = 1;
+export const MAX_EXPECTED_WAIT_MINUTES = 15;
+
 // ---------------------------------------------------------------------------
 // Scoring weights
 // ---------------------------------------------------------------------------

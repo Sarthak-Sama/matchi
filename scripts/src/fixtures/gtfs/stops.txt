@@ -1,0 +1,6 @@
+stop_id,stop_name,stop_lat,stop_lon,parent_station
+gtfs-shibuya,Shibuya,35.658,139.7016,
+gtfs-daikanyama,Daikanyama,35.6486,139.7031,
+gtfs-nakameguro,Nakameguro,35.642,139.696,
+gtfs-shinjuku,Shinjuku,35.6896,139.7006,
+gtfs-ghost,Ghost Station,36.0,140.5,
