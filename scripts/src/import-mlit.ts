@@ -55,11 +55,26 @@
  * ward row in place (its `geom` and `source` both change to this run's)
  * whenever a ward code collides — by design, not a bug: it's the same
  * real-world ward, and real MLIT boundaries are meant to supersede the
- * seed fixture's placeholder rectangle. A production environment should
- * not run both `pnpm db:seed` and `pnpm import:mlit` against the same
- * database; a shared test database (e.g. `tokyo_test`) that does both
- * should re-run `pnpm db:seed` afterward to restore a pure-seed baseline
- * before relying on seed-only invariants again.
+ * seed fixture's placeholder rectangle. This is NOT silent: `upsertWards`
+ * warns (and the run summary reports) exactly which ward codes were
+ * overwritten and how many. A production environment should not run both
+ * `pnpm db:seed` and `pnpm import:mlit` against the same database; a
+ * shared test database (e.g. `tokyo_test`) that does both should re-run
+ * `pnpm db:seed` afterward to restore a pure-seed baseline before relying
+ * on seed-only invariants again.
+ *
+ * Deleting a ward no longer present in this run's wards file is guarded
+ * the same way a real foreign-key-aware system should be: every FK column
+ * referencing `wards(ward_code)` is discovered dynamically from Postgres's
+ * catalog (`findWardForeignKeyRefs`), nullable ones are cleared first
+ * (`station_groups.ward_code`, `land_prices.ward_code`,
+ * `neighborhood_metrics.ward_code` today), and any `NOT NULL` one that
+ * still has a row pointing at the ward being removed (`rent_stats.ward_code`
+ * today, once `import:rent` has run) aborts with a clear error naming the
+ * ward code, the row count, and the blocking table — instead of a raw,
+ * unlabeled Postgres foreign-key-violation error. Because the discovery is
+ * dynamic, a future migration adding another FK to `wards` is covered
+ * automatically, with no change needed here.
  *
  * `station_groups.ward_code` and `land_prices.ward_code` are NOT trusted
  * from source properties — they are assigned via a spatial join
@@ -121,11 +136,127 @@ async function loadDataset(label: string, localPath: string | undefined): Promis
   });
 }
 
+/** A foreign key column somewhere in the schema that references `wards(ward_code)`. */
+interface WardForeignKeyRef {
+  readonly table: string;
+  readonly column: string;
+  readonly nullable: boolean;
+}
+
+/**
+ * Discovers every FK column referencing `wards(ward_code)` directly from
+ * Postgres's own catalog, rather than a hand-maintained list — so a future
+ * migration that adds a new FK to `wards` (nullable or not) is picked up
+ * automatically by both `nullWardReferences` and
+ * `assertNoBlockingWardReferences` below, with no code change here.
+ */
+async function findWardForeignKeyRefs(client: PoolClient): Promise<WardForeignKeyRef[]> {
+  const { rows } = await client.query<{
+    table_name: string;
+    column_name: string;
+    nullable: boolean;
+  }>(`
+    SELECT
+      c.conrelid::regclass::text AS table_name,
+      a.attname AS column_name,
+      NOT a.attnotnull AS nullable
+    FROM pg_constraint c
+    JOIN LATERAL unnest(c.conkey) AS ck(attnum) ON true
+    JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ck.attnum
+    WHERE c.contype = 'f' AND c.confrelid = 'wards'::regclass
+  `);
+  return rows.map((r) => ({ table: r.table_name, column: r.column_name, nullable: r.nullable }));
+}
+
+/**
+ * A ward about to be deleted (not seen this run) might still be referenced
+ * by a nullable FK column elsewhere (e.g. `station_groups.ward_code`,
+ * `land_prices.ward_code`, `neighborhood_metrics.ward_code`). Null those
+ * out first, regardless of the referencing row's own `source` — a ward
+ * code that no longer exists is a stale reference no matter who wrote the
+ * referencing row. The spatial join later in this script recomputes
+ * correct `ward_code` values for every mlit-sourced row anyway.
+ */
+async function nullWardReferences(client: PoolClient, staleWardCodes: readonly string[]): Promise<void> {
+  const refs = await findWardForeignKeyRefs(client);
+  for (const ref of refs.filter((r) => r.nullable)) {
+    await client.query(
+      `UPDATE ${ref.table} SET ${ref.column} = NULL WHERE ${ref.column} = ANY($1::text[])`,
+      [staleWardCodes],
+    );
+  }
+}
+
+/**
+ * A `NOT NULL` FK column (e.g. `rent_stats.ward_code`) can't be nulled out
+ * of the way like the nullable ones above — if any such row still
+ * references a ward about to be deleted, the DELETE would otherwise fail
+ * with a raw, unlabeled Postgres foreign-key-violation error. Detect that
+ * up front and raise a clear, actionable error instead, naming the ward
+ * codes and the blocking table(s).
+ */
+async function assertNoBlockingWardReferences(
+  client: PoolClient,
+  staleWardCodes: readonly string[],
+): Promise<void> {
+  const refs = await findWardForeignKeyRefs(client);
+  const blockers: string[] = [];
+
+  for (const ref of refs.filter((r) => !r.nullable)) {
+    const { rows } = await client.query<{ ward_code: string; count: string }>(
+      `SELECT ${ref.column} AS ward_code, count(*)::text AS count
+       FROM ${ref.table}
+       WHERE ${ref.column} = ANY($1::text[])
+       GROUP BY ${ref.column}
+       ORDER BY ${ref.column}`,
+      [staleWardCodes],
+    );
+    for (const row of rows) {
+      blockers.push(`ward ${row.ward_code} still has ${row.count} ${ref.table} row(s)`);
+    }
+  }
+
+  if (blockers.length > 0) {
+    throw new Error(
+      `import:mlit — cannot remove ward(s) no longer present in this run's wards file: ` +
+        `${blockers.join("; ")}. Re-run the relevant import (e.g. \`pnpm import:rent\`) after ` +
+        `this one so those rows move off the ward being removed, or restore the ward(s) to your ` +
+        `wards source file.`,
+    );
+  }
+}
+
+interface UpsertWardsResult {
+  readonly rowsWritten: number;
+  /** Ward codes that existed with a different `source` and just got overwritten. */
+  readonly overwrittenDifferentSource: readonly string[];
+}
+
 async function upsertWards(
   client: PoolClient,
   wards: readonly ParsedWard[],
   sourceUpdatedAt: Date | null,
-): Promise<number> {
+): Promise<UpsertWardsResult> {
+  const seenCodes = wards.map((w) => w.wardCode);
+
+  // Before mutating anything: warn about any incoming ward code that
+  // already exists under a DIFFERENT source (e.g. a seed-owned ward whose
+  // code happens to be a real Tokyo ward code — see this file's module
+  // doc comment). This is silent otherwise: the upsert below succeeds
+  // without a trace of what it just overwrote.
+  const { rows: differentSourceRows } = await client.query<{ ward_code: string }>(
+    `SELECT ward_code FROM wards WHERE ward_code = ANY($1::text[]) AND source IS DISTINCT FROM $2
+     ORDER BY ward_code`,
+    [seenCodes, SOURCE],
+  );
+  const overwrittenDifferentSource = differentSourceRows.map((r) => r.ward_code);
+  if (overwrittenDifferentSource.length > 0) {
+    console.warn(
+      `import:mlit — ${overwrittenDifferentSource.length} existing ward(s) with a different ` +
+        `source will be overwritten: ${overwrittenDifferentSource.join(", ")}`,
+    );
+  }
+
   for (const w of wards) {
     await client.query(
       `INSERT INTO wards (ward_code, name_ja, name_en, geom, source, source_updated_at)
@@ -141,29 +272,22 @@ async function upsertWards(
     );
   }
 
-  const seenCodes = wards.map((w) => w.wardCode);
-
-  // A ward about to be deleted (not seen this run) might still be
-  // referenced by a station_groups/land_prices row's ward_code. Null those
-  // out first so the DELETE below doesn't fail with a foreign-key
-  // violation — the spatial join later in this script recomputes correct
-  // ward_code values for every mlit-sourced row anyway.
-  await client.query(
-    `UPDATE station_groups SET ward_code = NULL
-     WHERE source = $2 AND ward_code IS NOT NULL AND ward_code <> ALL($1::text[])`,
+  const { rows: staleRows } = await client.query<{ ward_code: string }>(
+    `SELECT ward_code FROM wards WHERE source = $2 AND ward_code <> ALL($1::text[])`,
     [seenCodes, SOURCE],
   );
-  await client.query(
-    `UPDATE land_prices SET ward_code = NULL
-     WHERE source = $2 AND ward_code IS NOT NULL AND ward_code <> ALL($1::text[])`,
-    [seenCodes, SOURCE],
-  );
-  await client.query(`DELETE FROM wards WHERE source = $2 AND ward_code <> ALL($1::text[])`, [
-    seenCodes,
-    SOURCE,
-  ]);
+  const staleCodes = staleRows.map((r) => r.ward_code);
 
-  return wards.length;
+  if (staleCodes.length > 0) {
+    await assertNoBlockingWardReferences(client, staleCodes);
+    await nullWardReferences(client, staleCodes);
+    await client.query(`DELETE FROM wards WHERE source = $2 AND ward_code = ANY($1::text[])`, [
+      staleCodes,
+      SOURCE,
+    ]);
+  }
+
+  return { rowsWritten: wards.length, overwrittenDifferentSource };
 }
 
 async function upsertStations(
@@ -326,7 +450,24 @@ async function assignWardCodes(
   return { withoutWard: Number(rows[0]?.count ?? "0") };
 }
 
-export async function runMlitImport(client: PoolClient, args: ImportMlitArgs): Promise<ImportResult> {
+/**
+ * `runMlitImport`'s result, widened beyond the shared `ImportResult`
+ * contract with a couple of run-summary facts that are otherwise only
+ * visible in this function's own `console.log`/`console.warn` output —
+ * kept here so tests can assert on them directly instead of capturing
+ * console output (which environment-dependent console interception makes
+ * unreliable to spy on in tests). Still assignable wherever `ImportResult`
+ * is expected (e.g. as `runImport`'s `fn` return value).
+ */
+export interface MlitImportResult extends ImportResult {
+  readonly overwrittenDifferentSourceWardCodes: readonly string[];
+  readonly stationsWithoutWardCode: number;
+}
+
+export async function runMlitImport(
+  client: PoolClient,
+  args: ImportMlitArgs,
+): Promise<MlitImportResult> {
   const sourceUpdatedAt = args.sourceDate ?? null;
 
   const wardsRaw = await loadDataset("wards", args.wardsPath);
@@ -364,7 +505,8 @@ export async function runMlitImport(client: PoolClient, args: ImportMlitArgs): P
   // database yet. From here on, writes happen inside runImport's
   // transaction; any error still rolls everything below back.
   let rowsImported = 0;
-  rowsImported += await upsertWards(client, wards, sourceUpdatedAt);
+  const wardsResult = await upsertWards(client, wards, sourceUpdatedAt);
+  rowsImported += wardsResult.rowsWritten;
   rowsImported += await upsertStations(client, stationGroups, sourceUpdatedAt);
   rowsImported += await upsertRailLines(client, railLines, sourceUpdatedAt);
   rowsImported += await replaceLandPrices(client, landPrices, sourceUpdatedAt);
@@ -383,8 +525,19 @@ export async function runMlitImport(client: PoolClient, args: ImportMlitArgs): P
     `import:mlit — ${stationWard.withoutWard} of ${stationGroups.length} imported station(s) have ` +
       `no ward_code (fell outside every imported ward's polygon).`,
   );
+  console.log(
+    wardsResult.overwrittenDifferentSource.length > 0
+      ? `import:mlit — ${wardsResult.overwrittenDifferentSource.length} existing ward(s) with a ` +
+          `different source were overwritten: ${wardsResult.overwrittenDifferentSource.join(", ")}`
+      : `import:mlit — no existing ward(s) with a different source were overwritten`,
+  );
 
-  return { rowsImported, sourceUpdatedAt: sourceUpdatedAt ?? undefined };
+  return {
+    rowsImported,
+    sourceUpdatedAt: sourceUpdatedAt ?? undefined,
+    overwrittenDifferentSourceWardCodes: wardsResult.overwrittenDifferentSource,
+    stationsWithoutWardCode: stationWard.withoutWard,
+  };
 }
 
 function parseFlagValue(argv: readonly string[], flag: string): string | undefined {

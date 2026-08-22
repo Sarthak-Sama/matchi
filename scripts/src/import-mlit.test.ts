@@ -27,7 +27,7 @@ import { mergeStations, normalizeStationName } from "./import-mlit/station-merge
 import { parseStations } from "./import-mlit/stations.js";
 import { MIN_WARDS_ROWS, parseWards } from "./import-mlit/wards.js";
 import { classifyZoningCategory, parseZoningAreas } from "./import-mlit/zoning.js";
-import type { ImportMlitArgs } from "./import-mlit.js";
+import type { ImportMlitArgs, MlitImportResult } from "./import-mlit.js";
 import { runMlitImport } from "./import-mlit.js";
 import { runImport } from "./lib/import-run.js";
 import { expectRowCount } from "./lib/validate.js";
@@ -312,6 +312,95 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
     expect(rows[1]?.status).toBe("failed");
     expect(rows[1]?.error).toMatch(/missing required column\(s\): price_yen_per_sqm/);
   });
+
+  it("reports which ward codes were overwritten from a different source, and logs a warning about it", async () => {
+    // Force ward 13113 (Shibuya) to look like it came from somewhere else,
+    // simulating the seed-fixture collision this script's module doc
+    // comment describes.
+    await pool.query(`UPDATE wards SET source = 'seed' WHERE ward_code = '13113'`);
+
+    // Assert on the structured result rather than captured console output:
+    // Vitest's own console interception makes `vi.spyOn(console, "warn")`
+    // (and even `process.stderr.write`) unreliable to spy on directly in
+    // this environment, even though the warning does print for real (see
+    // the visible `import:mlit — ... will be overwritten: 13113` line in
+    // this test's own console output above). `MlitImportResult` surfaces
+    // the exact same computed list `upsertWards` also logs a warning
+    // about, so this is testing the real mechanism, not a substitute.
+    const result = (await runImport(
+      { source: "mlit", pool },
+      (client) => runMlitImport(client, GOOD_ARGS),
+    )) as MlitImportResult;
+
+    expect(result.overwrittenDifferentSourceWardCodes).toEqual(["13113"]);
+
+    const { rows } = await pool.query<{ source: string }>(
+      `SELECT source FROM wards WHERE ward_code = '13113'`,
+    );
+    expect(rows[0]?.source).toBe("mlit");
+  });
+
+  it(
+    "aborts with a clear error naming the ward and blocking table when a NOT NULL FK " +
+      "(rent_stats) still references a ward being removed, and leaves everything unchanged",
+    async () => {
+      // Establish a clean baseline: ward 13113 exists with source='mlit'.
+      await runImport({ source: "mlit", pool }, (client) => runMlitImport(client, GOOD_ARGS));
+
+      // rent_stats.ward_code is NOT NULL REFERENCES wards(ward_code) — this
+      // table already exists from Task 3's schema, so a real dependent row
+      // can be simulated directly without needing Task 12's import:rent to
+      // exist yet. (If this ever needs adjusting once import:rent lands,
+      // replace this raw INSERT with a real `pnpm import:rent` fixture run.)
+      // A distinct period/source that seed's own rent_stats fixture never
+      // uses (seed only writes 'estat'/2023 and 'reins'/2026Q2 for ward
+      // 13113 — see fixtures/seed/rent.ts) keeps this test's expected count
+      // exact regardless of whatever seed data this shared database
+      // already has.
+      const { rows: rentBefore } = await pool.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM rent_stats WHERE ward_code = '13113'`,
+      );
+      const beforeCount = Number(rentBefore[0]?.count ?? "0");
+      await pool.query(
+        `INSERT INTO rent_stats (ward_code, period, source, rent_per_sqm_yen, management_fee_yen, sample_count)
+         VALUES ('13113', 'test-fixture-period', 'test-fixture-source', 3000, 5000, 42)`,
+      );
+      const expectedCount = beforeCount + 1;
+
+      const before = await snapshotCounts(pool);
+
+      // This wards file drops 13113 entirely — it would otherwise be
+      // deleted as "no longer seen this run".
+      const droppedArgs: ImportMlitArgs = {
+        ...GOOD_ARGS,
+        wardsPath: fixturePath("wards-dropped-shibuya.geojson"),
+      };
+
+      await expect(
+        runImport({ source: "mlit", pool }, (client) => runMlitImport(client, droppedArgs)),
+      ).rejects.toThrowError(
+        new RegExp(`ward 13113 still has ${expectedCount} rent_stats row\\(s\\)`),
+      );
+
+      // The whole transaction rolled back: wards/stations/etc. are exactly
+      // as they were, and the rent_stats rows are untouched.
+      const after = await snapshotCounts(pool);
+      expect(after).toEqual(before);
+      const { rows: rentAfter } = await pool.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM rent_stats WHERE ward_code = '13113'`,
+      );
+      expect(Number(rentAfter[0]?.count)).toBe(expectedCount);
+
+      const { rows: wardRows } = await pool.query<{ ward_code: string }>(
+        `SELECT ward_code FROM wards WHERE ward_code = '13113'`,
+      );
+      expect(wardRows).toHaveLength(1);
+
+      await pool.query(
+        `DELETE FROM rent_stats WHERE ward_code = '13113' AND source = 'test-fixture-source'`,
+      );
+    },
+  );
 });
 
 describe("import:mlit", () => {
