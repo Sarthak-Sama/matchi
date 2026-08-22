@@ -1,0 +1,73 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.1 (fixture, hand-authored — not a real Overpass response)",
+  "osm3s": {
+    "timestamp_osm_base": "2026-06-01T12:00:00Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+    {
+      "type": "node",
+      "id": 1001,
+      "lat": 35.6581,
+      "lon": 139.7017,
+      "tags": { "shop": "supermarket", "name": "Fixture Supermarket" }
+    },
+    {
+      "type": "node",
+      "id": 1002,
+      "lat": 35.6590,
+      "lon": 139.7005,
+      "tags": { "shop": "convenience", "name": "Fixture Convenience" }
+    },
+    {
+      "type": "way",
+      "id": 2001,
+      "center": { "lat": 35.6595, "lon": 139.7030 },
+      "nodes": [20011, 20012, 20013, 20014, 20011],
+      "tags": { "shop": "bakery", "name": "Fixture Bakery" }
+    },
+    {
+      "type": "way",
+      "id": 2002,
+      "center": { "lat": 35.6602, "lon": 139.7041 },
+      "nodes": [20021, 20022, 20023, 20024, 20021],
+      "tags": { "amenity": "cafe", "name": "Fixture Cafe" }
+    },
+    {
+      "type": "relation",
+      "id": 3001,
+      "center": { "lat": 35.6611, "lon": 139.7052 },
+      "members": [
+        { "type": "way", "ref": 30011, "role": "outer" },
+        { "type": "way", "ref": 30012, "role": "inner" }
+      ],
+      "tags": { "amenity": "restaurant", "name": "Fixture Restaurant Complex" }
+    },
+    {
+      "type": "relation",
+      "id": 3002,
+      "center": { "lat": 35.6620, "lon": 139.7063 },
+      "members": [{ "type": "way", "ref": 30021, "role": "outer" }],
+      "tags": { "amenity": "pub", "name": "Fixture Pub" }
+    },
+    {
+      "type": "way",
+      "id": 2003,
+      "nodes": [20031, 20032, 20033],
+      "geometry": [
+        { "lat": 35.6570, "lon": 139.7000 },
+        { "lat": 35.6580, "lon": 139.7020 },
+        { "lat": 35.6590, "lon": 139.7040 }
+      ],
+      "tags": { "highway": "primary", "name": "Fixture Avenue" }
+    },
+    {
+      "type": "node",
+      "id": 1003,
+      "lat": 35.6560,
+      "lon": 139.6990,
+      "tags": { "shop": "hairdresser", "name": "Fixture Hair Salon" }
+    }
+  ]
+}
