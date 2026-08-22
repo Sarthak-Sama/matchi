@@ -292,3 +292,37 @@ export const MANAGEMENT_FEE_YEN_MAX = 50_000;
  * infers from the numbers.
  */
 export const TSUBO_TO_SQM = 3.3058;
+
+// ---------------------------------------------------------------------------
+// OSM import (Task 13's `import:osm`)
+// ---------------------------------------------------------------------------
+
+/**
+ * The attribution OpenStreetMap's licence (ODbL) requires whenever data
+ * derived from OSM is displayed or otherwise used. `import:osm` prints this
+ * on every run (success or failure) — this is a licence obligation, not a
+ * nicety, so it must not be gated behind a successful write.
+ */
+export const OSM_ATTRIBUTION = "© OpenStreetMap contributors";
+
+/**
+ * Bounding box `import:osm --download` queries Overpass with, expressed as
+ * `[south, west, north, east]` (Overpass QL's own bbox argument order),
+ * approximating the extent of Tokyo's 23 special wards. This is a
+ * spec-ish constant, not a physical/measured one: the true ward boundary
+ * is the irregular polygon in `wards.geom` (from `import:mlit`), not a
+ * rectangle. A rectangular bbox necessarily overshoots the real boundary
+ * on every side (pulling in some POIs/roads just outside the 23 wards) —
+ * acceptable here because Overpass's own per-element tag filters are the
+ * real precision, and a slightly generous bbox costs a few unwanted rows,
+ * not incorrect ones. Values: south 35.50, west 139.56, north 35.82, east
+ * 139.92 — chosen to comfortably contain every special ward (Ota's
+ * southern tip, Nerima/Itabashi's western and northern edges, Edogawa's
+ * eastern edge) with margin, not tuned to any specific source.
+ */
+export const TOKYO_23_WARDS_BBOX = {
+  south: 35.5,
+  west: 139.56,
+  north: 35.82,
+  east: 139.92,
+} as const;

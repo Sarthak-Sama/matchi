@@ -1,0 +1,22 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.1 (fixture, hand-authored — not a real Overpass response)",
+  "osm3s": {
+    "timestamp_osm_base": "2026-06-01T12:00:00Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+    {
+      "type": "node",
+      "id": 1001,
+      "lat": 35.6581,
+      "lon": 139.7017,
+      "tags": { "shop": "supermarket", "name": "Fixture Supermarket" }
+    },
+    {
+      "type": "node",
+      "id": 9001,
+      "tags": { "shop": "convenience", "name": "Fixture Convenience Missing Coordinates" }
+    }
+  ]
+}
