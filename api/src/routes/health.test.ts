@@ -7,24 +7,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { buildApp } from "../app.js";
-import type { Config } from "../config.js";
 import type { DbPool } from "../db.js";
-
-function testConfig(): Config {
-  return {
-    DATABASE_URL: "postgresql://tokyo:tokyo@localhost:5432/tokyo_test",
-    PORT: 4000,
-    HOST: "0.0.0.0",
-    LOG_LEVEL: "silent",
-    CORS_ORIGIN: "*",
-    NODE_ENV: "test",
-  };
-}
+import { emptyGraphs, testConfig } from "../test-support/fixtures.js";
 
 describe("GET /health", () => {
   it("returns 200 with status ok when the database responds", async () => {
     const pool: DbPool = { query: vi.fn().mockResolvedValue({ rows: [{ "?column?": 1 }] }) };
-    const app = buildApp({ config: testConfig(), pool });
+    const app = buildApp({ config: testConfig(), pool, graphs: emptyGraphs() });
 
     const response = await app.inject({ method: "GET", url: "/health" });
     await app.close();
@@ -48,7 +37,7 @@ describe("GET /health", () => {
 
   it("returns 503 with status degraded when the database query rejects", async () => {
     const pool: DbPool = { query: vi.fn().mockRejectedValue(new Error("connection refused")) };
-    const app = buildApp({ config: testConfig(), pool });
+    const app = buildApp({ config: testConfig(), pool, graphs: emptyGraphs() });
 
     const response = await app.inject({ method: "GET", url: "/health" });
     await app.close();

@@ -9,19 +9,8 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { buildApp } from "./app.js";
-import type { Config } from "./config.js";
 import type { DbPool } from "./db.js";
-
-function testConfig(): Config {
-  return {
-    DATABASE_URL: "postgresql://tokyo:tokyo@localhost:5432/tokyo_test",
-    PORT: 4000,
-    HOST: "0.0.0.0",
-    LOG_LEVEL: "silent",
-    CORS_ORIGIN: "*",
-    NODE_ENV: "test",
-  };
-}
+import { emptyGraphs, testConfig } from "./test-support/fixtures.js";
 
 function testPool(): DbPool {
   return { query: vi.fn().mockResolvedValue({ rows: [] }) };
@@ -29,7 +18,7 @@ function testPool(): DbPool {
 
 describe("error handler", () => {
   it("maps a Zod validation failure to 400 VALIDATION_ERROR with flattened details and no stack trace", async () => {
-    const app = buildApp({ config: testConfig(), pool: testPool() });
+    const app = buildApp({ config: testConfig(), pool: testPool(), graphs: emptyGraphs() });
     // A real ZodError, thrown from a route handler exactly like a `/v1`
     // route validating a request body would.
     app.get("/__test/zod-error", async () => {
@@ -55,7 +44,7 @@ describe("error handler", () => {
   });
 
   it("maps an unexpected error to 500 INTERNAL_ERROR without leaking the message or a stack trace", async () => {
-    const app = buildApp({ config: testConfig(), pool: testPool() });
+    const app = buildApp({ config: testConfig(), pool: testPool(), graphs: emptyGraphs() });
     app.get("/__test/boom", async () => {
       throw new Error("boom: sensitive internal detail");
     });

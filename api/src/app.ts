@@ -13,11 +13,26 @@ import { ZodError } from "zod";
 
 import type { Config } from "./config.js";
 import type { DbPool } from "./db.js";
+import type { TransitGraphs } from "./domain/transit/graph.js";
+import { registerDataStatusRoute } from "./routes/data-status.js";
 import { registerHealthRoute } from "./routes/health.js";
+import { registerNeighborhoodRoute } from "./routes/neighborhoods.js";
+import { registerOptimizeRoute } from "./routes/optimize.js";
+import { registerStationsRoute } from "./routes/stations.js";
 
+/**
+ * `graphs` is the pair of in-memory transit graphs built once at startup
+ * (`server.ts`'s `reloadGraph`) — an ADDITIVE extension to `AppDeps`, per
+ * the task-10 brief, not a breaking change to the DI shape Task 4
+ * established. A graph built from zero `rail_edges` rows (both `peak` and
+ * `offpeak` have empty `nodes`) is a valid, well-formed `TransitGraphs`
+ * value, not `null` — `/v1/optimize` itself decides whether to report
+ * `GRAPH_UNAVAILABLE` by checking `nodes.size`.
+ */
 export interface AppDeps {
   config: Config;
   pool: DbPool;
+  graphs: TransitGraphs;
 }
 
 /**
@@ -88,6 +103,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   });
 
   registerHealthRoute(app, { pool: deps.pool });
+  registerStationsRoute(app, deps);
+  registerOptimizeRoute(app, deps);
+  registerNeighborhoodRoute(app, deps);
+  registerDataStatusRoute(app, deps);
 
   return app;
 }

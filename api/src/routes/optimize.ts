@@ -1,0 +1,299 @@
+/**
+ * `POST /v1/optimize` — the integration point for Tasks 6-9: the rent
+ * estimator, the derived PostGIS metrics, the transit graph, and the
+ * scoring engine all meet here for the first time.
+ *
+ * Flow: resolve the destination station -> pick peak/off-peak from
+ * `arrivalTime` -> run ONE `reverseDijkstra` from the destination on the
+ * preloaded in-memory graph -> load `neighborhood_metrics` joined to
+ * `station_groups`/`wards` for every OTHER candidate -> build commute
+ * estimates (with placeholder path names replaced by real ones) -> apply
+ * hard filters -> score -> rank -> return the top 20 plus full
+ * `diagnostics`, the echoed `request`, and `dataVintages`.
+ */
+
+import type { Candidate, LifestyleMetricsInput } from "../domain/scoring.js";
+import {
+  applyHardFilters,
+  rankCandidates,
+  scoreCandidate,
+} from "../domain/scoring.js";
+import type { Confidence, LayoutId, OptimizationRequest, OptimizeResponse } from "@tokyo/shared";
+import { optimizationRequestSchema, optimizeResponseSchema } from "@tokyo/shared";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+
+import type { AppDeps } from "../app.js";
+import { ApiError } from "../app.js";
+import { estimateCommute } from "../domain/transit/commute.js";
+import { reverseDijkstra } from "../domain/transit/dijkstra.js";
+import { resolvePeriod } from "../domain/transit/period.js";
+import { loadLatestImportRuns } from "./lib/data-vintages.js";
+import { assertDevResponseShape } from "./lib/dev-response-check.js";
+import { recomputeRentForLayout } from "./lib/rent.js";
+import type { NameLookups } from "./lib/station-names.js";
+import { loadNameLookups, resolvePathNames } from "./lib/station-names.js";
+import { parseOrThrow } from "./lib/validation.js";
+
+const RESULTS_LIMIT = 20;
+
+/**
+ * `neighborhood_metrics` has no per-axis confidence column (only
+ * `rent_confidence`) — see `domain/scoring.ts`'s `LifestyleMetricsInput`
+ * doc comment. "medium" is the honest, deliberately-neutral bundle
+ * confidence for these normalized/derived metrics: they come from real
+ * imported source data (OSM POIs, flood/zoning polygons) run through a
+ * documented, deterministic normalization, but with no per-station
+ * verification signal to justify "high", and no reason to assume they're
+ * unreliable either.
+ */
+const LIFESTYLE_BUNDLE_CONFIDENCE: Confidence = "medium";
+
+// ---------------------------------------------------------------------------
+// Candidate query
+// ---------------------------------------------------------------------------
+
+const CANDIDATES_SQL = `
+  SELECT
+    nm.station_group_id AS "stationGroupId",
+    sg.name_en AS "nameEn",
+    sg.name_ja AS "nameJa",
+    nm.ward_code AS "wardCode",
+    w.name_en AS "wardNameEn",
+    w.name_ja AS "wardNameJa",
+    ST_Y(sg.point) AS lat,
+    ST_X(sg.point) AS lon,
+    nm.rent_per_sqm_yen AS "rentPerSqmYen",
+    nm.management_fee_yen AS "managementFeeYen",
+    nm.land_price_multiplier AS "landPriceMultiplier",
+    nm.land_price_point_count AS "landPricePointCount",
+    nm.land_price_used_fallback AS "landPriceUsedFallback",
+    nm.rent_source AS "rentSource",
+    nm.rent_source_period AS "rentSourcePeriod",
+    nm.norm_flood_safety AS "normFloodSafety",
+    nm.norm_amenity_supermarket AS "normAmenitySupermarket",
+    nm.norm_amenity_restaurant AS "normAmenityRestaurant",
+    nm.norm_quietness AS "normQuietness",
+    nm.supermarket_count AS "supermarketCount",
+    nm.restaurant_count AS "restaurantCount",
+    nm.cafe_count AS "cafeCount",
+    nm.derived_at AS "derivedAt"
+  FROM neighborhood_metrics nm
+  JOIN station_groups sg ON sg.station_group_id = nm.station_group_id
+  LEFT JOIN wards w ON w.ward_code = nm.ward_code
+  WHERE nm.station_group_id != $1
+`;
+
+interface CandidateRow {
+  readonly stationGroupId: string;
+  readonly nameEn: string;
+  readonly nameJa: string;
+  readonly wardCode: string | null;
+  readonly wardNameEn: string | null;
+  readonly wardNameJa: string | null;
+  readonly lat: number;
+  readonly lon: number;
+  readonly rentPerSqmYen: number | null;
+  readonly managementFeeYen: number | null;
+  readonly landPriceMultiplier: number | null;
+  readonly landPricePointCount: number | null;
+  readonly landPriceUsedFallback: boolean | null;
+  readonly rentSource: string | null;
+  readonly rentSourcePeriod: string | null;
+  readonly normFloodSafety: number | null;
+  readonly normAmenitySupermarket: number | null;
+  readonly normAmenityRestaurant: number | null;
+  readonly normQuietness: number | null;
+  readonly supermarketCount: number;
+  readonly restaurantCount: number;
+  readonly cafeCount: number;
+  readonly derivedAt: Date;
+}
+
+/**
+ * Builds one `Candidate` from a joined DB row, or returns `null` (logging a
+ * `warn`) when the row is missing data no scoring formula can honestly
+ * paper over.
+ *
+ * Two such gaps are reachable with real imported data even though the
+ * current seed never triggers them (see task-10-brief.md, "four things"
+ * item 4): a station whose ward has no `rent_stats` row at all (so
+ * `derive`'s rent step warn-and-skipped it, leaving every rent column
+ * null), and a station missing a `ward_code` join. Both are DELIBERATELY
+ * excluded from the candidate pool entirely — before `applyHardFilters`
+ * ever sees them, so they never inflate `candidatesConsidered` or get
+ * miscounted under `excludedByRent` — rather than silently scored as if
+ * rent were free (which `scoreAffordability` would do with a fabricated
+ * `0` rent) or crashing the whole request. A structured `warn` log is the
+ * "clear diagnostic" the brief asks for; the response schema (`@tokyo/shared`,
+ * fixed by Task 2) has no field to carry a per-station data-quality note,
+ * so this is a server-side signal, not a client-visible one.
+ */
+function buildCandidate(
+  row: CandidateRow,
+  dijkstraResult: ReturnType<typeof reverseDijkstra>,
+  layout: LayoutId,
+  currentYear: number,
+  nameLookups: NameLookups,
+  log: FastifyBaseLogger,
+): Candidate | null {
+  if (row.wardCode === null || row.wardNameEn === null || row.wardNameJa === null) {
+    log.warn(
+      { stationGroupId: row.stationGroupId },
+      "excluding candidate from /v1/optimize: no ward assignment",
+    );
+    return null;
+  }
+
+  if (
+    row.rentPerSqmYen === null ||
+    row.managementFeeYen === null ||
+    row.landPriceMultiplier === null ||
+    row.landPricePointCount === null ||
+    row.landPriceUsedFallback === null ||
+    row.rentSource === null ||
+    row.rentSourcePeriod === null
+  ) {
+    log.warn(
+      { stationGroupId: row.stationGroupId, wardCode: row.wardCode },
+      "excluding candidate from /v1/optimize: incomplete rent inputs (ward likely has no rent_stats row)",
+    );
+    return null;
+  }
+
+  if (
+    row.normFloodSafety === null ||
+    row.normAmenitySupermarket === null ||
+    row.normAmenityRestaurant === null ||
+    row.normQuietness === null
+  ) {
+    log.warn(
+      { stationGroupId: row.stationGroupId },
+      "excluding candidate from /v1/optimize: incomplete normalized lifestyle metrics",
+    );
+    return null;
+  }
+
+  const rent = recomputeRentForLayout(
+    {
+      rentPerSqmYen: row.rentPerSqmYen,
+      managementFeeYen: row.managementFeeYen,
+      landPriceMultiplier: row.landPriceMultiplier,
+      landPricePointCount: row.landPricePointCount,
+      landPriceUsedFallback: row.landPriceUsedFallback,
+      rentSource: row.rentSource,
+      rentSourcePeriod: row.rentSourcePeriod,
+    },
+    layout,
+    currentYear,
+  );
+
+  const rawCommute = estimateCommute(dijkstraResult, row.stationGroupId);
+  const commute = rawCommute
+    ? { ...rawCommute, path: resolvePathNames(rawCommute.path, nameLookups) }
+    : null;
+
+  const lifestyle: LifestyleMetricsInput = {
+    normFloodSafety: row.normFloodSafety,
+    normAmenitySupermarket: row.normAmenitySupermarket,
+    normAmenityRestaurant: row.normAmenityRestaurant,
+    normQuietness: row.normQuietness,
+    supermarketCount: row.supermarketCount,
+    restaurantCount: row.restaurantCount,
+    cafeCount: row.cafeCount,
+    sourceDate: row.derivedAt.toISOString(),
+    confidence: LIFESTYLE_BUNDLE_CONFIDENCE,
+  };
+
+  return {
+    stationGroupId: row.stationGroupId,
+    nameEn: row.nameEn,
+    nameJa: row.nameJa,
+    wardCode: row.wardCode,
+    wardNameEn: row.wardNameEn,
+    wardNameJa: row.wardNameJa,
+    centroid: { lat: row.lat, lon: row.lon },
+    rent,
+    commute,
+    lifestyle,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Route
+// ---------------------------------------------------------------------------
+
+export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void {
+  app.post("/v1/optimize", async (request, reply) => {
+    const body: OptimizationRequest = parseOrThrow(optimizationRequestSchema, request.body);
+
+    const graphIsEmpty = deps.graphs.peak.nodes.size === 0 && deps.graphs.offpeak.nodes.size === 0;
+    if (graphIsEmpty) {
+      throw new ApiError(
+        503,
+        "GRAPH_UNAVAILABLE",
+        "The transit graph has not been loaded yet — no commute estimates are available.",
+      );
+    }
+
+    const [nameLookups, candidateRowsResult] = await Promise.all([
+      loadNameLookups(deps.pool),
+      deps.pool.query(CANDIDATES_SQL, [body.destinationStationGroupId]) as Promise<{
+        rows: CandidateRow[];
+      }>,
+    ]);
+
+    if (!nameLookups.stationNames.has(body.destinationStationGroupId)) {
+      throw new ApiError(
+        404,
+        "STATION_NOT_FOUND",
+        `Unknown destination station "${body.destinationStationGroupId}"`,
+      );
+    }
+
+    const period = resolvePeriod(body.arrivalTime);
+    const graph = period === "peak" ? deps.graphs.peak : deps.graphs.offpeak;
+    const dijkstraResult = reverseDijkstra(graph, body.destinationStationGroupId);
+
+    const currentYear = new Date().getFullYear();
+    const candidates: Candidate[] = [];
+    for (const row of candidateRowsResult.rows) {
+      const candidate = buildCandidate(
+        row,
+        dijkstraResult,
+        body.layout,
+        currentYear,
+        nameLookups,
+        request.log,
+      );
+      if (candidate) candidates.push(candidate);
+    }
+
+    const { feasible, diagnostics } = applyHardFilters(candidates, body);
+    const scored = feasible.map((candidate) => scoreCandidate(candidate, body));
+    const results = rankCandidates(scored).slice(0, RESULTS_LIMIT);
+
+    const latestRuns = await loadLatestImportRuns(deps.pool);
+    const dataVintages = latestRuns.map((run) => ({
+      source: run.source,
+      sourceUpdatedAt: run.sourceUpdatedAt,
+      importedAt: run.importedAt,
+    }));
+
+    const responseBody: OptimizeResponse = {
+      results,
+      diagnostics,
+      request: body,
+      dataVintages,
+    };
+
+    assertDevResponseShape(
+      deps.config,
+      request.log,
+      optimizeResponseSchema,
+      responseBody,
+      "POST /v1/optimize",
+    );
+
+    reply.status(200).send(responseBody);
+  });
+}
