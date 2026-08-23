@@ -50,6 +50,7 @@ import { writeTransferEdges } from "./import-transit/transfer-edges.js";
 import {
   computeAdjacentPairStats,
   computeHeadways,
+  directionKey,
   expectedWaitFromHeadway,
   median,
 } from "./import-transit/travel-stats.js";
@@ -189,6 +190,55 @@ describe("expectedWaitFromHeadway", () => {
   it("clamps to MAX_EXPECTED_WAIT_MINUTES for a very long headway", () => {
     expect(expectedWaitFromHeadway(40)).toBe(MAX_EXPECTED_WAIT_MINUTES);
     expect(MAX_EXPECTED_WAIT_MINUTES).toBe(15);
+  });
+});
+
+describe("directionKey / pairMapKey collision guard", () => {
+  it("directionKey does not collide across a naive-concatenation boundary shift", () => {
+    // Reviewer-supplied collision example: "AB"+"C" vs "A"+"BC" both
+    // concatenate to "ABC" with no separator between the two components.
+    const a = directionKey("AB", "C");
+    const b = directionKey("A", "BC");
+    expect(a).not.toBe(b);
+  });
+
+  it("computeAdjacentPairStats keeps two boundary-shifted (route, firstStop, from, to) tuples distinct", () => {
+    // Both concatenate to "ABCCX" with no separator:
+    //   routeId="AB"  + firstStopId="C"  + fromStopId="C" + toStopId="X"
+    //   routeId="A"   + firstStopId="BC" + fromStopId="C" + toStopId="X"
+    // Trip 1: a 2-stop trip, so its own first stop IS the "C" in the pair.
+    const trip1 = { tripId: "t1", routeId: "AB", serviceId: "s" };
+    const stopTimes1 = [
+      { tripId: "t1", stopId: "C", stopSequence: 1, arrivalMinutes: 360, departureMinutes: 360 },
+      { tripId: "t1", stopId: "X", stopSequence: 2, arrivalMinutes: 370, departureMinutes: 370 }, // travel = 10
+    ];
+    // Trip 2: a 3-stop trip whose first stop is "BC", with the pair of
+    // interest (C -> X) as its second adjacent pair.
+    const trip2 = { tripId: "t2", routeId: "A", serviceId: "s" };
+    const stopTimes2 = [
+      { tripId: "t2", stopId: "BC", stopSequence: 1, arrivalMinutes: 360, departureMinutes: 360 },
+      { tripId: "t2", stopId: "C", stopSequence: 2, arrivalMinutes: 365, departureMinutes: 365 },
+      { tripId: "t2", stopId: "X", stopSequence: 3, arrivalMinutes: 367, departureMinutes: 367 }, // travel = 2
+    ];
+
+    const stopTimesByTrip = new Map([
+      ["t1", stopTimes1],
+      ["t2", stopTimes2],
+    ]);
+    const stats = computeAdjacentPairStats([trip1, trip2], stopTimesByTrip);
+
+    const fromAB = stats.find((s) => s.routeId === "AB" && s.firstStopId === "C" && s.fromStopId === "C" && s.toStopId === "X");
+    const fromA = stats.find((s) => s.routeId === "A" && s.firstStopId === "BC" && s.fromStopId === "C" && s.toStopId === "X");
+
+    // If the two tuples collided (no separator), there would be exactly ONE
+    // merged entry with offpeakMinutes = median([10, 2]) = 6 and a sample
+    // count of 2 instead of two distinct single-sample entries.
+    expect(fromAB).toBeDefined();
+    expect(fromA).toBeDefined();
+    expect(fromAB?.offpeakMinutes).toBe(10);
+    expect(fromAB?.offpeakSampleCount).toBe(1);
+    expect(fromA?.offpeakMinutes).toBe(2);
+    expect(fromA?.offpeakSampleCount).toBe(1);
   });
 });
 
@@ -576,6 +626,32 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
        WHERE table_schema = 'public' AND table_name IN ('trips', 'stop_times', 'calendar', 'calendar_dates')`,
     );
     expect(rows).toEqual([]);
+  });
+
+  it("aborts (and rolls back) when this run's own mode produces zero ride edges, even though the whole-table graph is otherwise healthy", async () => {
+    // Freshly seeded rail_lines all have geom IS NULL (seed.ts never sets
+    // it — see this file's own buildLineGeometryFromEdges helper, used
+    // ONLY by the next test, which runs after this one and mutates geom).
+    // --from-topology must therefore skip every line and contribute 0 ride
+    // edges of its own — validateGraph's whole-table check alone would NOT
+    // catch this (44 seed edges already exist), so this is exactly the
+    // "run silently contributes nothing" case the hard failure guards.
+    const { rows: geomRows } = await pool.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM rail_lines WHERE geom IS NOT NULL`,
+    );
+    expect(Number(geomRows[0]?.count)).toBe(0);
+
+    const args: ImportTransitArgs = { fromTopology: true };
+    await expect(
+      runImport({ source: "mlit-topology", pool }, (client) => runTransitImport(client, args)),
+    ).rejects.toThrow(/produced 0 ride edges/);
+
+    // Transaction rolled back: no mlit-topology row was left behind, and
+    // the pre-existing seed graph is untouched.
+    const { rows: afterRows } = await pool.query<{ source: string; count: string }>(
+      `SELECT source, count(*)::text AS count FROM rail_edges GROUP BY source`,
+    );
+    expect(afterRows).toEqual([{ source: "seed", count: "44" }]);
   });
 
   it("--from-topology derives low-confidence edges with plausible minutes over the seeded rail lines", async () => {

@@ -10,7 +10,7 @@
  * at each of the 4 named hubs (Shibuya, Shinjuku, Meguro, Nakameguro).
  */
 
-import { TRANSFER_PENALTY_MINUTES, PEAK_WAIT_MINUTES, OFFPEAK_WAIT_MINUTES } from "@tokyo/shared";
+import { PEAK_WAIT_MINUTES, OFFPEAK_WAIT_MINUTES } from "@tokyo/shared";
 import type { Confidence } from "@tokyo/shared";
 
 export interface RailLineFixture {
@@ -304,7 +304,14 @@ const rideEdges: RailEdgeFixture[] = RIDES.flatMap((seg): RailEdgeFixture[] => [
 
 // Same-station transfer edges (self-loops) at the 4 named hubs: the time
 // cost of switching lines within a station_group that dedupes multiple
-// physical platforms into one row.
+// physical platforms into one row. `travel_minutes` is 0, NOT
+// TRANSFER_PENALTY_MINUTES: the router (api/src/domain/transit/
+// dijkstra.ts's `relax`) already adds TRANSFER_PENALTY_MINUTES for every
+// `transfer`-type edge it walks, unconditionally, on top of whatever this
+// row's own travel_minutes says. Storing the penalty here too used to
+// double-charge it (10 minutes instead of 5) on every journey through one
+// of these hubs — see import-transit/transfer-edges.ts's identical note,
+// which is what this fixture should have matched from the start.
 const TRANSFER_HUBS = ["sg-shibuya", "sg-shinjuku", "sg-meguro", "sg-nakameguro"] as const;
 
 const transferEdges: RailEdgeFixture[] = TRANSFER_HUBS.map((hub) => ({
@@ -312,8 +319,8 @@ const transferEdges: RailEdgeFixture[] = TRANSFER_HUBS.map((hub) => ({
   to_station_group_id: hub,
   rail_line_id: null,
   edge_type: "transfer",
-  peak_travel_minutes: TRANSFER_PENALTY_MINUTES,
-  offpeak_travel_minutes: TRANSFER_PENALTY_MINUTES,
+  peak_travel_minutes: 0,
+  offpeak_travel_minutes: 0,
   peak_wait_minutes: 0,
   offpeak_wait_minutes: 0,
   confidence: "high",
