@@ -39,8 +39,16 @@
  * (bidirectional `travel_minutes = 0` transfer edges between any two
  * DIFFERENT `station_groups` within `STATION_MERGE_RADIUS_M` — the
  * `TRANSFER_PENALTY_MINUTES` is applied once, by the router, never stored
- * here) and `validateGraph` (aborts if the resulting `rail_edges` graph is
- * too sparse, or too many `station_groups` end up with no edge at all).
+ * here) and `validateGraph` (aborts if the WHOLE `rail_edges` table's
+ * graph is too sparse, or too many `station_groups` end up with no edge at
+ * all — a check on the table as a whole, not this run's own contribution).
+ * Before either of those runs, `runTransitImport` separately aborts if
+ * THIS RUN ITSELF wrote zero ride edges: `validateGraph`'s whole-table
+ * check alone would let a run that mapped zero usable lines/routes still
+ * report success on the strength of leftover seed/prior-import data, even
+ * though `writeRideEdges`'s delete-then-upsert-on-this-source pattern just
+ * silently wiped this source's own prior edges and replaced them with
+ * nothing.
  *
  * `rail_edges` ride rows are upserted on the table's own natural key
  * (`from_station_group_id, to_station_group_id, rail_line_id, edge_type`),
@@ -343,13 +351,45 @@ export async function runTransitImport(
     warnings = result.warnings;
   }
 
+  // Print diagnostics BEFORE the zero-edges check below can abort — the
+  // per-line/per-route/per-stop warnings collected above are exactly what
+  // explains a zero-edge run, and should still reach the console even
+  // though the transaction is about to be rolled back.
+  for (const warning of warnings) {
+    console.warn(`import:transit — ${warning}`);
+  }
+
+  // `validateGraph` below checks the WHOLE rail_edges table's health, not
+  // this run's own contribution — a run that maps zero usable lines/routes
+  // would otherwise still pass as long as leftover seed/prior-import data
+  // keeps the graph above MIN_RAIL_EDGES, and (combined with
+  // writeRideEdges's delete-then-upsert-on-this-source pattern) could wipe
+  // its own source's prior edges, contribute nothing, and still exit 0 as
+  // "complete". Treat a run's own zero-edge contribution as a hard failure
+  // instead, naming the likely cause and remedy for each mode.
+  if (rideEdgesWritten === 0) {
+    const causeAndRemedy =
+      source === GTFS_SOURCE
+        ? "every GTFS route was unmapped to an existing rail_lines row, or every adjacent-stop " +
+          "pair involved an unmatched stop (see the warnings above for which). Remedy: run " +
+          "import:mlit first so rail_lines/station_groups exist for this feed's routes/stops to " +
+          "resolve against, or check that route_id/route_short_name/route_long_name align with " +
+          "rail_lines.name_ja/name_en."
+        : "every candidate rail_lines row was skipped (see the warnings above — most likely every " +
+          "line has geom IS NULL, or no station_groups fall within STATION_MERGE_RADIUS_M of any " +
+          "line's geometry). Remedy: run import:mlit first to populate rail_lines.geom, or use " +
+          "--gtfs instead of --from-topology.";
+    throw new Error(
+      `import:transit — this run (source='${source}') produced 0 ride edges. Aborting rather than ` +
+        `report success while silently deleting this source's prior edges and contributing ` +
+        `nothing. Likely cause: ${causeAndRemedy}`,
+    );
+  }
+
   const transferEdgesWritten = await writeTransferEdges(client, source, sourceUpdatedAt);
 
   const graphSummary = await validateGraph(client, { minEdges: MIN_RAIL_EDGES });
 
-  for (const warning of warnings) {
-    console.warn(`import:transit — ${warning}`);
-  }
   console.log(
     `import:transit — mode=${source} ride_edges=${String(rideEdgesWritten)} ` +
       `transfer_edges=${String(transferEdgesWritten)} new_station_refs=${String(newStationRefsWritten)} ` +

@@ -46,15 +46,21 @@ export function median(values: readonly number[]): number {
 }
 
 /**
- * Joins a route id and a first-stop id into one map key using a \u0001
- * control-character separator that cannot appear in a real GTFS id
- * (mirrors `api/src/domain/transit/dijkstra.ts`'s `stateKey`/
- * `KEY_SEPARATOR` pattern, for the same reason: naive concatenation
- * without a separator can collide between two different id pairs, e.g.
- * routeId "AB" + firstStopId "C" vs routeId "A" + firstStopId "BC").
+ * A control character that cannot appear in a real GTFS/`rail_edges` id,
+ * used to join the map-key components below so naive concatenation can
+ * never collide between two different id tuples (e.g. routeId "AB" +
+ * firstStopId "C" vs routeId "A" + firstStopId "BC" would otherwise both
+ * produce "ABC"). Written as the literal `\u0001` escape (never a raw
+ * embedded control byte, which is invisible in a diff/editor and
+ * indistinguishable from no separator at all) — mirrors
+ * `api/src/domain/transit/dijkstra.ts`'s `KEY_SEPARATOR` constant
+ * exactly, including this same reasoning in its own doc comment.
  */
+const KEY_SEPARATOR = "\u0001";
+
+/** Joins a route id and a first-stop id into one map key (see `KEY_SEPARATOR`). */
 export function directionKey(routeId: string, firstStopId: string): string {
-  return `${routeId}${firstStopId}`;
+  return `${routeId}${KEY_SEPARATOR}${firstStopId}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,8 +81,9 @@ export interface AdjacentPairStat extends AdjacentPairKey {
   readonly offpeakSampleCount: number;
 }
 
+/** Joins the 4 `AdjacentPairKey` components into one map key (see `KEY_SEPARATOR`). */
 function pairMapKey(k: AdjacentPairKey): string {
-  return `${k.routeId}${k.firstStopId}${k.fromStopId}${k.toStopId}`;
+  return `${k.routeId}${KEY_SEPARATOR}${k.firstStopId}${KEY_SEPARATOR}${k.fromStopId}${KEY_SEPARATOR}${k.toStopId}`;
 }
 
 /**
