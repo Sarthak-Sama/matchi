@@ -532,7 +532,12 @@ describe("GTFS bulk tables are never persisted", () => {
 
   it("no migration creates a trips/stop_times/calendar/calendar_dates table", () => {
     const migrationsDir = path.resolve(__dirname, "../../db/migrations");
-    const files = ["0001_init.sql", "0002_geography_indexes.sql", "0003_land_price_used_fallback.sql"];
+    const files = [
+      "0001_init.sql",
+      "0002_geography_indexes.sql",
+      "0003_land_price_used_fallback.sql",
+      "0004_lifestyle_metrics.sql",
+    ];
     const forbidden = /CREATE\s+TABLE\s+(trips|stop_times|calendar|calendar_dates)\b/i;
     for (const file of files) {
       const content = readFileSync(path.join(migrationsDir, file), "utf8");

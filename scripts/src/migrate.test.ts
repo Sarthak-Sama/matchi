@@ -119,8 +119,19 @@ const EXPECTED_COLUMNS: Record<string, readonly string[]> = {
     "source",
     "source_updated_at",
     "imported_at",
+    "cuisine",
+    "opening_hours",
   ],
   major_roads: ["id", "name", "road_class", "geom", "source", "source_updated_at", "imported_at"],
+  green_spaces: [
+    "id",
+    "name",
+    "leisure_class",
+    "geom",
+    "source",
+    "source_updated_at",
+    "imported_at",
+  ],
   neighborhood_metrics: [
     "station_group_id",
     "ward_code",
@@ -153,6 +164,15 @@ const EXPECTED_COLUMNS: Record<string, readonly string[]> = {
     "norm_quietness",
     "source_dates",
     "derived_at",
+    "health_count",
+    "cuisine_variety_count",
+    "late_night_count",
+    "green_space_share",
+    "norm_amenity_convenience",
+    "norm_amenity_cuisine_variety",
+    "norm_green_space",
+    "norm_amenity_late_night",
+    "norm_amenity_health",
   ],
 };
 
@@ -171,6 +191,9 @@ const EXPECTED_GIST_INDEXES = [
   // used by the planner for a geography-cast ST_DWithin predicate.
   "pois_point_geog_gist_idx",
   "land_prices_point_geog_gist_idx",
+  // Added in 0004_lifestyle_metrics.sql (Task 2).
+  "green_spaces_geom_gist_idx",
+  "station_groups_point_geog_gist_idx",
 ];
 
 describe.runIf(Boolean(databaseUrl))("migrate", () => {
@@ -227,6 +250,7 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
       "0001_init.sql",
       "0002_geography_indexes.sql",
       "0003_land_price_used_fallback.sql",
+      "0004_lifestyle_metrics.sql",
     ]);
   });
 
@@ -287,7 +311,7 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
     const { rows } = await adminPool.query<{ filename: string }>(
       `SELECT filename FROM "${scratchSchema}".schema_migrations`,
     );
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
   });
 });
 
