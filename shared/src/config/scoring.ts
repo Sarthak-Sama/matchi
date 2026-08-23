@@ -60,6 +60,19 @@ export const LAND_PRICE_MULTIPLIER_MAX = 1.15;
 export const MIN_LAND_PRICE_POINTS = 3;
 
 /**
+ * `pnpm derive`'s rent step warns loudly when the share of processed
+ * stations that hit the land-price fallback (`usedFallback: true` from
+ * `computeLandPriceMultiplier`) is at or above this fraction. A high share
+ * is the signature of a systemic land-price data problem (e.g. `import:mlit`
+ * classified zero `land_prices` rows as `'residential'` because the real
+ * MLIT export uses a different field code or category spelling than
+ * `RESIDENTIAL_USE_TOKENS` recognizes — see `import-mlit/land-prices.ts`) —
+ * as opposed to a handful of individually land-price-poor catchments, which
+ * is normal and expected even with healthy source data.
+ */
+export const LAND_PRICE_FALLBACK_WARN_SHARE = 0.5;
+
+/**
  * A rent stat "vintage" (source period) counts as recent if it is at most
  * this many years older than the current year. Used both to prefer a REINS
  * row over an e-Stat row in `pickRentStat`, and to decide whether

@@ -284,6 +284,10 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
       flood_zones: 2,
     });
 
+    // land-prices.geojson: 2 of 3 rows classify as 'residential' ("住宅" +
+    // "residential"); the third ("commercial") does not.
+    expect((result as MlitImportResult).residentialLandPriceCount).toBe(2);
+
     // Risk called out in the brief: every imported station must have a
     // ward_code assigned via the spatial join (both fixture stations fall
     // inside one of the three imported wards).
@@ -338,6 +342,25 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
       `SELECT source FROM wards WHERE ward_code = '13113'`,
     );
     expect(rows[0]?.source).toBe("mlit");
+  });
+
+  it("reports zero residential land_prices rows and warns loudly when every row is non-residential", async () => {
+    const allCommercialArgs: ImportMlitArgs = {
+      ...GOOD_ARGS,
+      landPricesPath: fixturePath("land-prices-all-commercial.geojson"),
+    };
+
+    const result = (await runImport(
+      { source: "mlit", pool },
+      (client) => runMlitImport(client, allCommercialArgs),
+    )) as MlitImportResult;
+
+    // Asserted on the structured result rather than captured console
+    // output, for the same reason the ward-overwrite test above does —
+    // the warning does print for real (visible in this test's own console
+    // output), but Vitest's console interception makes spying on it
+    // unreliable in this environment.
+    expect(result.residentialLandPriceCount).toBe(0);
   });
 
   it(

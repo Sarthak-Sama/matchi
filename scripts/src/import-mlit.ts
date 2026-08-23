@@ -462,6 +462,15 @@ async function assignWardCodes(
 export interface MlitImportResult extends ImportResult {
   readonly overwrittenDifferentSourceWardCodes: readonly string[];
   readonly stationsWithoutWardCode: number;
+  /**
+   * Of `landPrices.length` rows, how many `classifyLandUseCategory`d to
+   * exactly `'residential'` — the only category `derive`'s rent step reads
+   * (see `scripts/src/derive/rent.ts`). A count of zero here (with a
+   * non-empty `landPrices`) means every station will hit the land-price
+   * fallback and the station land-price term will vanish silently — see
+   * this field's `console.warn` below.
+   */
+  readonly residentialLandPriceCount: number;
 }
 
 export async function runMlitImport(
@@ -509,6 +518,7 @@ export async function runMlitImport(
   rowsImported += wardsResult.rowsWritten;
   rowsImported += await upsertStations(client, stationGroups, sourceUpdatedAt);
   rowsImported += await upsertRailLines(client, railLines, sourceUpdatedAt);
+  const residentialLandPriceCount = landPrices.filter((r) => r.useCategory === "residential").length;
   rowsImported += await replaceLandPrices(client, landPrices, sourceUpdatedAt);
   rowsImported += await replaceZoning(client, zoning, sourceUpdatedAt);
   rowsImported += await replaceFlood(client, flood, sourceUpdatedAt);
@@ -531,12 +541,26 @@ export async function runMlitImport(
           `different source were overwritten: ${wardsResult.overwrittenDifferentSource.join(", ")}`
       : `import:mlit — no existing ward(s) with a different source were overwritten`,
   );
+  console.log(
+    `import:mlit — ${residentialLandPriceCount} of ${landPrices.length} imported land_prices row(s) ` +
+      `classified as 'residential' (the only category derive's rent step reads).`,
+  );
+  if (landPrices.length > 0 && residentialLandPriceCount === 0) {
+    console.warn(
+      `import:mlit — WARNING: 0 of ${landPrices.length} land_prices row(s) classified as 'residential'. ` +
+        `Every station's land-price multiplier will fall back to 1.0 and the station land-price term will ` +
+        `vanish for this ward's rent estimates. This usually means the real L01 export uses a use_category ` +
+        `field code or spelling this script doesn't recognize (see import-mlit/land-prices.ts's ` +
+        `RESIDENTIAL_USE_TOKENS) — check the source file's actual field name/values for use_category.`,
+    );
+  }
 
   return {
     rowsImported,
     sourceUpdatedAt: sourceUpdatedAt ?? undefined,
     overwrittenDifferentSourceWardCodes: wardsResult.overwrittenDifferentSource,
     stationsWithoutWardCode: stationWard.withoutWard,
+    residentialLandPriceCount,
   };
 }
 

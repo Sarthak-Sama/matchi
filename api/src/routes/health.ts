@@ -32,7 +32,7 @@ interface HealthResponseBody {
 }
 
 export function registerHealthRoute(app: FastifyInstance, deps: HealthRouteDeps): void {
-  app.get("/health", async (_request, reply) => {
+  app.get("/health", async (request, reply) => {
     const start = Date.now();
     let reachable: boolean;
     let latencyMs: number | null;
@@ -41,7 +41,8 @@ export function registerHealthRoute(app: FastifyInstance, deps: HealthRouteDeps)
       await deps.pool.query("select 1");
       reachable = true;
       latencyMs = Date.now() - start;
-    } catch {
+    } catch (err) {
+      request.log.warn({ err }, "health check: database unreachable");
       reachable = false;
       latencyMs = null;
     }

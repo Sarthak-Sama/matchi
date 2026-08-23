@@ -300,7 +300,7 @@ export default function Home() {
             <input
               id="monthlyBudgetYen"
               type="number"
-              min={0}
+              min={1}
               max={10_000_000}
               step={1000}
               value={monthlyBudgetYen}
@@ -426,9 +426,11 @@ export default function Home() {
                   Commute — {COMMUTE_LABEL} ({result.commute.confidence} confidence)
                 </p>
                 <p>
-                  Total {result.commute.totalMinutes} min — {result.commute.accessWalkMinutes} min
-                  access walk, {result.commute.railMinutes} min rail, {result.commute.waitMinutes}{" "}
-                  min wait, {result.commute.transferCount} transfer(s)
+                  Total {Math.round(result.commute.totalMinutes)} min —{" "}
+                  {result.commute.accessWalkMinutes} min access walk,{" "}
+                  {Math.round(result.commute.railMinutes)} min rail,{" "}
+                  {Math.round(result.commute.waitMinutes)} min wait, {result.commute.transferCount}{" "}
+                  transfer(s)
                 </p>
               </div>
 

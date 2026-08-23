@@ -36,6 +36,7 @@ import {
   CATCHMENT_RADIUS_M,
   computeLandPriceMultiplier,
   estimateRent,
+  LAND_PRICE_FALLBACK_WARN_SHARE,
   pickRentStat,
 } from "@tokyo/shared";
 import type { LayoutId, RentStatRow } from "@tokyo/shared";
@@ -63,11 +64,24 @@ interface RentStatDbRow extends RentStatRow {
   readonly ward_code: string;
 }
 
-export async function runRentStep(pool: Pool): Promise<StepResult> {
+/**
+ * `runRentStep`'s result, widened beyond the shared `StepResult` summary
+ * row with the facts needed to report skipped stations honestly (see the
+ * module doc comment's note on `landPriceUsedFallback`/skip reporting).
+ * Still assignable wherever `StepResult` is expected.
+ */
+export interface RentStepResult extends StepResult {
+  /** Stations skipped for lack of a ward assignment or ward rent_stats data — see the loop below. */
+  readonly skippedStationGroupIds: readonly string[];
+  /** Of the stations actually written, how many hit the land-price fallback (multiplier forced to 1.0). */
+  readonly usedFallbackCount: number;
+}
+
+export async function runRentStep(pool: Pool): Promise<RentStepResult> {
   const start = Date.now();
   await assertCatchmentsDerived(pool);
 
-  const rowsWritten = await withTransaction(pool, async (client) => {
+  const { written, skippedStationGroupIds, usedFallbackCount } = await withTransaction(pool, async (client) => {
     // A single `pg` client can only run one query at a time, so these are
     // awaited sequentially rather than via Promise.all.
     const catchmentRes = await client.query<CatchmentLandPriceRow>(
@@ -114,12 +128,15 @@ export async function runRentStep(pool: Pool): Promise<StepResult> {
 
     const currentYear = new Date().getFullYear();
     let written = 0;
+    let usedFallbackCount = 0;
+    const skippedStationGroupIds: string[] = [];
 
     for (const row of catchmentRes.rows) {
       if (!row.ward_code) {
         console.warn(
           `derive/rent: skipping ${row.station_group_id} — no ward_code, cannot look up rent stats`,
         );
+        skippedStationGroupIds.push(row.station_group_id);
         continue;
       }
 
@@ -128,6 +145,7 @@ export async function runRentStep(pool: Pool): Promise<StepResult> {
         console.warn(
           `derive/rent: skipping ${row.station_group_id} — no rent_stats rows for ward ${row.ward_code}`,
         );
+        skippedStationGroupIds.push(row.station_group_id);
         continue;
       }
 
@@ -195,10 +213,32 @@ export async function runRentStep(pool: Pool): Promise<StepResult> {
         ],
       );
       written += 1;
+      if (usedFallback) usedFallbackCount += 1;
     }
 
-    return written;
+    return { written, skippedStationGroupIds, usedFallbackCount };
   });
 
-  return { name: "rent", rowsWritten, durationMs: Date.now() - start };
+  if (skippedStationGroupIds.length > 0) {
+    console.warn(
+      `derive/rent: skipped ${skippedStationGroupIds.length} of ${skippedStationGroupIds.length + written} ` +
+        `station(s) for lack of rent data (no ward assignment, or no rent_stats row for their ward) — ` +
+        `these stations will have null rent-derived fields and be excluded from /v1/optimize candidates ` +
+        `(see api/src/routes/optimize.ts's buildCandidate). To fix: add rent_stats coverage for the ` +
+        `affected ward(s), or accept these stations as unrankable on rent.`,
+    );
+  }
+
+  if (written > 0 && usedFallbackCount / written >= LAND_PRICE_FALLBACK_WARN_SHARE) {
+    console.warn(
+      `derive/rent: ${usedFallbackCount} of ${written} station(s) written (${Math.round((usedFallbackCount / written) * 100)}%) hit the land-price fallback ` +
+        `(multiplier forced to 1.0) — at or above the ${Math.round(LAND_PRICE_FALLBACK_WARN_SHARE * 100)}% warn threshold. ` +
+        `This is the signature of a systemic land-price data problem (e.g. \`import:mlit\` classified zero ` +
+        `\`land_prices\` rows as 'residential' — check that run's "residential land_prices rows" count), not ` +
+        `a handful of individually land-price-poor catchments. The station land-price term is likely not ` +
+        `discriminating within wards right now.`,
+    );
+  }
+
+  return { name: "rent", rowsWritten: written, durationMs: Date.now() - start, skippedStationGroupIds, usedFallbackCount };
 }

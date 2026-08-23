@@ -533,9 +533,15 @@ export function scoreCandidate(
 
   // Sum of the six ALREADY-ROUNDED pointContributions — see this
   // function's doc comment for why this is reconciliation by construction
-  // rather than a coincidence of the inputs.
+  // rather than a coincidence of the inputs. Each pointContribution can
+  // carry up to ±0.05 of rounding drift versus its true (unrounded) value,
+  // so the sum of six can overshoot 100 by up to ~0.1 even when every
+  // componentScore is exactly 100 (e.g. preferences low/low/high/essential
+  // with all four lifestyle axes at 100 sums to 100.1) — clamped here
+  // rather than in `roundToOneDecimal` itself, since that helper is also
+  // used for the individual (unclamped) factor contributions.
   const roundedContributionSum = factors.reduce((sum, factor) => sum + factor.pointContribution, 0);
-  const overallScore = roundToOneDecimal(roundedContributionSum);
+  const overallScore = Math.min(100, roundToOneDecimal(roundedContributionSum));
 
   const { reasonsFor, reasonsAgainst } = buildReasons(factors);
 
