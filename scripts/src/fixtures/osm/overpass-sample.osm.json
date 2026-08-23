@@ -42,7 +42,12 @@
         { "type": "way", "ref": 30011, "role": "outer" },
         { "type": "way", "ref": 30012, "role": "inner" }
       ],
-      "tags": { "amenity": "restaurant", "name": "Fixture Restaurant Complex" }
+      "tags": {
+        "amenity": "restaurant",
+        "name": "Fixture Restaurant Complex",
+        "cuisine": "japanese",
+        "opening_hours": "24/7"
+      }
     },
     {
       "type": "relation",
@@ -61,6 +66,45 @@
         { "lat": 35.6590, "lon": 139.7040 }
       ],
       "tags": { "highway": "primary", "name": "Fixture Avenue" }
+    },
+    {
+      "type": "way",
+      "id": 2004,
+      "nodes": [20041, 20042, 20043, 20041],
+      "geometry": [
+        { "lat": 35.664, "lon": 139.709 },
+        { "lat": 35.6645, "lon": 139.7095 },
+        { "lat": 35.6635, "lon": 139.71 },
+        { "lat": 35.664, "lon": 139.709 }
+      ],
+      "tags": { "leisure": "park", "name": "Fixture Park" }
+    },
+    {
+      "type": "relation",
+      "id": 3003,
+      "members": [
+        {
+          "type": "way",
+          "ref": 30031,
+          "role": "outer",
+          "geometry": [
+            { "lat": 35.665, "lon": 139.711 },
+            { "lat": 35.6655, "lon": 139.7115 },
+            { "lat": 35.6645, "lon": 139.712 }
+          ]
+        },
+        {
+          "type": "way",
+          "ref": 30032,
+          "role": "inner",
+          "geometry": [
+            { "lat": 35.6651, "lon": 139.7112 },
+            { "lat": 35.6652, "lon": 139.7113 },
+            { "lat": 35.665, "lon": 139.7114 }
+          ]
+        }
+      ],
+      "tags": { "leisure": "garden", "name": "Fixture Garden" }
     },
     {
       "type": "node",

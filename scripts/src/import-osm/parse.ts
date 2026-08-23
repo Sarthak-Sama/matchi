@@ -5,14 +5,24 @@
  * Overpass's real response shape, documented per-field below and
  * summarized in task-13-report.md's "Overpass format assumptions" section.
  *
- * Tag → category mapping (exactly as specified by task-13-brief.md):
+ * Tag → category mapping (exactly as specified by task-13-brief.md, plus
+ * the five-new-metrics additions from task-2-brief.md):
  *   shop=supermarket                       -> pois.category = "supermarket"
  *   shop=greengrocer|butcher|bakery|grocery -> pois.category = "grocery"
  *   shop=convenience                       -> pois.category = "convenience"
  *   amenity=restaurant                     -> pois.category = "restaurant"
  *   amenity=cafe                           -> pois.category = "cafe"
  *   amenity=bar|pub|nightclub              -> pois.category = "bar"
+ *   amenity=clinic|doctors|pharmacy|hospital -> pois.category = "health"
+ *   amenity=university|college|school      -> pois.category = "landmark"
+ *   named office=*                         -> pois.category = "landmark"
  *   highway=motorway|trunk|primary         -> major_roads.road_class
+ *   leisure=park|garden (way or relation)  -> green_spaces.leisure_class
+ *
+ * `pois.cuisine`/`pois.opening_hours` are carried through verbatim from the
+ * OSM `cuisine`/`opening_hours` tags when present (any element, any
+ * category) — `derive/amenities.ts` (Task 3) uses `cuisine` for
+ * `COUNT(DISTINCT cuisine)` and `opening_hours` for a late-night heuristic.
  *
  * Tag-precedence rule (not specified by the brief): `highway` is checked
  * first, so a road-tagged element is always written to `major_roads`
@@ -47,19 +57,35 @@
  * tag that won rather than resolving silently — that warning is genuinely
  * worth reading after a live `--download` import, not noise to ignore.
  *
+ * `highway` is checked first, then `leisure` (also a not-a-poi bucket),
+ * then `shop`, then `amenity`; a named `office=*` is checked last, only when
+ * nothing above matched — so an amenity=university (already "landmark" via
+ * the amenity map) or a shop=supermarket never gets silently reclassified by
+ * an incidental `office` tag on the same element.
+ *
  * Skip vs. error, kept deliberately sharp per the brief:
  *   - An element whose tags match none of the rules above is SKIPPED
  *     (`classification.kind === "unmapped"`) — never an error, and its
  *     coordinates/geometry are never even inspected.
  *   - An element that DOES match a rule but lacks the coordinates its
  *     kind needs (a node with no lat/lon, a way/relation POI with no
- *     `center`, or a highway way with no `geometry` array) is a hard
- *     error that aborts the whole import — see `resolvePoiCoordinates`
- *     and `resolveRoadGeometry`.
+ *     `center`, a highway way with no `geometry` array, or a park/garden
+ *     way/relation with no usable ring geometry) is a hard error that
+ *     aborts the whole import — see `resolvePoiCoordinates`,
+ *     `resolveRoadGeometry`, and `resolveGreenSpaceGeometry`.
  */
 
-export type PoiCategory = "supermarket" | "grocery" | "convenience" | "restaurant" | "cafe" | "bar";
+export type PoiCategory =
+  | "supermarket"
+  | "grocery"
+  | "convenience"
+  | "restaurant"
+  | "cafe"
+  | "bar"
+  | "health"
+  | "landmark";
 export type RoadClass = "motorway" | "trunk" | "primary";
+export type LeisureClass = "park" | "garden";
 export type OsmElementType = "node" | "way" | "relation";
 
 // These tag-value lists are the single source of truth for the brief's
@@ -68,7 +94,10 @@ export type OsmElementType = "node" | "way" | "relation";
 // this classifier can never drift apart.
 export const GROCERY_SHOP_VALUES = ["greengrocer", "butcher", "bakery", "grocery"] as const;
 export const BAR_AMENITY_VALUES = ["bar", "pub", "nightclub"] as const;
+export const HEALTH_AMENITY_VALUES = ["clinic", "doctors", "pharmacy", "hospital"] as const;
+export const LANDMARK_AMENITY_VALUES = ["university", "college", "school"] as const;
 export const ROAD_HIGHWAY_VALUES: readonly RoadClass[] = ["motorway", "trunk", "primary"] as const;
+export const GREEN_SPACE_LEISURE_VALUES: readonly LeisureClass[] = ["park", "garden"] as const;
 
 const SHOP_CATEGORY_MAP: Readonly<Record<string, PoiCategory>> = {
   supermarket: "supermarket",
@@ -80,15 +109,27 @@ const AMENITY_CATEGORY_MAP: Readonly<Record<string, PoiCategory>> = {
   restaurant: "restaurant",
   cafe: "cafe",
   ...Object.fromEntries(BAR_AMENITY_VALUES.map((v) => [v, "bar" as const])),
+  ...Object.fromEntries(HEALTH_AMENITY_VALUES.map((v) => [v, "health" as const])),
+  ...Object.fromEntries(LANDMARK_AMENITY_VALUES.map((v) => [v, "landmark" as const])),
 };
 
 function isRoadClass(value: string): value is RoadClass {
   return (ROAD_HIGHWAY_VALUES as readonly string[]).includes(value);
 }
 
+function isLeisureClass(value: string): value is LeisureClass {
+  return (GREEN_SPACE_LEISURE_VALUES as readonly string[]).includes(value);
+}
+
+/** True when `tags.name` is a non-empty string — used for the "named office=*" landmark rule. */
+function hasName(tags: Readonly<Record<string, unknown>>): boolean {
+  return stringTag(tags, "name") !== null;
+}
+
 export type ElementClassification =
   | { readonly kind: "poi"; readonly category: PoiCategory }
   | { readonly kind: "road"; readonly roadClass: RoadClass }
+  | { readonly kind: "green_space"; readonly leisureClass: LeisureClass }
   | { readonly kind: "unmapped" };
 
 /** See this module's doc comment for the precedence rule this implements. */
@@ -101,6 +142,11 @@ export function classifyElement(
   const highway = typeof tags["highway"] === "string" ? tags["highway"] : undefined;
   if (highway !== undefined && isRoadClass(highway)) {
     return { kind: "road", roadClass: highway };
+  }
+
+  const leisure = typeof tags["leisure"] === "string" ? tags["leisure"] : undefined;
+  if (leisure !== undefined && isLeisureClass(leisure)) {
+    return { kind: "green_space", leisureClass: leisure };
   }
 
   const shop = typeof tags["shop"] === "string" ? tags["shop"] : undefined;
@@ -119,7 +165,21 @@ export function classifyElement(
 
   if (shopCategory !== undefined) return { kind: "poi", category: shopCategory };
   if (amenityCategory !== undefined) return { kind: "poi", category: amenityCategory };
+
+  const office = typeof tags["office"] === "string" ? tags["office"] : undefined;
+  if (office !== undefined && hasName(tags)) {
+    return { kind: "poi", category: "landmark" };
+  }
+
   return { kind: "unmapped" };
+}
+
+/** One way-member of a relation, as returned by Overpass's `out geom;`. */
+export interface OverpassMember {
+  readonly type: OsmElementType;
+  readonly ref: number;
+  readonly role: string;
+  readonly geometry?: readonly { readonly lat: number; readonly lon: number }[];
 }
 
 /** Raw Overpass element shape, as returned by `out center;` / `out geom;`. */
@@ -130,6 +190,8 @@ export interface OverpassElement {
   readonly lon?: number;
   readonly center?: { readonly lat: number; readonly lon: number };
   readonly geometry?: readonly { readonly lat: number; readonly lon: number }[];
+  /** Relation members — only way members carry their own `geometry` under `out geom;`. */
+  readonly members?: readonly OverpassMember[];
   readonly tags?: Readonly<Record<string, unknown>>;
 }
 
@@ -145,6 +207,10 @@ export interface ParsedPoi {
   readonly osmId: number;
   readonly lon: number;
   readonly lat: number;
+  /** From the OSM `cuisine` tag, verbatim; null when absent. */
+  readonly cuisine: string | null;
+  /** From the OSM `opening_hours` tag, verbatim; null when absent. */
+  readonly openingHours: string | null;
 }
 
 export interface ParsedRoad {
@@ -154,17 +220,29 @@ export interface ParsedRoad {
   readonly geomWKT: string;
 }
 
+export interface ParsedGreenSpace {
+  readonly leisureClass: LeisureClass;
+  readonly name: string | null;
+  /** `MULTIPOLYGON(...)` WKT, real polygon ring(s) (never a centroid). */
+  readonly geomWKT: string;
+}
+
 export interface ParsedOverpassData {
   readonly pois: readonly ParsedPoi[];
   readonly roads: readonly ParsedRoad[];
+  readonly greenSpaces: readonly ParsedGreenSpace[];
   /** Count of elements skipped for carrying no mapped tag. */
   readonly skippedElements: number;
   readonly sourceUpdatedAt: Date | null;
 }
 
+function stringTag(tags: Readonly<Record<string, unknown>> | undefined | null, key: string): string | null {
+  const value = tags?.[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 function elementName(tags: Readonly<Record<string, unknown>> | undefined | null): string | null {
-  const name = tags?.["name"];
-  return typeof name === "string" && name.length > 0 ? name : null;
+  return stringTag(tags, "name");
 }
 
 function elementContext(el: OverpassElement): string {
@@ -227,6 +305,85 @@ function resolveRoadGeometry(el: OverpassElement): string {
   return `MULTILINESTRING((${line}))`;
 }
 
+/** Builds one `(...)` polygon ring's WKT, closing it if Overpass didn't repeat the first vertex. */
+function ringWKT(vertices: readonly { readonly lat: number; readonly lon: number }[], ringContext: string): string {
+  if (vertices.length < 3) {
+    throw new Error(
+      `${ringContext}: ring has only ${String(vertices.length)} vertex/vertices (expected at least 3)`,
+    );
+  }
+  for (const vertex of vertices) {
+    if (typeof vertex.lat !== "number" || typeof vertex.lon !== "number") {
+      throw new Error(`${ringContext}: ring contains a vertex missing numeric lat/lon`);
+    }
+  }
+
+  const closed = [...vertices];
+  const first = closed[0];
+  const last = closed[closed.length - 1];
+  if (first === undefined || last === undefined) {
+    throw new Error(`${ringContext}: ring is unexpectedly empty`);
+  }
+  if (first.lat !== last.lat || first.lon !== last.lon) {
+    closed.push(first);
+  }
+
+  const ring = closed.map((v) => `${v.lon} ${v.lat}`).join(", ");
+  return `(${ring})`;
+}
+
+/**
+ * Green space polygons keep real rings (a centroid would make `derive`'s
+ * green-space-share metric meaningless). A `way` carrying Overpass's
+ * `out geom;` `geometry` array supplies one ring directly. A `relation`
+ * (OSM's usual multipolygon representation for a park made of several
+ * disjoint or donut-shaped areas) has no top-level `geometry` of its own —
+ * only its way `members` do — so its ring(s) come from every "outer"-role
+ * way member's `geometry`. "inner"-role (hole) rings are not modeled: the
+ * resulting polygon(s) may slightly overstate a park's true area where a
+ * real hole exists (e.g. a building footprint inside a park), an acceptable
+ * approximation for an area-*share* metric, not a precision measurement. A
+ * `leisure=park|garden` tag on a node is not something our own Overpass
+ * query can produce (it only asks for `way`/`relation`) and is a hard error
+ * rather than silently coerced to a point.
+ */
+function resolveGreenSpaceGeometry(el: OverpassElement): string {
+  const context = elementContext(el);
+
+  if (el.type === "way") {
+    if (el.geometry === undefined) {
+      throw new Error(
+        `${context}: park/garden way is missing its "geometry" array (expected Overpass's "out geom;" ` +
+          `to have supplied it)`,
+      );
+    }
+    // MULTIPOLYGON(( (single-ring-polygon) )) — one extra paren level wraps
+    // ringWKT's bare ring into a one-ring polygon.
+    return `MULTIPOLYGON((${ringWKT(el.geometry, context)}))`;
+  }
+
+  if (el.type === "relation") {
+    const members = el.members ?? [];
+    const outerPolygons: string[] = [];
+    for (const [index, member] of members.entries()) {
+      if (member.role !== "outer" || member.type !== "way" || member.geometry === undefined) continue;
+      outerPolygons.push(`(${ringWKT(member.geometry, `${context} outer member #${String(index)}`)})`);
+    }
+    if (outerPolygons.length === 0) {
+      throw new Error(
+        `${context}: park/garden relation has no "outer"-role way member with a "geometry" array ` +
+          `(expected Overpass's "out geom;" to have supplied at least one)`,
+      );
+    }
+    return `MULTIPOLYGON(${outerPolygons.join(", ")})`;
+  }
+
+  throw new Error(
+    `${context}: leisure tag found on a "${el.type}", but only "way"/"relation" elements are supported ` +
+      `for green_spaces (a park needs real polygon geometry, not a single centroid)`,
+  );
+}
+
 function parseTimestamp(raw: string | undefined): Date | null {
   if (raw === undefined) {
     console.warn(
@@ -268,6 +425,7 @@ export function parseOverpassResponse(raw: string): ParsedOverpassData {
 
   const pois: ParsedPoi[] = [];
   const roads: ParsedRoad[] = [];
+  const greenSpaces: ParsedGreenSpace[] = [];
   let skippedElements = 0;
 
   for (const el of response.elements) {
@@ -288,6 +446,15 @@ export function parseOverpassResponse(raw: string): ParsedOverpassData {
       continue;
     }
 
+    if (classification.kind === "green_space") {
+      greenSpaces.push({
+        leisureClass: classification.leisureClass,
+        name: elementName(el.tags),
+        geomWKT: resolveGreenSpaceGeometry(el),
+      });
+      continue;
+    }
+
     const { lon, lat } = resolvePoiCoordinates(el);
     pois.push({
       category: classification.category,
@@ -296,8 +463,10 @@ export function parseOverpassResponse(raw: string): ParsedOverpassData {
       osmId: el.id,
       lon,
       lat,
+      cuisine: stringTag(el.tags, "cuisine"),
+      openingHours: stringTag(el.tags, "opening_hours"),
     });
   }
 
-  return { pois, roads, skippedElements, sourceUpdatedAt };
+  return { pois, roads, greenSpaces, skippedElements, sourceUpdatedAt };
 }

@@ -49,15 +49,17 @@
  * import-run.ts`), so a bad file/response causes a harmless no-op
  * rollback rather than a partial write.
  *
- * `pois` is upserted on its `(osm_type, osm_id)` unique constraint, then
- * any `source = 'openstreetmap'` row whose `(osm_type, osm_id)` wasn't
- * seen this run is deleted. `major_roads` has no natural key in the schema
- * (surrogate `id` only), so — following `import:mlit`'s land_prices/
- * zoning/flood precedent — every `source = 'openstreetmap'` row is deleted
- * and this run's roads are freshly inserted, which is equivalent (delete-
- * stale + upsert reduces to delete-all + insert-all when there is no key
- * to upsert against). Both deletes/upserts are scoped to `source =
- * 'openstreetmap'` only, so seeded and other-source rows are untouched.
+ * `pois` is upserted on its `(osm_type, osm_id)` unique constraint (now
+ * also carrying the OSM `cuisine`/`opening_hours` tags verbatim, when
+ * present), then any `source = 'openstreetmap'` row whose `(osm_type,
+ * osm_id)` wasn't seen this run is deleted. `major_roads` and `green_spaces`
+ * both have no natural key in the schema (surrogate `id` only), so —
+ * following `import:mlit`'s land_prices/zoning/flood precedent — every
+ * `source = 'openstreetmap'` row is deleted and this run's roads/green
+ * spaces are freshly inserted, which is equivalent (delete-stale + upsert
+ * reduces to delete-all + insert-all when there is no key to upsert
+ * against). All deletes/upserts are scoped to `source = 'openstreetmap'`
+ * only, so seeded and other-source rows are untouched.
  *
  * `OSM_ATTRIBUTION` (`@tokyo/shared`) is printed on every invocation of
  * `runOsmImport`, success or failure — this is an ODbL licence obligation,
@@ -76,7 +78,7 @@ import { runImport } from "./lib/import-run.js";
 import { resolveSource } from "./lib/source-file.js";
 import { expectRowCount } from "./lib/validate.js";
 import { downloadOverpass } from "./import-osm/download.js";
-import type { ParsedPoi, ParsedRoad } from "./import-osm/parse.js";
+import type { ParsedGreenSpace, ParsedPoi, ParsedRoad } from "./import-osm/parse.js";
 import { parseOverpassResponse } from "./import-osm/parse.js";
 import { buildOverpassQuery } from "./import-osm/query.js";
 
@@ -87,7 +89,8 @@ const MIN_OSM_ELEMENTS = 1;
 
 const MANUAL_DOWNLOAD_URL =
   "https://overpass-turbo.eu/ (or any Overpass API mirror) — run a query for shop=supermarket/" +
-  "greengrocer/butcher/bakery/grocery/convenience, amenity=restaurant/cafe/bar/pub/nightclub, and " +
+  "greengrocer/butcher/bakery/grocery/convenience, amenity=restaurant/cafe/bar/pub/nightclub/clinic/" +
+  "doctors/pharmacy/hospital/university/college/school, named office=*, leisure=park/garden, and " +
   "highway=motorway/trunk/primary within the Tokyo 23-ward bounding box (see " +
   "TOKYO_23_WARDS_BBOX in shared/src/config/scoring.ts), export the JSON response, and pass its " +
   "path via --file.";
@@ -132,16 +135,18 @@ async function upsertPois(
 ): Promise<number> {
   for (const p of pois) {
     await client.query(
-      `INSERT INTO pois (category, name, osm_type, osm_id, point, source, source_updated_at)
-       VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7, $8)
+      `INSERT INTO pois (category, name, osm_type, osm_id, point, source, source_updated_at, cuisine, opening_hours)
+       VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7, $8, $9, $10)
        ON CONFLICT (osm_type, osm_id) DO UPDATE SET
          category = EXCLUDED.category,
          name = EXCLUDED.name,
          point = EXCLUDED.point,
          source = EXCLUDED.source,
          source_updated_at = EXCLUDED.source_updated_at,
+         cuisine = EXCLUDED.cuisine,
+         opening_hours = EXCLUDED.opening_hours,
          imported_at = now()`,
-      [p.category, p.name, p.osmType, p.osmId, p.lon, p.lat, SOURCE, sourceUpdatedAt],
+      [p.category, p.name, p.osmType, p.osmId, p.lon, p.lat, SOURCE, sourceUpdatedAt, p.cuisine, p.openingHours],
     );
   }
 
@@ -181,9 +186,32 @@ async function replaceRoads(
   return roads.length;
 }
 
+/**
+ * `green_spaces` has no natural key (surrogate `id` only) — mirrors
+ * `replaceRoads` above exactly; see this file's module doc comment for why
+ * delete-all-then-insert-all is the correct, equivalent replacement for
+ * upsert-then-delete-stale here.
+ */
+async function replaceGreenSpaces(
+  client: PoolClient,
+  greenSpaces: readonly ParsedGreenSpace[],
+  sourceUpdatedAt: Date | null,
+): Promise<number> {
+  await client.query(`DELETE FROM green_spaces WHERE source = $1`, [SOURCE]);
+  for (const g of greenSpaces) {
+    await client.query(
+      `INSERT INTO green_spaces (name, leisure_class, geom, source, source_updated_at)
+       VALUES ($1, $2, ST_SetSRID(ST_GeomFromText($3), 4326), $4, $5)`,
+      [g.name, g.leisureClass, g.geomWKT, SOURCE, sourceUpdatedAt],
+    );
+  }
+  return greenSpaces.length;
+}
+
 export interface OsmImportResult extends ImportResult {
   readonly poisImported: number;
   readonly roadsImported: number;
+  readonly greenSpacesImported: number;
   readonly skippedElements: number;
 }
 
@@ -195,24 +223,26 @@ export async function runOsmImport(client: PoolClient, args: ImportOsmArgs): Pro
   const raw = await loadOverpassRaw(args);
   const parsed = parseOverpassResponse(raw);
 
-  expectRowCount(parsed.pois.length + parsed.roads.length, {
+  expectRowCount(parsed.pois.length + parsed.roads.length + parsed.greenSpaces.length, {
     min: MIN_OSM_ELEMENTS,
-    label: "OSM elements (pois + roads combined)",
+    label: "OSM elements (pois + roads + green spaces combined)",
   });
 
   const poisImported = await upsertPois(client, parsed.pois, parsed.sourceUpdatedAt);
   const roadsImported = await replaceRoads(client, parsed.roads, parsed.sourceUpdatedAt);
+  const greenSpacesImported = await replaceGreenSpaces(client, parsed.greenSpaces, parsed.sourceUpdatedAt);
 
   console.log(
     `import:osm — pois=${String(poisImported)} roads=${String(roadsImported)} ` +
-      `skipped=${String(parsed.skippedElements)} (unmapped tag(s))`,
+      `green_spaces=${String(greenSpacesImported)} skipped=${String(parsed.skippedElements)} (unmapped tag(s))`,
   );
 
   return {
-    rowsImported: poisImported + roadsImported,
+    rowsImported: poisImported + roadsImported + greenSpacesImported,
     sourceUpdatedAt: parsed.sourceUpdatedAt ?? undefined,
     poisImported,
     roadsImported,
+    greenSpacesImported,
     skippedElements: parsed.skippedElements,
   };
 }

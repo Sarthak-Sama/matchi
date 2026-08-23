@@ -90,6 +90,43 @@ describe("classifyElement", () => {
       category: "supermarket",
     });
   });
+
+  it("maps each health amenity=* value to the health category", () => {
+    expect(classifyElement({ amenity: "clinic" }, "t")).toEqual({ kind: "poi", category: "health" });
+    expect(classifyElement({ amenity: "doctors" }, "t")).toEqual({ kind: "poi", category: "health" });
+    expect(classifyElement({ amenity: "pharmacy" }, "t")).toEqual({ kind: "poi", category: "health" });
+    expect(classifyElement({ amenity: "hospital" }, "t")).toEqual({ kind: "poi", category: "health" });
+  });
+
+  it("maps each landmark amenity=* value to the landmark category", () => {
+    expect(classifyElement({ amenity: "university" }, "t")).toEqual({ kind: "poi", category: "landmark" });
+    expect(classifyElement({ amenity: "college" }, "t")).toEqual({ kind: "poi", category: "landmark" });
+    expect(classifyElement({ amenity: "school" }, "t")).toEqual({ kind: "poi", category: "landmark" });
+  });
+
+  it("a named office=* is classified as landmark", () => {
+    expect(classifyElement({ office: "insurance", name: "Fixture Insurance Office" }, "t")).toEqual({
+      kind: "poi",
+      category: "landmark",
+    });
+  });
+
+  it("an unnamed office=* is NOT classified as landmark (no name tag at all, or an empty one)", () => {
+    expect(classifyElement({ office: "insurance" }, "t")).toEqual({ kind: "unmapped" });
+    expect(classifyElement({ office: "insurance", name: "" }, "t")).toEqual({ kind: "unmapped" });
+  });
+
+  it("maps leisure=park|garden to a green_space, not a poi", () => {
+    expect(classifyElement({ leisure: "park" }, "t")).toEqual({ kind: "green_space", leisureClass: "park" });
+    expect(classifyElement({ leisure: "garden" }, "t")).toEqual({
+      kind: "green_space",
+      leisureClass: "garden",
+    });
+  });
+
+  it("an unmapped leisure value is skipped, not classified as a green_space", () => {
+    expect(classifyElement({ leisure: "pitch" }, "t")).toEqual({ kind: "unmapped" });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -142,6 +179,13 @@ describe("parseOverpassResponse: valid fixture", () => {
     });
   });
 
+  it("carries cuisine/opening_hours through when present, and null when absent", () => {
+    const byOsmId = new Map(parsed.pois.map((p) => [p.osmId, p]));
+
+    expect(byOsmId.get(3001)).toMatchObject({ cuisine: "japanese", openingHours: "24/7" });
+    expect(byOsmId.get(1001)).toMatchObject({ cuisine: null, openingHours: null });
+  });
+
   it("the unmapped element (shop=hairdresser) is skipped without aborting the run", () => {
     expect(parsed.skippedElements).toBe(1);
     expect(parsed.pois.some((p) => p.osmId === 1003)).toBe(false);
@@ -160,6 +204,25 @@ describe("parseOverpassResponse: valid fixture", () => {
 
   it("source_updated_at is parsed from osm3s.timestamp_osm_base", () => {
     expect(parsed.sourceUpdatedAt).toEqual(new Date("2026-06-01T12:00:00Z"));
+  });
+
+  it("parses a leisure=park way's own geometry into a closed MultiPolygon ring", () => {
+    expect(parsed.greenSpaces).toHaveLength(2);
+    const park = parsed.greenSpaces.find((g) => g.name === "Fixture Park");
+    expect(park).toMatchObject({ leisureClass: "park" });
+    expect(park?.geomWKT).toBe(
+      "MULTIPOLYGON(((139.709 35.664, 139.7095 35.6645, 139.71 35.6635, 139.709 35.664)))",
+    );
+  });
+
+  it("parses a leisure=garden relation from its 'outer' way member(s), closing an open ring and ignoring 'inner' (hole) members", () => {
+    const garden = parsed.greenSpaces.find((g) => g.name === "Fixture Garden");
+    expect(garden).toMatchObject({ leisureClass: "garden" });
+    // Only the "outer" member's 3 vertices, closed by repeating the first —
+    // the "inner" member's vertices never appear.
+    expect(garden?.geomWKT).toBe(
+      "MULTIPOLYGON(((139.711 35.665, 139.7115 35.6655, 139.712 35.6645, 139.711 35.665)))",
+    );
   });
 });
 
@@ -217,6 +280,37 @@ describe("parseOverpassResponse: malformed input shapes", () => {
     expect(() => parseOverpassResponse(raw)).toThrowError(/has no "center"/);
   });
 
+  it("a leisure=park tag on a node is a hard error, not silently coerced to a point", () => {
+    const raw = JSON.stringify({
+      osm3s: { timestamp_osm_base: "2026-01-01T00:00:00Z" },
+      elements: [{ type: "node", id: 1, lat: 35.6, lon: 139.7, tags: { leisure: "park" } }],
+    });
+    expect(() => parseOverpassResponse(raw)).toThrowError(/only "way"\/"relation" elements are supported/);
+  });
+
+  it("a leisure=park way missing its geometry array is a hard error", () => {
+    const raw = JSON.stringify({
+      osm3s: { timestamp_osm_base: "2026-01-01T00:00:00Z" },
+      elements: [{ type: "way", id: 1, tags: { leisure: "garden" } }],
+    });
+    expect(() => parseOverpassResponse(raw)).toThrowError(/missing its "geometry" array/);
+  });
+
+  it("a leisure=park relation with no 'outer'-role way member carrying geometry is a hard error", () => {
+    const raw = JSON.stringify({
+      osm3s: { timestamp_osm_base: "2026-01-01T00:00:00Z" },
+      elements: [
+        {
+          type: "relation",
+          id: 1,
+          members: [{ type: "way", ref: 1, role: "inner", geometry: [] }],
+          tags: { leisure: "park" },
+        },
+      ],
+    });
+    expect(() => parseOverpassResponse(raw)).toThrowError(/no "outer"-role way member/);
+  });
+
   it("a missing osm3s.timestamp_osm_base warns and yields a null source_updated_at, not an error", () => {
     const raw = JSON.stringify({ elements: [] });
     const parsed = parseOverpassResponse(raw);
@@ -235,19 +329,28 @@ describe("buildOverpassQuery", () => {
     expect(query).toContain("35.5,139.56,35.82,139.92");
   });
 
-  it("includes every mapped shop/amenity/highway filter", () => {
+  it("includes every mapped shop/amenity/highway/leisure/office filter", () => {
     expect(query).toContain(`["shop"="supermarket"]`);
     expect(query).toContain(`["shop"~"^(greengrocer|butcher|bakery|grocery)$"]`);
     expect(query).toContain(`["shop"="convenience"]`);
     expect(query).toContain(`["amenity"="restaurant"]`);
     expect(query).toContain(`["amenity"="cafe"]`);
     expect(query).toContain(`["amenity"~"^(bar|pub|nightclub)$"]`);
+    expect(query).toContain(`["amenity"~"^(clinic|doctors|pharmacy|hospital)$"]`);
+    expect(query).toContain(`["amenity"~"^(university|college|school)$"]`);
+    expect(query).toContain(`["office"]["name"]`);
     expect(query).toContain(`["highway"~"^(motorway|trunk|primary)$"]`);
+    expect(query).toContain(`["leisure"~"^(park|garden)$"]`);
   });
 
-  it("requests out center for pois and out geom for roads", () => {
+  it("requests out center for pois and out geom for roads/green spaces, with a single out geom block", () => {
     expect(query).toContain("out center;");
-    expect(query).toContain("out geom;");
+    expect(query.match(/out geom;/g)).toHaveLength(1);
+  });
+
+  it("adds the leisure filter to the same block as the highway filter (way and relation)", () => {
+    expect(query).toContain(`way["leisure"~"^(park|garden)$"]`);
+    expect(query).toContain(`relation["leisure"~"^(park|garden)$"]`);
   });
 });
 
@@ -321,12 +424,24 @@ const GOOD_ARGS: ImportOsmArgs = {
   download: false,
 };
 
-async function poisSnapshot(
-  pool: Pool,
-): Promise<{ category: string; osm_type: string; osm_id: string }[]> {
-  const { rows } = await pool.query<{ category: string; osm_type: string; osm_id: string }>(
-    `SELECT category, osm_type, osm_id::text FROM pois WHERE source = 'openstreetmap'
-     ORDER BY osm_type, osm_id`,
+async function poisSnapshot(pool: Pool): Promise<
+  {
+    category: string;
+    osm_type: string;
+    osm_id: string;
+    cuisine: string | null;
+    opening_hours: string | null;
+  }[]
+> {
+  const { rows } = await pool.query<{
+    category: string;
+    osm_type: string;
+    osm_id: string;
+    cuisine: string | null;
+    opening_hours: string | null;
+  }>(
+    `SELECT category, osm_type, osm_id::text, cuisine, opening_hours FROM pois
+     WHERE source = 'openstreetmap' ORDER BY osm_type, osm_id`,
   );
   return rows;
 }
@@ -334,6 +449,15 @@ async function poisSnapshot(
 async function roadsSnapshot(pool: Pool): Promise<{ road_class: string; name: string | null }[]> {
   const { rows } = await pool.query<{ road_class: string; name: string | null }>(
     `SELECT road_class, name FROM major_roads WHERE source = 'openstreetmap' ORDER BY name`,
+  );
+  return rows;
+}
+
+async function greenSpacesSnapshot(
+  pool: Pool,
+): Promise<{ leisure_class: string; name: string | null }[]> {
+  const { rows } = await pool.query<{ leisure_class: string; name: string | null }>(
+    `SELECT leisure_class, name FROM green_spaces WHERE source = 'openstreetmap' ORDER BY name`,
   );
   return rows;
 }
@@ -351,12 +475,14 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
     // of whatever else has run against this shared database.
     await pool.query(`DELETE FROM pois WHERE source = 'openstreetmap'`);
     await pool.query(`DELETE FROM major_roads WHERE source = 'openstreetmap'`);
+    await pool.query(`DELETE FROM green_spaces WHERE source = 'openstreetmap'`);
   });
 
   afterAll(async () => {
     if (!databaseUrl) return;
     await pool.query(`DELETE FROM pois WHERE source = 'openstreetmap'`);
     await pool.query(`DELETE FROM major_roads WHERE source = 'openstreetmap'`);
+    await pool.query(`DELETE FROM green_spaces WHERE source = 'openstreetmap'`);
     await pool.end();
   });
 
@@ -368,29 +494,42 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
 
     expect(result.poisImported).toBe(6);
     expect(result.roadsImported).toBe(1);
+    expect(result.greenSpacesImported).toBe(2);
     expect(result.skippedElements).toBe(1);
-    expect(result.rowsImported).toBe(7);
+    expect(result.rowsImported).toBe(9);
 
     const { rows: runRows } = await pool.query<{ status: string; rows_imported: number | null }>(
       `SELECT status, rows_imported FROM import_runs WHERE source = 'openstreetmap'`,
     );
     expect(runRows).toHaveLength(1);
-    expect(runRows[0]).toMatchObject({ status: "success", rows_imported: 7 });
+    expect(runRows[0]).toMatchObject({ status: "success", rows_imported: 9 });
 
     // poisSnapshot orders by (osm_type, osm_id) text — alphabetically
     // "node" < "relation" < "way".
     const pois = await poisSnapshot(pool);
     expect(pois).toEqual([
-      { category: "supermarket", osm_type: "node", osm_id: "1001" },
-      { category: "convenience", osm_type: "node", osm_id: "1002" },
-      { category: "restaurant", osm_type: "relation", osm_id: "3001" },
-      { category: "bar", osm_type: "relation", osm_id: "3002" },
-      { category: "grocery", osm_type: "way", osm_id: "2001" },
-      { category: "cafe", osm_type: "way", osm_id: "2002" },
+      { category: "supermarket", osm_type: "node", osm_id: "1001", cuisine: null, opening_hours: null },
+      { category: "convenience", osm_type: "node", osm_id: "1002", cuisine: null, opening_hours: null },
+      {
+        category: "restaurant",
+        osm_type: "relation",
+        osm_id: "3001",
+        cuisine: "japanese",
+        opening_hours: "24/7",
+      },
+      { category: "bar", osm_type: "relation", osm_id: "3002", cuisine: null, opening_hours: null },
+      { category: "grocery", osm_type: "way", osm_id: "2001", cuisine: null, opening_hours: null },
+      { category: "cafe", osm_type: "way", osm_id: "2002", cuisine: null, opening_hours: null },
     ]);
 
     const roads = await roadsSnapshot(pool);
     expect(roads).toEqual([{ road_class: "primary", name: "Fixture Avenue" }]);
+
+    const greenSpaces = await greenSpacesSnapshot(pool);
+    expect(greenSpaces).toEqual([
+      { leisure_class: "garden", name: "Fixture Garden" },
+      { leisure_class: "park", name: "Fixture Park" },
+    ]);
   });
 
   it("re-running with the same fixture is idempotent: identical rows, no duplicate POIs, one more success run record", async () => {
@@ -404,7 +543,7 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
       (client) => runOsmImport(client, GOOD_ARGS),
     )) as OsmImportResult;
 
-    expect(result.rowsImported).toBe(7);
+    expect(result.rowsImported).toBe(9);
 
     const after = await poisSnapshot(pool);
     expect(after.sort((a, b) => a.osm_id.localeCompare(b.osm_id))).toEqual(
@@ -424,9 +563,10 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
     expect(runRows.every((r) => r.status === "success")).toBe(true);
   });
 
-  it("a malformed fixture writes one failed import_runs row and leaves pois/roads unchanged", async () => {
+  it("a malformed fixture writes one failed import_runs row and leaves pois/roads/green_spaces unchanged", async () => {
     const beforePois = await poisSnapshot(pool);
     const beforeRoads = await roadsSnapshot(pool);
+    const beforeGreenSpaces = await greenSpacesSnapshot(pool);
 
     await expect(
       runImport({ source: "openstreetmap", pool }, (client) =>
@@ -436,6 +576,7 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
 
     expect(await poisSnapshot(pool)).toEqual(beforePois);
     expect(await roadsSnapshot(pool)).toEqual(beforeRoads);
+    expect(await greenSpacesSnapshot(pool)).toEqual(beforeGreenSpaces);
 
     const { rows: runRows } = await pool.query<{ status: string; error: string | null }>(
       `SELECT status, error FROM import_runs WHERE source = 'openstreetmap' ORDER BY started_at`,
