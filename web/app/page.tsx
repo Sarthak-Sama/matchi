@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import type {
   Importance,
@@ -45,7 +45,16 @@ export default function Home() {
   const [destLabel, setDestLabel] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<StationSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-  const suppressSearchRef = useRef(false);
+  // The `destQuery` value that was just SET alongside a real selection
+  // (from hydration or from picking a suggestion), so the autocomplete
+  // effect below can tell "this text already represents a committed
+  // choice, don't search for it" apart from "the user is typing." This is
+  // plain state (not a ref) specifically so it updates in the SAME render
+  // pass as `destQuery` itself — a ref flipped synchronously inside the
+  // hydration effect gets consumed one render too early, during the stale
+  // pass where `destQuery` is still `""`, letting a real autocomplete
+  // request slip through 300ms after a shared link loads.
+  const [committedQuery, setCommittedQuery] = useState<string | null>(null);
 
   const [arrivalTime, setArrivalTime] = useState("08:30");
   const [maxCommuteMinutes, setMaxCommuteMinutes] = useState(45);
@@ -71,11 +80,12 @@ export default function Home() {
     const params = new URLSearchParams(window.location.search);
     const id = params.get(QUERY_KEYS.dest);
     if (id) {
-      suppressSearchRef.current = true;
       const label = params.get(QUERY_KEYS.destLabel);
+      const query = label ?? id;
       setDestId(id);
       setDestLabel(label);
-      setDestQuery(label ?? id);
+      setDestQuery(query);
+      setCommittedQuery(query);
     }
     const arrival = params.get(QUERY_KEYS.arrival);
     if (arrival) setArrivalTime(arrival);
@@ -118,10 +128,13 @@ export default function Home() {
     // the query string, not on every subsequent field change.
   }, [hydrated]);
 
-  // Debounced station autocomplete.
+  // Debounced station autocomplete. Skipped entirely while `destQuery`
+  // still equals `committedQuery` — i.e. the text on screen already came
+  // from a real selection (hydration or picking a suggestion) and the user
+  // hasn't edited it since. This guarantees zero `/v1/stations` requests
+  // when a shared link loads with a destination pre-filled.
   useEffect(() => {
-    if (suppressSearchRef.current) {
-      suppressSearchRef.current = false;
+    if (committedQuery !== null && destQuery === committedQuery) {
       return;
     }
     const trimmed = destQuery.trim();
@@ -137,13 +150,13 @@ export default function Home() {
         .finally(() => setSuggestionsLoading(false));
     }, 300);
     return () => clearTimeout(handle);
-  }, [destQuery]);
+  }, [destQuery, committedQuery]);
 
   function selectStation(station: StationSuggestion): void {
-    suppressSearchRef.current = true;
     setDestId(station.stationGroupId);
     setDestLabel(`${station.nameEn} (${station.nameJa})`);
     setDestQuery(station.nameEn);
+    setCommittedQuery(station.nameEn);
     setSuggestions([]);
   }
 
@@ -219,6 +232,7 @@ export default function Home() {
                 setDestQuery(event.target.value);
                 setDestId(null);
                 setDestLabel(null);
+                setCommittedQuery(null);
               }}
               placeholder="e.g. Shibuya"
               required
