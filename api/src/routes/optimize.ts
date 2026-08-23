@@ -23,7 +23,7 @@ import { ApiError } from "../app.js";
 import { estimateCommute } from "../domain/transit/commute.js";
 import { reverseDijkstra } from "../domain/transit/dijkstra.js";
 import { resolvePeriod } from "../domain/transit/period.js";
-import { loadLatestImportRuns } from "./lib/data-vintages.js";
+import { loadLatestSuccessfulImportRuns } from "./lib/data-vintages.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
 import { recomputeRentForLayout } from "./lib/rent.js";
 import type { NameLookups } from "./lib/station-names.js";
@@ -266,7 +266,7 @@ export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void
     const scored = feasible.map((candidate) => scoreCandidate(candidate, body));
     const results = rankCandidates(scored).slice(0, RESULTS_LIMIT);
 
-    const latestRuns = await loadLatestImportRuns(deps.pool);
+    const latestRuns = await loadLatestSuccessfulImportRuns(deps.pool);
     const dataVintages = latestRuns.map((run) => ({
       source: run.source,
       sourceUpdatedAt: run.sourceUpdatedAt,

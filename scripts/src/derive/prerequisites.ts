@@ -56,3 +56,50 @@ export async function assertColumnsPopulated(
     );
   }
 }
+
+/**
+ * The rent step's own skip condition (see `derive/rent.ts`'s per-row loop):
+ * a station is skipped — permanently, not transiently — when it has no
+ * `ward_code` at all, or when its ward has no `rent_stats` row. Both are
+ * real, expected outcomes of a real MLIT import (see `import-mlit.ts`'s
+ * module doc comment on `stationsWithoutWardCode`), not a sign the rent
+ * step never ran. Recomputed directly from current `station_groups` /
+ * `rent_stats` state (rather than threaded in from a specific `runRentStep`
+ * invocation) so this holds regardless of whether rent last ran earlier in
+ * the SAME `pnpm derive` invocation or a previous one (e.g. under a
+ * standalone `pnpm derive --only=normalization`) — nothing else mutates
+ * `ward_code` or `rent_stats` in between.
+ */
+const RENT_SKIP_CONDITION_SQL = `
+  sg.ward_code IS NULL
+  OR NOT EXISTS (SELECT 1 FROM rent_stats rs WHERE rs.ward_code = sg.ward_code)
+`;
+
+/**
+ * The `rent_source`-specific prerequisite `normalization` needs: unlike
+ * `assertColumnsPopulated`, this does NOT require every station to have a
+ * non-null `rent_source` — only the ones the rent step actually attempted
+ * to write (i.e. excluding stations `derive/rent.ts` legitimately and
+ * permanently warn-and-skips for lack of a ward assignment or ward rent
+ * data). Failing to scope this the same way `assertColumnsPopulated` does
+ * would make a full `pnpm derive` abort forever the first time a real
+ * import produces even one out-of-ward station — with no `--only=rent`
+ * re-run able to fix it, since rent step would skip that station again.
+ */
+export async function assertRentSourcePopulatedForRankableStations(pool: Pool): Promise<void> {
+  const { rows } = await pool.query<{ missing: string }>(`
+    SELECT count(*)::text AS missing
+    FROM neighborhood_metrics nm
+    JOIN station_groups sg ON sg.station_group_id = nm.station_group_id
+    WHERE nm.rent_source IS NULL
+      AND NOT (${RENT_SKIP_CONDITION_SQL})
+  `);
+  const missing = Number(rows[0]?.missing ?? "0");
+  if (missing > 0) {
+    throw new Error(
+      `derive: ${missing} station(s) have a ward assignment and ward rent data available but no ` +
+        `rent_source — the rent step has not written them yet. Run the rent step first ` +
+        `(\`pnpm derive --only=rent\` or a full \`pnpm derive\`).`,
+    );
+  }
+}

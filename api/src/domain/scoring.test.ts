@@ -537,6 +537,83 @@ describe("scoreCandidate — reconciliation on a non-boundary score", () => {
   });
 });
 
+describe("scoreCandidate — overallScore never exceeds 100 despite per-factor rounding drift", () => {
+  // preferences (floodSafety=low, supermarkets=low, restaurants=high,
+  // quietness=essential) => importance total = 1+1+4+8 = 14, shares
+  // 1/14, 1/14, 4/14, 8/14 — none terminate in decimal. With every
+  // componentScore (affordability, commute, and all four lifestyle axes)
+  // pegged at exactly 100, each pointContribution still carries its own
+  // rounding drift:
+  //   affordability: 100*0.3 = 30 (exact)
+  //   commute: 100*0.3 = 30 (exact)
+  //   floodSafety: 100*(0.4/14) = 2.857142... -> rounds to 2.9
+  //   supermarkets: 100*(0.4/14) = 2.857142... -> rounds to 2.9
+  //   restaurants: 100*(1.6/14) = 11.428571... -> rounds to 11.4
+  //   quietness: 100*(3.2/14) = 22.857142... -> rounds to 22.9
+  //   sum = 30 + 30 + 2.9 + 2.9 + 11.4 + 22.9 = 100.1
+  // Without a clamp, overallScore (and the schema bound of max 100) would
+  // be violated by exactly this 0.1 of accumulated rounding drift.
+  const request = makeRequest({
+    monthlyBudgetYen: 200_000,
+    maxCommuteMinutes: 60,
+    preferences: {
+      floodSafety: "low",
+      supermarkets: "low",
+      restaurants: "high",
+      quietness: "essential",
+    },
+  });
+
+  const candidate = makeCandidate({
+    rent: makeRent({ medianYen: 100_000 }), // <= 0.6*200,000 -> affordability = 100
+    commute: makeCommute({ totalMinutes: 10 }), // <= 15 -> commute = 100
+    lifestyle: makeLifestyle({
+      normFloodSafety: 100,
+      normAmenitySupermarket: 100,
+      normAmenityRestaurant: 100,
+      normQuietness: 100,
+    }),
+  });
+
+  it("the unclamped sum of rounded contributions would be 100.1", () => {
+    const result = scoreCandidate(candidate, request);
+    const sum = result.factors.reduce((s, f) => s + f.pointContribution, 0);
+    expect(sum).toBeCloseTo(100.1, 10);
+  });
+
+  it("overallScore is clamped to exactly 100, not 100.1", () => {
+    const result = scoreCandidate(candidate, request);
+    expect(result.overallScore).toBe(100);
+  });
+});
+
+describe("scoreCandidate — overallScore stays within [0, 100] generally", () => {
+  it.each([
+    ["all-low, min inputs", "low", "low", "low", "low", 0, 0, 0, 0] as const,
+    ["all-essential, max inputs", "essential", "essential", "essential", "essential", 100, 100, 100, 100] as const,
+    ["mixed", "medium", "high", "essential", "low", 73, 12, 88, 40] as const,
+  ])("%s", (_label, floodSafety, supermarkets, restaurants, quietness, nf, ns, nr, nq) => {
+    const request = makeRequest({
+      monthlyBudgetYen: 200_000,
+      maxCommuteMinutes: 60,
+      preferences: { floodSafety, supermarkets, restaurants, quietness },
+    });
+    const candidate = makeCandidate({
+      rent: makeRent({ medianYen: 100_000 }),
+      commute: makeCommute({ totalMinutes: 10 }),
+      lifestyle: makeLifestyle({
+        normFloodSafety: nf,
+        normAmenitySupermarket: ns,
+        normAmenityRestaurant: nr,
+        normQuietness: nq,
+      }),
+    });
+    const result = scoreCandidate(candidate, request);
+    expect(result.overallScore).toBeGreaterThanOrEqual(0);
+    expect(result.overallScore).toBeLessThanOrEqual(100);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // applyHardFilters
 // ---------------------------------------------------------------------------
