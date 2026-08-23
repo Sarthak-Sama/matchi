@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { LIFESTYLE_AXIS_IDS } from "../config/lifestyle-axes.js";
 import { optimizationRequestSchema } from "./request.js";
 
 function validRequest() {
@@ -105,5 +106,45 @@ describe("optimizationRequestSchema", () => {
       extraField: "not allowed",
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("optimizationRequestSchema preferences", () => {
+  it("accepts a single rated axis (the rest omitted, not rated low)", () => {
+    const result = optimizationRequestSchema.safeParse({
+      ...validRequest(),
+      preferences: { quietness: "high" },
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.preferences).toEqual({ quietness: "high" });
+  });
+
+  it("accepts every registered axis at once", () => {
+    const preferences = Object.fromEntries(LIFESTYLE_AXIS_IDS.map((id) => [id, "medium"]));
+    const result = optimizationRequestSchema.safeParse({ ...validRequest(), preferences });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an empty preferences object (no axis rated)", () => {
+    const result = optimizationRequestSchema.safeParse({ ...validRequest(), preferences: {} });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(["preferences"]);
+  });
+
+  it("rejects an unknown axis key rather than silently dropping it", () => {
+    const result = optimizationRequestSchema.safeParse({
+      ...validRequest(),
+      preferences: { ...validRequest().preferences, hilliness: "high" },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("names the offending axis in the error path", () => {
+    const result = optimizationRequestSchema.safeParse({
+      ...validRequest(),
+      preferences: { ...validRequest().preferences, quietness: "critical" },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(["preferences", "quietness"]);
   });
 });

@@ -21,18 +21,19 @@ import type {
 import {
   AFFORDABILITY_FULL_SCORE_RATIO,
   CATCHMENT_LABEL,
-  CATCHMENT_RADIUS_M,
   COMMUTE_FULL_SCORE_MINUTES,
   COMMUTE_LABEL,
   IMPORTANCE_VALUES,
+  LIFESTYLE_AXES,
+  LIFESTYLE_AXIS_IDS,
   OVERALL_WEIGHTS,
-  QUIETNESS_LABEL,
   REASON_NEGATIVE_THRESHOLD,
   REASON_POSITIVE_THRESHOLD,
   RENT_LABEL,
 } from "@tokyo/shared";
 import type { RentEstimateResult } from "@tokyo/shared";
 
+import { LIFESTYLE_AXIS_DESCRIBERS } from "./lifestyle-axis-describe.js";
 import type { CommuteEstimateResult } from "./transit/commute.js";
 
 // ---------------------------------------------------------------------------
@@ -40,14 +41,21 @@ import type { CommuteEstimateResult } from "./transit/commute.js";
 // ---------------------------------------------------------------------------
 
 /**
- * The four `norm_*` (0-100) columns `pnpm derive`'s normalization step
- * writes to `neighborhood_metrics`, plus the raw counts behind the two
- * amenity axes (used for human-readable `rawValueLabel`s — see the
- * worked example in the task report) and a single source date/confidence
- * pair covering all four. `neighborhood_metrics` has no per-axis
- * confidence column (only `rent_confidence`), so one bundle-level
- * confidence for the whole derived-metrics row is the honest
- * representation of what the pipeline actually knows.
+ * Every axis's `norm_*` (0-100) column from `pnpm derive`'s normalization
+ * step, plus the raw counts behind the two amenity axes (used for
+ * human-readable `rawValueLabel`s — see the worked example in the task
+ * report) and a single source date/confidence pair covering all of them.
+ * `neighborhood_metrics` has no per-axis confidence column (only
+ * `rent_confidence`), so one bundle-level confidence for the whole
+ * derived-metrics row is the honest representation of what the pipeline
+ * actually knows.
+ *
+ * Deliberately a hand-written, named-field interface rather than a
+ * `Record<string, number>` generated from `LIFESTYLE_AXES`: it is the
+ * tripwire that makes a new registry axis fail to compile in
+ * `lifestyle-axis-describe.ts` until the metric it reads actually exists.
+ * Each field name is an axis's `metricsKey` (or a describer's declared raw
+ * column).
  */
 export interface LifestyleMetricsInput {
   readonly normFloodSafety: number;
@@ -319,66 +327,6 @@ export function scoreCommute(totalMinutes: number, maxCommuteMinutes: number): n
 // scoreLifestyle
 // ---------------------------------------------------------------------------
 
-const LIFESTYLE_AXIS_KEYS = ["floodSafety", "supermarkets", "restaurants", "quietness"] as const;
-type LifestyleAxisKey = (typeof LIFESTYLE_AXIS_KEYS)[number];
-
-const LIFESTYLE_AXIS_LABELS: Record<LifestyleAxisKey, string> = {
-  floodSafety: "Flood safety",
-  supermarkets: "Supermarkets",
-  restaurants: "Restaurants",
-  quietness: "Quietness",
-};
-
-interface LifestyleAxisRaw {
-  readonly componentScore: number;
-  readonly rawValue: number;
-  readonly rawValueLabel: string;
-}
-
-/**
- * The lifestyle axes' `componentScore` is the precomputed `norm_*` value
- * itself (already 0-100 — `scoreLifestyle` does not re-derive it). The raw
- * value differs by axis: for the two amenity axes it's the plain count
- * within the catchment radius (matching the spec's own example, `"12
- * supermarkets within 800 m"`); for flood safety and quietness — which
- * have no equally intuitive count — it's the normalized score itself,
- * restated in a `X/100` label (quietness reusing the existing
- * `QUIETNESS_LABEL` constant).
- */
-function describeLifestyleAxis(
-  key: LifestyleAxisKey,
-  metrics: LifestyleMetricsInput,
-): LifestyleAxisRaw {
-  switch (key) {
-    case "floodSafety":
-      return {
-        componentScore: metrics.normFloodSafety,
-        rawValue: metrics.normFloodSafety,
-        rawValueLabel: `${Math.round(metrics.normFloodSafety)}/100 flood safety score`,
-      };
-    case "supermarkets":
-      return {
-        componentScore: metrics.normAmenitySupermarket,
-        rawValue: metrics.supermarketCount,
-        rawValueLabel: `${metrics.supermarketCount} supermarkets within ${CATCHMENT_RADIUS_M} m`,
-      };
-    case "restaurants": {
-      const count = metrics.restaurantCount + metrics.cafeCount;
-      return {
-        componentScore: metrics.normAmenityRestaurant,
-        rawValue: count,
-        rawValueLabel: `${count} restaurants and cafés within ${CATCHMENT_RADIUS_M} m`,
-      };
-    }
-    case "quietness":
-      return {
-        componentScore: metrics.normQuietness,
-        rawValue: metrics.normQuietness,
-        rawValueLabel: `${Math.round(metrics.normQuietness)}/100 ${QUIETNESS_LABEL}`,
-      };
-  }
-}
-
 export interface LifestyleScoreResult {
   readonly score: number;
   readonly factors: readonly FactorEvidence[];
@@ -386,33 +334,65 @@ export interface LifestyleScoreResult {
 
 /**
  * Effective share for axis _i_ is
- * `IMPORTANCE_VALUES[pref_i] / sum(IMPORTANCE_VALUES[pref_j] for all j)`
+ * `IMPORTANCE_VALUES[pref_i] / sum(IMPORTANCE_VALUES[pref_j] for all SELECTED j)`
  * — "essential" (8) is the strongest possible weight, never a filter.
- * `score` is the weighted sum of the four normalized (0-100) axis scores
- * (`Σ componentScore_i * share_i`), so it stays on a 0-100 scale; each
- * factor's `effectiveWeight` is that same share scaled into the OVERALL
- * score (`OVERALL_WEIGHTS.lifestyle * share_i`), so
+ * `score` is the weighted sum of the selected axes' normalized (0-100)
+ * scores (`Σ componentScore_i * share_i`), so it stays on a 0-100 scale;
+ * each factor's `effectiveWeight` is that same share scaled into the
+ * OVERALL score (`OVERALL_WEIGHTS.lifestyle * share_i`), so
  * `Σ factors[].pointContribution === OVERALL_WEIGHTS.lifestyle * score`.
+ *
+ * An axis the request left out is OMITTED, not weighted zero: it produces
+ * no `FactorEvidence`, so it can never surface in `factors` or in
+ * `reasonsFor`/`reasonsAgainst`.
+ *
+ * Lifestyle stays `OVERALL_WEIGHTS.lifestyle` (40%) of the overall score no
+ * matter how many axes are selected — the shares RENORMALIZE over the
+ * selected axes and always sum to 1. Rating one axis instead of four does
+ * not make lifestyle count for less; it concentrates the same 40% on that
+ * one axis. (Writing this down because "fewer axes should count less" is a
+ * plausible misreading, and "fixing" it would silently rescale every score.)
  */
 export function scoreLifestyle(
   metrics: LifestyleMetricsInput,
   preferences: OptimizationRequest["preferences"],
 ): LifestyleScoreResult {
-  const importanceTotal = LIFESTYLE_AXIS_KEYS.reduce(
-    (sum, key) => sum + IMPORTANCE_VALUES[preferences[key]],
+  // Registry order, so `factors` ordering is stable and independent of the
+  // key order of whatever object the caller built.
+  const selected = LIFESTYLE_AXIS_IDS.flatMap((id) => {
+    const importance = preferences[id];
+    return importance === undefined ? [] : [{ id, importance }];
+  });
+
+  // With nothing selected there is no share to compute: `importanceTotal`
+  // would be 0, every share `NaN`, and the `NaN` would propagate into
+  // `overallScore` and then into `rankCandidates`'s comparisons, which
+  // silently produce an arbitrary order. `optimizationRequestSchema`
+  // already requires at least one axis, but `/v1/neighborhoods` builds its
+  // own preferences object without going through the schema, so the guard
+  // is real rather than redundant. The honest answer for "no lifestyle
+  // axes rated" is that lifestyle contributes nothing and explains
+  // nothing — 0 points, no factors — NOT a fabricated neutral score.
+  if (selected.length === 0) {
+    return { score: 0, factors: [] };
+  }
+
+  const importanceTotal = selected.reduce(
+    (sum, axis) => sum + IMPORTANCE_VALUES[axis.importance],
     0,
   );
 
   let score = 0;
-  const factors: FactorEvidence[] = LIFESTYLE_AXIS_KEYS.map((key) => {
-    const share = IMPORTANCE_VALUES[preferences[key]] / importanceTotal;
+  const factors: FactorEvidence[] = selected.map(({ id, importance }) => {
+    const share = IMPORTANCE_VALUES[importance] / importanceTotal;
     const effectiveWeight = OVERALL_WEIGHTS.lifestyle * share;
-    const { componentScore, rawValue, rawValueLabel } = describeLifestyleAxis(key, metrics);
+    const { componentScore, rawValue, rawValueLabel } =
+      LIFESTYLE_AXIS_DESCRIBERS[id].describe(metrics);
     score += componentScore * share;
 
-    const label = LIFESTYLE_AXIS_LABELS[key];
+    const label = LIFESTYLE_AXES[id].label;
     return {
-      key,
+      key: id,
       label,
       rawValue,
       rawValueLabel,
@@ -531,11 +511,12 @@ export function scoreCandidate(
 
   const factors: FactorEvidence[] = [affordabilityFactor, commuteFactor, ...lifestyleFactors];
 
-  // Sum of the six ALREADY-ROUNDED pointContributions — see this
-  // function's doc comment for why this is reconciliation by construction
-  // rather than a coincidence of the inputs. Each pointContribution can
-  // carry up to ±0.05 of rounding drift versus its true (unrounded) value,
-  // so the sum of six can overshoot 100 by up to ~0.1 even when every
+  // Sum of the ALREADY-ROUNDED pointContributions (affordability, commute,
+  // and one per selected lifestyle axis) — see this function's doc comment
+  // for why this is reconciliation by construction rather than a
+  // coincidence of the inputs. Each pointContribution can carry up to ±0.05
+  // of rounding drift versus its true (unrounded) value, so the sum can
+  // overshoot 100 by up to half a decimal per factor even when every
   // componentScore is exactly 100 (e.g. preferences low/low/high/essential
   // with all four lifestyle axes at 100 sums to 100.1) — clamped here
   // rather than in `roundToOneDecimal` itself, since that helper is also

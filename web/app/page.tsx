@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import type {
   Importance,
   Layout,
+  LifestyleAxisId,
   OptimizationRequest,
   OptimizeResponse,
   StationsResponse,
@@ -16,6 +17,9 @@ import {
   IMPORTANCE_VALUES,
   LAYOUT_IDS,
   LAYOUTS,
+  LIFESTYLE_AXES,
+  LIFESTYLE_AXIS_IDS,
+  mapLifestyleAxes,
   OSM_ATTRIBUTION,
   OVERALL_WEIGHTS,
   RENT_LABEL,
@@ -25,6 +29,11 @@ import { ApiClientError, getJson, postJson } from "../lib/api";
 
 const IMPORTANCE_OPTIONS = Object.keys(IMPORTANCE_VALUES) as Importance[];
 
+/**
+ * Non-lifestyle query-string keys. Each lifestyle axis uses its own
+ * `LifestyleAxisId` as its query key, so there is no second set of names to
+ * keep in sync with the registry.
+ */
 const QUERY_KEYS = {
   dest: "dest",
   destLabel: "destLabel",
@@ -32,11 +41,9 @@ const QUERY_KEYS = {
   maxCommute: "maxCommute",
   budget: "budget",
   layout: "layout",
-  flood: "flood",
-  supermarkets: "supermarkets",
-  restaurants: "restaurants",
-  quiet: "quiet",
 } as const;
+
+const DEFAULT_IMPORTANCE: Importance = "medium";
 
 export default function Home() {
   // Step 1: destination + arrival + max commute.
@@ -63,11 +70,13 @@ export default function Home() {
   const [monthlyBudgetYen, setMonthlyBudgetYen] = useState(200_000);
   const [layout, setLayout] = useState<Layout>("1LDK");
 
-  // Step 3: lifestyle importance.
-  const [floodSafety, setFloodSafety] = useState<Importance>("medium");
-  const [supermarkets, setSupermarkets] = useState<Importance>("medium");
-  const [restaurants, setRestaurants] = useState<Importance>("medium");
-  const [quietness, setQuietness] = useState<Importance>("medium");
+  // Step 3: lifestyle importance — one entry per registered axis.
+  // `undefined` means "axis not rated", which the request contract treats as
+  // "leave it out of scoring entirely"; the menu below currently always
+  // supplies a value.
+  const [preferences, setPreferences] = useState<Record<LifestyleAxisId, Importance | undefined>>(
+    () => mapLifestyleAxes(() => DEFAULT_IMPORTANCE),
+  );
 
   // Request lifecycle.
   const [hydrated, setHydrated] = useState(false);
@@ -97,22 +106,14 @@ export default function Home() {
     if (layoutParam && (LAYOUT_IDS as readonly string[]).includes(layoutParam)) {
       setLayout(layoutParam as Layout);
     }
-    const flood = params.get(QUERY_KEYS.flood);
-    if (flood && IMPORTANCE_OPTIONS.includes(flood as Importance)) {
-      setFloodSafety(flood as Importance);
-    }
-    const supermarketsParam = params.get(QUERY_KEYS.supermarkets);
-    if (supermarketsParam && IMPORTANCE_OPTIONS.includes(supermarketsParam as Importance)) {
-      setSupermarkets(supermarketsParam as Importance);
-    }
-    const restaurantsParam = params.get(QUERY_KEYS.restaurants);
-    if (restaurantsParam && IMPORTANCE_OPTIONS.includes(restaurantsParam as Importance)) {
-      setRestaurants(restaurantsParam as Importance);
-    }
-    const quiet = params.get(QUERY_KEYS.quiet);
-    if (quiet && IMPORTANCE_OPTIONS.includes(quiet as Importance)) {
-      setQuietness(quiet as Importance);
-    }
+    setPreferences((current) =>
+      mapLifestyleAxes((id) => {
+        const value = params.get(id);
+        return value && IMPORTANCE_OPTIONS.includes(value as Importance)
+          ? (value as Importance)
+          : current[id];
+      }),
+    );
     setHydrated(true);
   }, []);
 
@@ -172,7 +173,7 @@ export default function Home() {
       monthlyBudgetYen,
       layout,
       maxCommuteMinutes,
-      preferences: { floodSafety, supermarkets, restaurants, quietness },
+      preferences,
     };
 
     const params = new URLSearchParams({
@@ -182,11 +183,11 @@ export default function Home() {
       [QUERY_KEYS.maxCommute]: String(maxCommuteMinutes),
       [QUERY_KEYS.budget]: String(monthlyBudgetYen),
       [QUERY_KEYS.layout]: layout,
-      [QUERY_KEYS.flood]: floodSafety,
-      [QUERY_KEYS.supermarkets]: supermarkets,
-      [QUERY_KEYS.restaurants]: restaurants,
-      [QUERY_KEYS.quiet]: quietness,
     });
+    for (const id of LIFESTYLE_AXIS_IDS) {
+      const importance = preferences[id];
+      if (importance !== undefined) params.set(id, importance);
+    }
     window.history.replaceState(null, "", `?${params.toString()}`);
 
     setIsLoading(true);
@@ -335,22 +336,22 @@ export default function Home() {
         <fieldset className="space-y-3">
           <legend className="text-lg font-semibold">3. Lifestyle priorities</legend>
 
-          {(
-            [
-              ["floodSafety", "Flood safety", floodSafety, setFloodSafety],
-              ["supermarkets", "Supermarkets & groceries", supermarkets, setSupermarkets],
-              ["restaurants", "Restaurants & cafes", restaurants, setRestaurants],
-              ["quietness", "Quietness", quietness, setQuietness],
-            ] as const
-          ).map(([id, label, value, setValue]) => (
+          {LIFESTYLE_AXIS_IDS.map((id) => (
             <div key={id}>
               <label htmlFor={id} className="block text-sm font-medium">
-                {label}
+                {LIFESTYLE_AXES[id].label}
               </label>
               <select
                 id={id}
-                value={value}
-                onChange={(event) => setValue(event.target.value as Importance)}
+                // Every axis currently always carries a value; the fallback
+                // only keeps the control a controlled one.
+                value={preferences[id] ?? DEFAULT_IMPORTANCE}
+                onChange={(event) =>
+                  setPreferences((current) => ({
+                    ...current,
+                    [id]: event.target.value as Importance,
+                  }))
+                }
                 className="mt-1 rounded border border-neutral-400 px-3 py-2"
               >
                 {IMPORTANCE_OPTIONS.map((option) => (

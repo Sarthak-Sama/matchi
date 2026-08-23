@@ -13,11 +13,17 @@
  * one-off envelope schema invented just for this check.
  */
 
-import type { FactorEvidence, Importance, RentEstimateResult } from "@tokyo/shared";
+import type {
+  FactorEvidence,
+  Importance,
+  LifestyleAxisId,
+  RentEstimateResult,
+} from "@tokyo/shared";
 import {
   CATCHMENT_LABEL,
   factorEvidenceSchema,
   layoutSchema,
+  mapLifestyleAxes,
   NEIGHBORHOOD_DEFAULT_LAYOUT,
   rentEstimateSchema,
 } from "@tokyo/shared";
@@ -29,6 +35,12 @@ import { ApiError } from "../app.js";
 import { scoreLifestyle } from "../domain/scoring.js";
 import type { LifestyleMetricsInput } from "../domain/scoring.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
+import type { LifestyleMetricColumns } from "./lib/lifestyle-columns.js";
+import {
+  LIFESTYLE_SELECT_SQL,
+  readLifestyleNormScores,
+  readLifestyleRawCounts,
+} from "./lib/lifestyle-columns.js";
 import { recomputeRentForLayout } from "./lib/rent.js";
 import { parseOrThrow } from "./lib/validation.js";
 
@@ -41,19 +53,15 @@ const querySchema = z
  * A uniform "medium" importance on every axis — this route displays a
  * station's metrics independent of any particular user's preferences, so
  * `scoreLifestyle`'s `FactorEvidence[]` output is generated with an equal
- * split across axes (each `effectiveWeight` = `OVERALL_WEIGHTS.lifestyle /
- * 4`) purely to reuse its already-tested raw-value/label/direction
- * assembly, not because these weights represent anyone's real request.
+ * split across the N registered axes (each `effectiveWeight` =
+ * `OVERALL_WEIGHTS.lifestyle / N`) purely to reuse its already-tested
+ * raw-value/label/direction assembly, not because these weights represent
+ * anyone's real request.
+ *
+ * Note this object never passes through `optimizationRequestSchema` — which
+ * is exactly why `scoreLifestyle` guards the zero-axis case itself.
  */
-const NEUTRAL_PREFERENCES: Record<
-  "floodSafety" | "supermarkets" | "restaurants" | "quietness",
-  Importance
-> = {
-  floodSafety: "medium",
-  supermarkets: "medium",
-  restaurants: "medium",
-  quietness: "medium",
-};
+const NEUTRAL_PREFERENCES: Record<LifestyleAxisId, Importance> = mapLifestyleAxes(() => "medium");
 
 const NEIGHBORHOOD_SQL = `
   SELECT
@@ -73,13 +81,7 @@ const NEIGHBORHOOD_SQL = `
     nm.land_price_used_fallback AS "landPriceUsedFallback",
     nm.rent_source AS "rentSource",
     nm.rent_source_period AS "rentSourcePeriod",
-    nm.norm_flood_safety AS "normFloodSafety",
-    nm.norm_amenity_supermarket AS "normAmenitySupermarket",
-    nm.norm_amenity_restaurant AS "normAmenityRestaurant",
-    nm.norm_quietness AS "normQuietness",
-    nm.supermarket_count AS "supermarketCount",
-    nm.restaurant_count AS "restaurantCount",
-    nm.cafe_count AS "cafeCount",
+    ${LIFESTYLE_SELECT_SQL},
     nm.derived_at AS "derivedAt",
     nm.source_dates AS "sourceDates",
     sa.radius_m AS "catchmentRadiusM",
@@ -91,7 +93,7 @@ const NEIGHBORHOOD_SQL = `
   WHERE sg.station_group_id = $1
 `;
 
-interface NeighborhoodRow {
+interface NeighborhoodRow extends LifestyleMetricColumns {
   readonly stationGroupId: string;
   readonly nameEn: string;
   readonly nameJa: string;
@@ -108,13 +110,6 @@ interface NeighborhoodRow {
   readonly landPriceUsedFallback: boolean | null;
   readonly rentSource: string | null;
   readonly rentSourcePeriod: string | null;
-  readonly normFloodSafety: number | null;
-  readonly normAmenitySupermarket: number | null;
-  readonly normAmenityRestaurant: number | null;
-  readonly normQuietness: number | null;
-  readonly supermarketCount: number | null;
-  readonly restaurantCount: number | null;
-  readonly cafeCount: number | null;
   readonly derivedAt: Date | null;
   readonly sourceDates: Record<string, string> | null;
   readonly catchmentRadiusM: number | null;
@@ -159,15 +154,9 @@ export function registerNeighborhoodRoute(app: FastifyInstance, deps: AppDeps): 
       rows: NeighborhoodRow[];
     };
     const row = result.rows[0];
+    const normScores = row ? readLifestyleNormScores(row) : null;
 
-    if (
-      !row ||
-      row.derivedAt === null ||
-      row.normFloodSafety === null ||
-      row.normAmenitySupermarket === null ||
-      row.normAmenityRestaurant === null ||
-      row.normQuietness === null
-    ) {
+    if (!row || row.derivedAt === null || normScores === null) {
       throw new ApiError(
         404,
         "NEIGHBORHOOD_NOT_FOUND",
@@ -204,14 +193,12 @@ export function registerNeighborhoodRoute(app: FastifyInstance, deps: AppDeps): 
       );
     }
 
+    // The spreads are the drift tripwire: this is a real type-checked
+    // assignment into `LifestyleMetricsInput`, so a registry axis whose
+    // metric this route cannot supply fails to compile.
     const lifestyle: LifestyleMetricsInput = {
-      normFloodSafety: row.normFloodSafety,
-      normAmenitySupermarket: row.normAmenitySupermarket,
-      normAmenityRestaurant: row.normAmenityRestaurant,
-      normQuietness: row.normQuietness,
-      supermarketCount: row.supermarketCount ?? 0,
-      restaurantCount: row.restaurantCount ?? 0,
-      cafeCount: row.cafeCount ?? 0,
+      ...normScores,
+      ...readLifestyleRawCounts(row),
       sourceDate: row.derivedAt.toISOString(),
       confidence: "medium",
     };
