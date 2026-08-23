@@ -1,8 +1,9 @@
 import { defineConfig } from "vitest/config";
 
 // Single root Vitest config with one project per workspace package that
-// carries tests. `web` is intentionally excluded — the frontend has no test
-// suite by design (see docs/plans/tokyo-optimizer-mvp.md).
+// carries tests. `web` carries exactly one file (`lib/api.test.ts`, Task
+// 15) by design — the frontend's test budget is deliberately limited to the
+// handwritten fetch wrapper; no component tests, no Playwright.
 export default defineConfig({
   test: {
     globals: false,
@@ -46,6 +47,15 @@ export default defineConfig({
           environment: "node",
           globals: false,
           include: ["src/**/*.test.ts"],
+        },
+      },
+      {
+        test: {
+          name: "web",
+          root: "./web",
+          environment: "node",
+          globals: false,
+          include: ["lib/**/*.test.ts"],
         },
       },
     ],
