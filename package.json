@@ -14,13 +14,13 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "db:migrate": "tsx scripts/src/migrate.ts",
-    "db:seed": "tsx scripts/src/seed.ts",
-    "derive": "tsx scripts/src/derive.ts",
-    "import:mlit": "tsx scripts/src/import-mlit.ts",
-    "import:rent": "tsx scripts/src/import-rent.ts",
-    "import:osm": "tsx scripts/src/import-osm.ts",
-    "import:transit": "tsx scripts/src/import-transit.ts"
+    "db:migrate": "tsx --env-file-if-exists=.env scripts/src/migrate.ts",
+    "db:seed": "tsx --env-file-if-exists=.env scripts/src/seed.ts",
+    "derive": "tsx --env-file-if-exists=.env scripts/src/derive.ts",
+    "import:mlit": "tsx --env-file-if-exists=.env scripts/src/import-mlit.ts",
+    "import:rent": "tsx --env-file-if-exists=.env scripts/src/import-rent.ts",
+    "import:osm": "tsx --env-file-if-exists=.env scripts/src/import-osm.ts",
+    "import:transit": "tsx --env-file-if-exists=.env scripts/src/import-transit.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
