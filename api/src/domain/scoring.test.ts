@@ -250,6 +250,68 @@ describe("scoreLifestyle weight normalization", () => {
 });
 
 // ---------------------------------------------------------------------------
+// scoreLifestyle — axis selection
+// ---------------------------------------------------------------------------
+
+describe("scoreLifestyle axis selection", () => {
+  it("omits an unrated axis entirely rather than weighting it zero", () => {
+    const { factors } = scoreLifestyle(makeLifestyle(), {
+      floodSafety: "low",
+      quietness: "essential",
+    });
+
+    expect(factors.map((f) => f.key)).toEqual(["floodSafety", "quietness"]);
+  });
+
+  it("keeps lifestyle at the full 40% when only one axis is rated", () => {
+    // The shares renormalize over the SELECTED axes, so a single rated axis
+    // carries the whole lifestyle weight — rating fewer axes concentrates
+    // the 40%, it does not shrink it.
+    const { score, factors } = scoreLifestyle(makeLifestyle({ normQuietness: 70 }), {
+      quietness: "low",
+    });
+
+    expect(factors).toHaveLength(1);
+    expect(factors[0]!.effectiveWeight).toBe(0.4);
+    expect(factors[0]!.pointContribution).toBe(28); // 70 * 0.4
+    expect(score).toBe(70);
+  });
+
+  it("returns a zero score and no factors when no axis is rated (never NaN)", () => {
+    // `/v1/neighborhoods` builds its own preferences object without going
+    // through `optimizationRequestSchema`, so this guard is reachable
+    // independently of request validation. The failure it prevents is
+    // silent: importanceTotal 0 -> NaN shares -> NaN overallScore -> a
+    // ranking whose comparisons are all false.
+    const { score, factors } = scoreLifestyle(makeLifestyle(), {});
+
+    expect(score).toBe(0);
+    expect(Number.isNaN(score)).toBe(false);
+    expect(factors).toEqual([]);
+  });
+
+  it("keeps overallScore finite and rank order intact when no axis is rated", () => {
+    const request = makeRequest({ preferences: {} });
+    const cheap = scoreCandidate(
+      makeCandidate({ stationGroupId: "sg-cheap", rent: makeRent({ medianYen: 100_000 }) }),
+      request,
+    );
+    const pricey = scoreCandidate(
+      makeCandidate({ stationGroupId: "sg-pricey", rent: makeRent({ medianYen: 190_000 }) }),
+      request,
+    );
+
+    expect(Number.isFinite(cheap.overallScore)).toBe(true);
+    expect(Number.isFinite(pricey.overallScore)).toBe(true);
+    expect(cheap.factors.map((f) => f.key)).toEqual(["affordability", "commute"]);
+    expect(rankCandidates([pricey, cheap]).map((c) => c.stationGroupId)).toEqual([
+      "sg-cheap",
+      "sg-pricey",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // scoreCandidate — fully worked example (point contributions sum to overallScore)
 // ---------------------------------------------------------------------------
 

@@ -25,6 +25,12 @@ import { reverseDijkstra } from "../domain/transit/dijkstra.js";
 import { resolvePeriod } from "../domain/transit/period.js";
 import { loadLatestSuccessfulImportRuns } from "./lib/data-vintages.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
+import type { LifestyleMetricColumns } from "./lib/lifestyle-columns.js";
+import {
+  LIFESTYLE_SELECT_SQL,
+  readLifestyleNormScores,
+  readLifestyleRawCounts,
+} from "./lib/lifestyle-columns.js";
 import { recomputeRentForLayout } from "./lib/rent.js";
 import type { NameLookups } from "./lib/station-names.js";
 import { loadNameLookups, resolvePathNames } from "./lib/station-names.js";
@@ -63,13 +69,7 @@ const CANDIDATES_SQL = `
     nm.land_price_used_fallback AS "landPriceUsedFallback",
     nm.rent_source AS "rentSource",
     nm.rent_source_period AS "rentSourcePeriod",
-    nm.norm_flood_safety AS "normFloodSafety",
-    nm.norm_amenity_supermarket AS "normAmenitySupermarket",
-    nm.norm_amenity_restaurant AS "normAmenityRestaurant",
-    nm.norm_quietness AS "normQuietness",
-    nm.supermarket_count AS "supermarketCount",
-    nm.restaurant_count AS "restaurantCount",
-    nm.cafe_count AS "cafeCount",
+    ${LIFESTYLE_SELECT_SQL},
     nm.derived_at AS "derivedAt"
   FROM neighborhood_metrics nm
   JOIN station_groups sg ON sg.station_group_id = nm.station_group_id
@@ -77,7 +77,7 @@ const CANDIDATES_SQL = `
   WHERE nm.station_group_id != $1
 `;
 
-interface CandidateRow {
+interface CandidateRow extends LifestyleMetricColumns {
   readonly stationGroupId: string;
   readonly nameEn: string;
   readonly nameJa: string;
@@ -93,13 +93,6 @@ interface CandidateRow {
   readonly landPriceUsedFallback: boolean | null;
   readonly rentSource: string | null;
   readonly rentSourcePeriod: string | null;
-  readonly normFloodSafety: number | null;
-  readonly normAmenitySupermarket: number | null;
-  readonly normAmenityRestaurant: number | null;
-  readonly normQuietness: number | null;
-  readonly supermarketCount: number;
-  readonly restaurantCount: number;
-  readonly cafeCount: number;
   readonly derivedAt: Date;
 }
 
@@ -154,12 +147,8 @@ function buildCandidate(
     return null;
   }
 
-  if (
-    row.normFloodSafety === null ||
-    row.normAmenitySupermarket === null ||
-    row.normAmenityRestaurant === null ||
-    row.normQuietness === null
-  ) {
+  const normScores = readLifestyleNormScores(row);
+  if (normScores === null) {
     log.warn(
       { stationGroupId: row.stationGroupId },
       "excluding candidate from /v1/optimize: incomplete normalized lifestyle metrics",
@@ -186,14 +175,12 @@ function buildCandidate(
     ? { ...rawCommute, path: resolvePathNames(rawCommute.path, nameLookups) }
     : null;
 
+  // The spreads are the drift tripwire: this is a real type-checked
+  // assignment into `LifestyleMetricsInput`, so a registry axis whose
+  // metric this module cannot supply fails to compile.
   const lifestyle: LifestyleMetricsInput = {
-    normFloodSafety: row.normFloodSafety,
-    normAmenitySupermarket: row.normAmenitySupermarket,
-    normAmenityRestaurant: row.normAmenityRestaurant,
-    normQuietness: row.normQuietness,
-    supermarketCount: row.supermarketCount,
-    restaurantCount: row.restaurantCount,
-    cafeCount: row.cafeCount,
+    ...normScores,
+    ...readLifestyleRawCounts(row),
     sourceDate: row.derivedAt.toISOString(),
     confidence: LIFESTYLE_BUNDLE_CONFIDENCE,
   };
