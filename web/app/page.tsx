@@ -9,6 +9,8 @@ import type {
   LifestyleAxisId,
   OptimizationRequest,
   OptimizeResponse,
+  PlaceSuggestion,
+  PlacesResponse,
   StationsResponse,
   StationSuggestion,
 } from "@tokyo/shared";
@@ -17,17 +19,29 @@ import {
   IMPORTANCE_VALUES,
   LAYOUT_IDS,
   LAYOUTS,
-  LIFESTYLE_AXES,
   LIFESTYLE_AXIS_IDS,
   mapLifestyleAxes,
+  MAX_SELECTED_LIFESTYLE_AXES,
+  MIN_SELECTED_LIFESTYLE_AXES,
   OSM_ATTRIBUTION,
   OVERALL_WEIGHTS,
   RENT_LABEL,
 } from "@tokyo/shared";
 
 import { ApiClientError, getJson, postJson } from "../lib/api";
+import { LifestylePicker } from "./components/LifestylePicker";
 
 const IMPORTANCE_OPTIONS = Object.keys(IMPORTANCE_VALUES) as Importance[];
+
+/**
+ * A destination the user has actually committed to, in whichever of the two
+ * mutually-exclusive forms `POST /v1/optimize` accepts. Kept as one
+ * discriminated union (rather than the old `destId`/`destLabel` pair) so a
+ * selection can never end up half station, half point.
+ */
+type SelectedDestination =
+  | { readonly kind: "station"; readonly stationGroupId: string; readonly label: string }
+  | { readonly kind: "point"; readonly lat: number; readonly lon: number; readonly label: string };
 
 /**
  * Non-lifestyle query-string keys. Each lifestyle axis uses its own
@@ -37,6 +51,8 @@ const IMPORTANCE_OPTIONS = Object.keys(IMPORTANCE_VALUES) as Importance[];
 const QUERY_KEYS = {
   dest: "dest",
   destLabel: "destLabel",
+  destLat: "destLat",
+  destLon: "destLon",
   arrival: "arrival",
   maxCommute: "maxCommute",
   budget: "budget",
@@ -46,10 +62,7 @@ const QUERY_KEYS = {
 export default function Home() {
   // Step 1: destination + arrival + max commute.
   const [destQuery, setDestQuery] = useState("");
-  const [destId, setDestId] = useState<string | null>(null);
-  const [destLabel, setDestLabel] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<StationSuggestion[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [selectedDestination, setSelectedDestination] = useState<SelectedDestination | null>(null);
   // The `destQuery` value that was just SET alongside a real selection
   // (from hydration or from picking a suggestion), so the autocomplete
   // effect below can tell "this text already represents a committed
@@ -61,6 +74,18 @@ export default function Home() {
   // request slip through 300ms after a shared link loads.
   const [committedQuery, setCommittedQuery] = useState<string | null>(null);
 
+  // `/v1/places` results — named POIs and stations, ranked together. This
+  // is the primary destination search: a user thinks "where am I going"
+  // (an office, a campus), not "which station serves it".
+  const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [placesLoading, setPlacesLoading] = useState(false);
+  // Fallback station-only search, populated ONLY when `/v1/places` comes
+  // back empty for the current query. Not optional garnish: it is what
+  // keeps the form usable when a destination has no named POI and doesn't
+  // match a station well enough to rank (e.g. an unusual station spelling).
+  const [stationFallback, setStationFallback] = useState<StationSuggestion[]>([]);
+  const [stationFallbackLoading, setStationFallbackLoading] = useState(false);
+
   const [arrivalTime, setArrivalTime] = useState("08:30");
   const [maxCommuteMinutes, setMaxCommuteMinutes] = useState(45);
 
@@ -69,14 +94,11 @@ export default function Home() {
   const [layout, setLayout] = useState<Layout>("1LDK");
 
   // Step 3: lifestyle importance — one entry per registered axis.
-  // `undefined` means "axis not rated", which the request contract treats as
-  // "leave it out of scoring entirely". Every axis starts unselected: with
-  // nine registered axes but MAX_SELECTED_LIFESTYLE_AXES capped at 5,
-  // defaulting every axis to a value (as this used to) would submit all
-  // nine and the request would 400 against the app's own untouched initial
-  // state. The user opts in per axis instead (the plan's own "pick 4-5 from
-  // a menu" design); a picker UI is a later task, this just prevents the
-  // self-inflicted 400.
+  // `undefined` means "axis not selected", which the request contract
+  // treats as "leave it out of scoring entirely". Every axis starts
+  // unselected: with nine registered axes but MAX_SELECTED_LIFESTYLE_AXES
+  // capped at 5, defaulting every axis to a value would submit all nine and
+  // the request would 400 against the app's own untouched initial state.
   const [preferences, setPreferences] = useState<Record<LifestyleAxisId, Importance | undefined>>(
     () => mapLifestyleAxes(() => undefined),
   );
@@ -86,18 +108,42 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [response, setResponse] = useState<OptimizeResponse | null>(null);
+  // The destination label as of the request that PRODUCED `response` —
+  // captured at submit time rather than read live off `selectedDestination`,
+  // so editing the destination field after results have loaded (which
+  // clears `selectedDestination`) can't blank out the "walk to X" wording
+  // on results that are still on screen.
+  const [resultDestinationLabel, setResultDestinationLabel] = useState<string | null>(null);
 
   // Hydrate the form from the query string on load (shareable links).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const id = params.get(QUERY_KEYS.dest);
-    if (id) {
-      const label = params.get(QUERY_KEYS.destLabel);
-      const query = label ?? id;
-      setDestId(id);
-      setDestLabel(label);
-      setDestQuery(query);
-      setCommittedQuery(query);
+    const stationId = params.get(QUERY_KEYS.dest);
+    const lat = params.get(QUERY_KEYS.destLat);
+    const lon = params.get(QUERY_KEYS.destLon);
+    const label = params.get(QUERY_KEYS.destLabel);
+    const parsedLat = lat === null ? null : Number(lat);
+    const parsedLon = lon === null ? null : Number(lon);
+    if (
+      parsedLat !== null &&
+      parsedLon !== null &&
+      Number.isFinite(parsedLat) &&
+      Number.isFinite(parsedLon)
+    ) {
+      const resolvedLabel = label ?? "Destination point";
+      setSelectedDestination({
+        kind: "point",
+        lat: parsedLat,
+        lon: parsedLon,
+        label: resolvedLabel,
+      });
+      setDestQuery(resolvedLabel);
+      setCommittedQuery(resolvedLabel);
+    } else if (stationId) {
+      const resolvedLabel = label ?? stationId;
+      setSelectedDestination({ kind: "station", stationGroupId: stationId, label: resolvedLabel });
+      setDestQuery(resolvedLabel);
+      setCommittedQuery(resolvedLabel);
     }
     const arrival = params.get(QUERY_KEYS.arrival);
     if (arrival) setArrivalTime(arrival);
@@ -124,7 +170,7 @@ export default function Home() {
   // destination — otherwise a "shareable" link would just reopen a blank
   // form.
   useEffect(() => {
-    if (hydrated && destId) {
+    if (hydrated && selectedDestination) {
       void runOptimize();
     }
     // Deliberately depends on `hydrated` alone: this must run exactly once,
@@ -132,46 +178,108 @@ export default function Home() {
     // the query string, not on every subsequent field change.
   }, [hydrated]);
 
-  // Debounced station autocomplete. Skipped entirely while `destQuery`
-  // still equals `committedQuery` — i.e. the text on screen already came
-  // from a real selection (hydration or picking a suggestion) and the user
-  // hasn't edited it since. This guarantees zero `/v1/stations` requests
-  // when a shared link loads with a destination pre-filled.
+  // Debounced destination autocomplete against `/v1/places`. Skipped
+  // entirely while `destQuery` still equals `committedQuery` — i.e. the
+  // text on screen already came from a real selection (hydration or picking
+  // a suggestion) and the user hasn't edited it since.
   useEffect(() => {
     if (committedQuery !== null && destQuery === committedQuery) {
       return;
     }
     const trimmed = destQuery.trim();
     if (trimmed.length === 0) {
-      setSuggestions([]);
+      setPlaceSuggestions([]);
+      setStationFallback([]);
       return;
     }
-    const handle = setTimeout(() => {
-      setSuggestionsLoading(true);
+
+    function searchStationFallback(): void {
+      setStationFallbackLoading(true);
       getJson<StationsResponse>(`/v1/stations?query=${encodeURIComponent(trimmed)}&limit=8`)
-        .then((data) => setSuggestions(data.results))
-        .catch(() => setSuggestions([]))
-        .finally(() => setSuggestionsLoading(false));
+        .then((data) => setStationFallback(data.results))
+        .catch(() => setStationFallback([]))
+        .finally(() => setStationFallbackLoading(false));
+    }
+
+    const handle = setTimeout(() => {
+      setPlacesLoading(true);
+      getJson<PlacesResponse>(`/v1/places?query=${encodeURIComponent(trimmed)}`)
+        .then((data) => {
+          setPlaceSuggestions(data.results);
+          if (data.results.length === 0) {
+            searchStationFallback();
+          } else {
+            setStationFallback([]);
+          }
+        })
+        .catch(() => {
+          setPlaceSuggestions([]);
+          searchStationFallback();
+        })
+        .finally(() => setPlacesLoading(false));
     }, 300);
     return () => clearTimeout(handle);
   }, [destQuery, committedQuery]);
 
-  function selectStation(station: StationSuggestion): void {
-    setDestId(station.stationGroupId);
-    setDestLabel(`${station.nameEn} (${station.nameJa})`);
-    setDestQuery(station.nameEn);
-    setCommittedQuery(station.nameEn);
-    setSuggestions([]);
+  function commitDestination(destination: SelectedDestination, query: string): void {
+    setSelectedDestination(destination);
+    setDestQuery(query);
+    setCommittedQuery(query);
+    setPlaceSuggestions([]);
+    setStationFallback([]);
+  }
+
+  function selectPlace(place: PlaceSuggestion): void {
+    const destination: SelectedDestination =
+      place.kind === "station"
+        ? {
+            kind: "station",
+            stationGroupId: place.id,
+            label: place.nameJa ? `${place.name} (${place.nameJa})` : place.name,
+          }
+        : { kind: "point", lat: place.lat, lon: place.lon, label: place.name };
+    commitDestination(destination, place.name);
+  }
+
+  function selectFallbackStation(station: StationSuggestion): void {
+    commitDestination(
+      {
+        kind: "station",
+        stationGroupId: station.stationGroupId,
+        label: `${station.nameEn} (${station.nameJa})`,
+      },
+      station.nameEn,
+    );
   }
 
   async function runOptimize(): Promise<void> {
-    if (!destId) {
-      setError(new Error("Choose a destination station from the suggestions list first."));
+    if (!selectedDestination) {
+      setError(new Error("Choose a destination from the suggestions list first."));
+      return;
+    }
+
+    const selectedAxisCount = LIFESTYLE_AXIS_IDS.filter(
+      (id) => preferences[id] !== undefined,
+    ).length;
+    if (selectedAxisCount < MIN_SELECTED_LIFESTYLE_AXES) {
+      setError(new Error("Select at least one lifestyle priority before searching."));
+      return;
+    }
+    if (selectedAxisCount > MAX_SELECTED_LIFESTYLE_AXES) {
+      setError(new Error(`Select at most ${MAX_SELECTED_LIFESTYLE_AXES} lifestyle priorities.`));
       return;
     }
 
     const request: OptimizationRequest = {
-      destinationStationGroupId: destId,
+      ...(selectedDestination.kind === "station"
+        ? { destinationStationGroupId: selectedDestination.stationGroupId }
+        : {
+            destinationPoint: {
+              lat: selectedDestination.lat,
+              lon: selectedDestination.lon,
+              label: selectedDestination.label,
+            },
+          }),
       arrivalTime,
       monthlyBudgetYen,
       layout,
@@ -180,13 +288,18 @@ export default function Home() {
     };
 
     const params = new URLSearchParams({
-      [QUERY_KEYS.dest]: destId,
-      [QUERY_KEYS.destLabel]: destLabel ?? destQuery,
+      [QUERY_KEYS.destLabel]: selectedDestination.label,
       [QUERY_KEYS.arrival]: arrivalTime,
       [QUERY_KEYS.maxCommute]: String(maxCommuteMinutes),
       [QUERY_KEYS.budget]: String(monthlyBudgetYen),
       [QUERY_KEYS.layout]: layout,
     });
+    if (selectedDestination.kind === "station") {
+      params.set(QUERY_KEYS.dest, selectedDestination.stationGroupId);
+    } else {
+      params.set(QUERY_KEYS.destLat, String(selectedDestination.lat));
+      params.set(QUERY_KEYS.destLon, String(selectedDestination.lon));
+    }
     for (const id of LIFESTYLE_AXIS_IDS) {
       const importance = preferences[id];
       if (importance !== undefined) params.set(id, importance);
@@ -199,6 +312,7 @@ export default function Home() {
     try {
       const data = await postJson<OptimizeResponse>("/v1/optimize", request);
       setResponse(data);
+      setResultDestinationLabel(selectedDestination.label);
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Unknown error"));
     } finally {
@@ -210,6 +324,13 @@ export default function Home() {
     event.preventDefault();
     void runOptimize();
   }
+
+  const trimmedDestQuery = destQuery.trim();
+  const showStationFallback =
+    !placesLoading &&
+    !selectedDestination &&
+    trimmedDestQuery.length > 0 &&
+    placeSuggestions.length === 0;
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8">
@@ -225,7 +346,7 @@ export default function Home() {
 
           <div className="relative">
             <label htmlFor="destination" className="block text-sm font-medium">
-              Destination station
+              Destination
             </label>
             <input
               id="destination"
@@ -234,32 +355,70 @@ export default function Home() {
               value={destQuery}
               onChange={(event) => {
                 setDestQuery(event.target.value);
-                setDestId(null);
-                setDestLabel(null);
+                setSelectedDestination(null);
                 setCommittedQuery(null);
               }}
-              placeholder="e.g. Shibuya"
+              placeholder="e.g. Shibuya, or an office/campus name"
               required
               className="mt-1 w-full rounded border border-neutral-400 px-3 py-2"
             />
-            {suggestionsLoading && <p className="mt-1 text-sm text-neutral-500">Searching…</p>}
-            {suggestions.length > 0 && (
+            {placesLoading && <p className="mt-1 text-sm text-neutral-500">Searching…</p>}
+            {placeSuggestions.length > 0 && (
               <ul className="absolute z-10 mt-1 w-full rounded border border-neutral-300 bg-white shadow">
-                {suggestions.map((station) => (
-                  <li key={station.stationGroupId}>
+                {placeSuggestions.map((place) => (
+                  <li key={place.id}>
                     <button
                       type="button"
-                      onClick={() => selectStation(station)}
+                      onClick={() => selectPlace(place)}
                       className="block w-full px-3 py-2 text-left hover:bg-neutral-100"
                     >
-                      {station.nameEn} ({station.nameJa})
-                      {station.lines.length > 0 ? ` — ${station.lines.join(", ")}` : ""}
+                      <span className="text-xs uppercase text-neutral-500">
+                        {place.kind === "station" ? "Station" : (place.category ?? "Place")}
+                      </span>
+                      {" — "}
+                      {place.name}
+                      {place.nameJa ? ` (${place.nameJa})` : ""}
                     </button>
                   </li>
                 ))}
               </ul>
             )}
-            {destId && <p className="mt-1 text-sm text-green-700">Selected: {destLabel}</p>}
+            {showStationFallback && (
+              <div className="mt-1 rounded border border-amber-300 bg-amber-50 p-2 text-sm">
+                <p>
+                  No destination match for &ldquo;{trimmedDestQuery}&rdquo;. Choose a station
+                  directly instead:
+                </p>
+                {stationFallbackLoading && (
+                  <p className="mt-1 text-neutral-500">Searching stations…</p>
+                )}
+                {!stationFallbackLoading && stationFallback.length === 0 && (
+                  <p className="mt-1 text-neutral-500">No stations match either.</p>
+                )}
+                {stationFallback.length > 0 && (
+                  <ul className="mt-1 rounded border border-neutral-300 bg-white">
+                    {stationFallback.map((station) => (
+                      <li key={station.stationGroupId}>
+                        <button
+                          type="button"
+                          onClick={() => selectFallbackStation(station)}
+                          className="block w-full px-3 py-2 text-left hover:bg-neutral-100"
+                        >
+                          {station.nameEn} ({station.nameJa})
+                          {station.lines.length > 0 ? ` — ${station.lines.join(", ")}` : ""}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {selectedDestination && (
+              <p className="mt-1 text-sm text-green-700">
+                Selected: {selectedDestination.label}{" "}
+                {selectedDestination.kind === "point" ? "(place)" : "(station)"}
+              </p>
+            )}
           </div>
 
           <div>
@@ -338,37 +497,7 @@ export default function Home() {
 
         <fieldset className="space-y-3">
           <legend className="text-lg font-semibold">3. Lifestyle priorities</legend>
-
-          {LIFESTYLE_AXIS_IDS.map((id) => (
-            <div key={id}>
-              <label htmlFor={id} className="block text-sm font-medium">
-                {LIFESTYLE_AXES[id].label}
-              </label>
-              <select
-                id={id}
-                // "" stands for "not rated" (an omitted axis) — distinct
-                // from any real Importance value, so the control never
-                // silently claims a rating the request doesn't actually
-                // submit.
-                value={preferences[id] ?? ""}
-                onChange={(event) =>
-                  setPreferences((current) => ({
-                    ...current,
-                    [id]:
-                      event.target.value === "" ? undefined : (event.target.value as Importance),
-                  }))
-                }
-                className="mt-1 rounded border border-neutral-400 px-3 py-2"
-              >
-                <option value="">Not rated</option>
-                {IMPORTANCE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
+          <LifestylePicker preferences={preferences} onChange={setPreferences} />
         </fieldset>
 
         <button
@@ -418,6 +547,13 @@ export default function Home() {
               <p>Overall score: {result.overallScore.toFixed(1)} / 100</p>
               <p className="text-sm text-neutral-500">{result.catchmentLabel}</p>
 
+              {result.isDestinationAccessStation && (
+                <p className="mt-1 inline-block rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                  Destination area — this is one of your destination&rsquo;s own access stations, so
+                  this &ldquo;commute&rdquo; is really just the walk there.
+                </p>
+              )}
+
               <div className="mt-2">
                 <p className="font-medium">
                   Rent — {RENT_LABEL} ({result.rent.confidence} confidence)
@@ -436,10 +572,16 @@ export default function Home() {
                 </p>
                 <p>
                   Total {Math.round(result.commute.totalMinutes)} min —{" "}
-                  {result.commute.accessWalkMinutes} min access walk,{" "}
-                  {Math.round(result.commute.railMinutes)} min rail,{" "}
-                  {Math.round(result.commute.waitMinutes)} min wait, {result.commute.transferCount}{" "}
-                  transfer(s)
+                  {Math.round(result.commute.accessWalkMinutes)} min walk +{" "}
+                  {Math.round(result.commute.railMinutes + result.commute.transferPenaltyMinutes)}{" "}
+                  min rail + {Math.round(result.commute.waitMinutes)} min wait +{" "}
+                  {Math.round(result.commute.destinationWalkMinutes)} min walk to{" "}
+                  {resultDestinationLabel ?? "destination"}
+                  {result.commute.transferCount > 0
+                    ? ` (${result.commute.transferCount} transfer${
+                        result.commute.transferCount === 1 ? "" : "s"
+                      })`
+                    : ""}
                 </p>
               </div>
 
