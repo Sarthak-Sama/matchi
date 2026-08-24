@@ -61,9 +61,19 @@ function makeLifestyle(overrides: Partial<LifestyleMetricsInput> = {}): Lifestyl
     normAmenitySupermarket: 50,
     normAmenityRestaurant: 50,
     normQuietness: 50,
+    normAmenityConvenience: 50,
+    normAmenityCuisineVariety: 50,
+    normGreenSpace: 50,
+    normAmenityLateNight: 50,
+    normAmenityHealth: 50,
     supermarketCount: 5,
     restaurantCount: 10,
     cafeCount: 2,
+    convenienceCount: 3,
+    cuisineVarietyCount: 4,
+    greenSpaceShare: 0.2,
+    lateNightCount: 2,
+    healthCount: 1,
     sourceDate: "2025-01-01",
     confidence: "medium",
     ...overrides,
@@ -652,7 +662,17 @@ describe("scoreCandidate — overallScore never exceeds 100 despite per-factor r
 describe("scoreCandidate — overallScore stays within [0, 100] generally", () => {
   it.each([
     ["all-low, min inputs", "low", "low", "low", "low", 0, 0, 0, 0] as const,
-    ["all-essential, max inputs", "essential", "essential", "essential", "essential", 100, 100, 100, 100] as const,
+    [
+      "all-essential, max inputs",
+      "essential",
+      "essential",
+      "essential",
+      "essential",
+      100,
+      100,
+      100,
+      100,
+    ] as const,
     ["mixed", "medium", "high", "essential", "low", 73, 12, 88, 40] as const,
   ])("%s", (_label, floodSafety, supermarkets, restaurants, quietness, nf, ns, nr, nq) => {
     const request = makeRequest({

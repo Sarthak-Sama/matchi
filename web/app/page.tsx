@@ -43,8 +43,6 @@ const QUERY_KEYS = {
   layout: "layout",
 } as const;
 
-const DEFAULT_IMPORTANCE: Importance = "medium";
-
 export default function Home() {
   // Step 1: destination + arrival + max commute.
   const [destQuery, setDestQuery] = useState("");
@@ -72,10 +70,15 @@ export default function Home() {
 
   // Step 3: lifestyle importance — one entry per registered axis.
   // `undefined` means "axis not rated", which the request contract treats as
-  // "leave it out of scoring entirely"; the menu below currently always
-  // supplies a value.
+  // "leave it out of scoring entirely". Every axis starts unselected: with
+  // nine registered axes but MAX_SELECTED_LIFESTYLE_AXES capped at 5,
+  // defaulting every axis to a value (as this used to) would submit all
+  // nine and the request would 400 against the app's own untouched initial
+  // state. The user opts in per axis instead (the plan's own "pick 4-5 from
+  // a menu" design); a picker UI is a later task, this just prevents the
+  // self-inflicted 400.
   const [preferences, setPreferences] = useState<Record<LifestyleAxisId, Importance | undefined>>(
-    () => mapLifestyleAxes(() => DEFAULT_IMPORTANCE),
+    () => mapLifestyleAxes(() => undefined),
   );
 
   // Request lifecycle.
@@ -212,8 +215,8 @@ export default function Home() {
     <main className="mx-auto max-w-3xl px-4 py-8">
       <h1 className="text-2xl font-bold">Tokyo Neighborhood Optimizer</h1>
       <p className="mt-1 text-sm text-neutral-600">
-        Ranks candidate neighborhoods by modeled affordability, commute, and lifestyle fit. All
-        rent and commute figures below are estimates, not real listings or timetables.
+        Ranks candidate neighborhoods by modeled affordability, commute, and lifestyle fit. All rent
+        and commute figures below are estimates, not real listings or timetables.
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-8">
@@ -343,17 +346,21 @@ export default function Home() {
               </label>
               <select
                 id={id}
-                // Every axis currently always carries a value; the fallback
-                // only keeps the control a controlled one.
-                value={preferences[id] ?? DEFAULT_IMPORTANCE}
+                // "" stands for "not rated" (an omitted axis) — distinct
+                // from any real Importance value, so the control never
+                // silently claims a rating the request doesn't actually
+                // submit.
+                value={preferences[id] ?? ""}
                 onChange={(event) =>
                   setPreferences((current) => ({
                     ...current,
-                    [id]: event.target.value as Importance,
+                    [id]:
+                      event.target.value === "" ? undefined : (event.target.value as Importance),
                   }))
                 }
                 className="mt-1 rounded border border-neutral-400 px-3 py-2"
               >
+                <option value="">Not rated</option>
                 {IMPORTANCE_OPTIONS.map((option) => (
                   <option key={option} value={option}>
                     {option}
@@ -416,9 +423,10 @@ export default function Home() {
                   Rent — {RENT_LABEL} ({result.rent.confidence} confidence)
                 </p>
                 <p>
-                  ¥{result.rent.lowYen.toLocaleString()} – ¥{result.rent.highYen.toLocaleString()}{" "}
-                  / month (median ¥{result.rent.medianYen.toLocaleString()}), assuming a{" "}
-                  {result.rent.assumedSizeSqmMin}–{result.rent.assumedSizeSqmMax} m² {result.rent.layout}
+                  ¥{result.rent.lowYen.toLocaleString()} – ¥{result.rent.highYen.toLocaleString()} /
+                  month (median ¥{result.rent.medianYen.toLocaleString()}), assuming a{" "}
+                  {result.rent.assumedSizeSqmMin}–{result.rent.assumedSizeSqmMax} m²{" "}
+                  {result.rent.layout}
                 </p>
               </div>
 

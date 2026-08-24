@@ -14,7 +14,7 @@
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { CATCHMENT_RADIUS_M } from "@tokyo/shared";
+import { CATCHMENT_RADIUS_M, LIFESTYLE_AXES, LIFESTYLE_AXIS_IDS } from "@tokyo/shared";
 
 import { runDerive } from "./derive.js";
 import { runMigrations } from "./migrate.js";
@@ -225,23 +225,13 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
   });
 
   it("every norm_* column is within [0,100], with at least one 100 and one 0 per axis", async () => {
-    // Hand-written literals, deliberately not driven off the shared
-    // lifestyle-axes registry: at this point in the plan (task-3) the
-    // registry still only lists the original four axes, so a
-    // registry-driven list here would leave exactly this task's five new
-    // columns unchecked. Task 4 replaces this whole list with a
-    // registry-driven one once the registry knows about all nine axes.
-    const axes = [
-      "norm_amenity_supermarket",
-      "norm_amenity_restaurant",
-      "norm_flood_safety",
-      "norm_quietness",
-      "norm_amenity_convenience",
-      "norm_amenity_cuisine_variety",
-      "norm_green_space",
-      "norm_amenity_late_night",
-      "norm_amenity_health",
-    ] as const;
+    // Driven off the shared lifestyle-axes registry rather than hand-written
+    // literals: every axis's `normColumn` is checked, so a future axis added
+    // to the registry is automatically covered here too. This is what
+    // proves each axis was min-maxed against ITS OWN bounds — a copy-pasted
+    // bound type-checks, runs, and yields plausible wrong scores, but leaves
+    // no row at exactly 0 or 100.
+    const axes = LIFESTYLE_AXIS_IDS.map((id) => LIFESTYLE_AXES[id].normColumn);
     const { rows } = await pool.query<Record<(typeof axes)[number], number>>(
       `SELECT ${axes.join(", ")} FROM neighborhood_metrics`,
     );

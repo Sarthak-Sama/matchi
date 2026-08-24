@@ -8,10 +8,9 @@ import {
 } from "./lifestyle-axes.js";
 
 describe("isValidSelectedAxisCount", () => {
-  // The bounds are tested here rather than only through
-  // `optimizationRequestSchema` because the upper bound is currently
-  // unreachable from a request: `.strict()` rejects unknown axis keys, so
-  // no payload can select more axes than exist. This is the rule itself.
+  // The bounds are tested here directly (not only through
+  // `optimizationRequestSchema`) as the rule itself, independent of how the
+  // request contract happens to enforce it.
   it.each([
     [0, false],
     [MIN_SELECTED_LIFESTYLE_AXES, true],
@@ -21,7 +20,11 @@ describe("isValidSelectedAxisCount", () => {
     expect(isValidSelectedAxisCount(count)).toBe(expected);
   });
 
-  it("accepts rating every registered axis", () => {
-    expect(isValidSelectedAxisCount(LIFESTYLE_AXIS_IDS.length)).toBe(true);
+  it("rejects rating every registered axis once the axis set grows past the max", () => {
+    // The registry now lists nine axes against a max of five, so this is
+    // reachable from a real request — `.strict()` no longer makes the upper
+    // bound unreachable the way it did with the original four axes.
+    expect(LIFESTYLE_AXIS_IDS.length).toBeGreaterThan(MAX_SELECTED_LIFESTYLE_AXES);
+    expect(isValidSelectedAxisCount(LIFESTYLE_AXIS_IDS.length)).toBe(false);
   });
 });

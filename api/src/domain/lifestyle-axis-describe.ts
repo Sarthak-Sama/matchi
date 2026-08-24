@@ -83,4 +83,47 @@ export const LIFESTYLE_AXIS_DESCRIBERS = {
       rawValueLabel: `${Math.round(metrics.normQuietness)}/100 ${QUIETNESS_LABEL}`,
     }),
   },
+  konbini: {
+    rawColumns: ["convenience_count"],
+    describe: (metrics: LifestyleMetricsInput) => ({
+      componentScore: metrics.normAmenityConvenience,
+      rawValue: metrics.convenienceCount,
+      rawValueLabel: `${metrics.convenienceCount} convenience stores within ${CATCHMENT_RADIUS_M} m`,
+    }),
+  },
+  cuisineVariety: {
+    rawColumns: ["cuisine_variety_count"],
+    describe: (metrics: LifestyleMetricsInput) => ({
+      componentScore: metrics.normAmenityCuisineVariety,
+      rawValue: metrics.cuisineVarietyCount,
+      rawValueLabel: `${metrics.cuisineVarietyCount} distinct cuisines within ${CATCHMENT_RADIUS_M} m`,
+    }),
+  },
+  // A share/ratio (0-1), not a count — the label reads as a proportion of
+  // the catchment rather than a "N within 800 m" tally, unlike every other
+  // amenity axis here.
+  greenSpace: {
+    rawColumns: ["green_space_share"],
+    describe: (metrics: LifestyleMetricsInput) => ({
+      componentScore: metrics.normGreenSpace,
+      rawValue: metrics.greenSpaceShare,
+      rawValueLabel: `${Math.round(metrics.greenSpaceShare * 100)}% of the catchment (${CATCHMENT_RADIUS_M} m radius) is parks or green space`,
+    }),
+  },
+  lateNight: {
+    rawColumns: ["late_night_count"],
+    describe: (metrics: LifestyleMetricsInput) => ({
+      componentScore: metrics.normAmenityLateNight,
+      rawValue: metrics.lateNightCount,
+      rawValueLabel: `${metrics.lateNightCount} late-night restaurants, cafés, and bars within ${CATCHMENT_RADIUS_M} m`,
+    }),
+  },
+  health: {
+    rawColumns: ["health_count"],
+    describe: (metrics: LifestyleMetricsInput) => ({
+      componentScore: metrics.normAmenityHealth,
+      rawValue: metrics.healthCount,
+      rawValueLabel: `${metrics.healthCount} clinics, pharmacies, and hospitals within ${CATCHMENT_RADIUS_M} m`,
+    }),
+  },
 } as const satisfies Record<LifestyleAxisId, LifestyleAxisDescriber>;

@@ -43,6 +43,11 @@ export const LIFESTYLE_AXIS_IDS = [
   "supermarkets",
   "restaurants",
   "quietness",
+  "konbini",
+  "cuisineVariety",
+  "greenSpace",
+  "lateNight",
+  "health",
 ] as const;
 
 export type LifestyleAxisId = (typeof LIFESTYLE_AXIS_IDS)[number];
@@ -74,6 +79,31 @@ export const LIFESTYLE_AXES = {
     normColumn: "norm_quietness",
     metricsKey: "normQuietness",
   },
+  konbini: {
+    label: "Konbini",
+    normColumn: "norm_amenity_convenience",
+    metricsKey: "normAmenityConvenience",
+  },
+  cuisineVariety: {
+    label: "Cuisine variety",
+    normColumn: "norm_amenity_cuisine_variety",
+    metricsKey: "normAmenityCuisineVariety",
+  },
+  greenSpace: {
+    label: "Parks & green space",
+    normColumn: "norm_green_space",
+    metricsKey: "normGreenSpace",
+  },
+  lateNight: {
+    label: "Late-night food (approx.)",
+    normColumn: "norm_amenity_late_night",
+    metricsKey: "normAmenityLateNight",
+  },
+  health: {
+    label: "Everyday health",
+    normColumn: "norm_amenity_health",
+    metricsKey: "normAmenityHealth",
+  },
 } as const satisfies Record<LifestyleAxisId, LifestyleAxisDefinition>;
 
 /** Union of every axis's `metricsKey` — e.g. `"normFloodSafety" | ...`. */
@@ -88,9 +118,10 @@ export const MIN_SELECTED_LIFESTYLE_AXES = 1;
 
 /**
  * And at most this many, so that no single axis's share can be diluted into
- * meaninglessness (and so the UI stays legible). Deliberately larger than
- * the current axis count: with four axes the ceiling is unreachable, and it
- * starts binding once the axis set grows past it.
+ * meaninglessness (and so the UI stays legible). With the original four
+ * axes this ceiling was unreachable; now that the registry lists nine, it
+ * genuinely binds — a request (or a form defaulting every axis to a value)
+ * that rates more than five must be rejected, not silently accepted.
  */
 export const MAX_SELECTED_LIFESTYLE_AXES = 5;
 
