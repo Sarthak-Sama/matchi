@@ -234,7 +234,7 @@ export async function runOsmImport(client: PoolClient, args: ImportOsmArgs): Pro
 
   console.log(
     `import:osm — pois=${String(poisImported)} roads=${String(roadsImported)} ` +
-      `green_spaces=${String(greenSpacesImported)} skipped=${String(parsed.skippedElements)} (unmapped tag(s))`,
+      `green_spaces=${String(greenSpacesImported)} skipped=${String(parsed.skippedElements)} (unmapped tag(s) or unusable geometry)`,
   );
 
   return {

@@ -70,9 +70,15 @@
  *   - An element that DOES match a rule but lacks the coordinates its
  *     kind needs (a node with no lat/lon, a way/relation POI with no
  *     `center`, a highway way with no `geometry` array, or a park/garden
- *     way/relation with no usable ring geometry) is a hard error that
+ *     way/relation with no `geometry` at all) is a hard error that
  *     aborts the whole import — see `resolvePoiCoordinates`,
  *     `resolveRoadGeometry`, and `resolveGreenSpaceGeometry`.
+ *   - The one deliberate exception: a park/garden whose geometry IS present
+ *     but has fewer than 3 vertices is SKIPPED and counted, not an error.
+ *     Unfinished one- and two-vertex park outlines are real, valid OSM data
+ *     that simply cannot form a polygon, and the real 23-ward extract
+ *     contains them — aborting a 76k-row import over two such ways is the
+ *     wrong trade. See `isUsableRing`.
  */
 
 export type PoiCategory =
@@ -231,7 +237,11 @@ export interface ParsedOverpassData {
   readonly pois: readonly ParsedPoi[];
   readonly roads: readonly ParsedRoad[];
   readonly greenSpaces: readonly ParsedGreenSpace[];
-  /** Count of elements skipped for carrying no mapped tag. */
+  /**
+   * Count of elements skipped: those carrying no mapped tag, plus
+   * `leisure=park|garden` elements whose geometry cannot form a polygon
+   * (see `isUsableRing`).
+   */
   readonly skippedElements: number;
   readonly sourceUpdatedAt: Date | null;
 }
@@ -305,9 +315,25 @@ function resolveRoadGeometry(el: OverpassElement): string {
   return `MULTILINESTRING((${line}))`;
 }
 
+/**
+ * True when a vertex array can form a polygon ring at all.
+ *
+ * OSM genuinely contains degenerate `leisure=park|garden` ways with one or
+ * two vertices — a mapper's unfinished outline, or an area whose nodes were
+ * partly deleted. That is real, valid OSM data that simply is not a polygon,
+ * so it is a *skip* condition rather than a contract violation: treating it
+ * as an error aborts the whole import transaction over a single bad way,
+ * which is exactly what happened the first time this importer met the real
+ * 23-ward extract. A missing `geometry` array or a non-numeric coordinate
+ * still throws — those mean Overpass did not send what we asked for.
+ */
+function isUsableRing(vertices: readonly { readonly lat: number; readonly lon: number }[]): boolean {
+  return vertices.length >= 3;
+}
+
 /** Builds one `(...)` polygon ring's WKT, closing it if Overpass didn't repeat the first vertex. */
 function ringWKT(vertices: readonly { readonly lat: number; readonly lon: number }[], ringContext: string): string {
-  if (vertices.length < 3) {
+  if (!isUsableRing(vertices)) {
     throw new Error(
       `${ringContext}: ring has only ${String(vertices.length)} vertex/vertices (expected at least 3)`,
     );
@@ -347,7 +373,7 @@ function ringWKT(vertices: readonly { readonly lat: number; readonly lon: number
  * query can produce (it only asks for `way`/`relation`) and is a hard error
  * rather than silently coerced to a point.
  */
-function resolveGreenSpaceGeometry(el: OverpassElement): string {
+function resolveGreenSpaceGeometry(el: OverpassElement): string | null {
   const context = elementContext(el);
 
   if (el.type === "way") {
@@ -357,6 +383,13 @@ function resolveGreenSpaceGeometry(el: OverpassElement): string {
           `to have supplied it)`,
       );
     }
+    if (!isUsableRing(el.geometry)) {
+      console.warn(
+        `import:osm — ${context}: park/garden way has only ${String(el.geometry.length)} ` +
+          `vertex/vertices, which cannot form a polygon; skipping this green space.`,
+      );
+      return null;
+    }
     // MULTIPOLYGON(( (single-ring-polygon) )) — one extra paren level wraps
     // ringWKT's bare ring into a one-ring polygon.
     return `MULTIPOLYGON((${ringWKT(el.geometry, context)}))`;
@@ -365,9 +398,23 @@ function resolveGreenSpaceGeometry(el: OverpassElement): string {
   if (el.type === "relation") {
     const members = el.members ?? [];
     const outerPolygons: string[] = [];
+    let degenerateOuterMembers = 0;
     for (const [index, member] of members.entries()) {
       if (member.role !== "outer" || member.type !== "way" || member.geometry === undefined) continue;
+      // One unfinished outer way must not discard the rest of a valid
+      // multipolygon park, so degenerate members are dropped individually.
+      if (!isUsableRing(member.geometry)) {
+        degenerateOuterMembers += 1;
+        continue;
+      }
       outerPolygons.push(`(${ringWKT(member.geometry, `${context} outer member #${String(index)}`)})`);
+    }
+    if (outerPolygons.length === 0 && degenerateOuterMembers > 0) {
+      console.warn(
+        `import:osm — ${context}: park/garden relation's ${String(degenerateOuterMembers)} ` +
+          `"outer"-role member(s) all have fewer than 3 vertices; skipping this green space.`,
+      );
+      return null;
     }
     if (outerPolygons.length === 0) {
       throw new Error(
@@ -447,10 +494,15 @@ export function parseOverpassResponse(raw: string): ParsedOverpassData {
     }
 
     if (classification.kind === "green_space") {
+      const geomWKT = resolveGreenSpaceGeometry(el);
+      if (geomWKT === null) {
+        skippedElements += 1;
+        continue;
+      }
       greenSpaces.push({
         leisureClass: classification.leisureClass,
         name: elementName(el.tags),
-        geomWKT: resolveGreenSpaceGeometry(el),
+        geomWKT,
       });
       continue;
     }
