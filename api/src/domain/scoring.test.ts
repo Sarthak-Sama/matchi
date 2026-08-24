@@ -48,6 +48,7 @@ function makeCommute(overrides: Partial<CommuteEstimateResult> = {}): CommuteEst
     waitMinutes: 4,
     transferCount: 0,
     transferPenaltyMinutes: 0,
+    destinationWalkMinutes: 0,
     confidence: "high",
     label: COMMUTE_LABEL,
     path: [],

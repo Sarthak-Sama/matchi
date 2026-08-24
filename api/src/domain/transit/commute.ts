@@ -33,11 +33,19 @@ export interface CommutePathHop {
 
 export interface CommuteEstimateResult {
   readonly totalMinutes: number;
+  /** The ORIGIN-side walk: neighbourhood to its own station. */
   readonly accessWalkMinutes: number;
   readonly railMinutes: number;
   readonly waitMinutes: number;
   readonly transferCount: number;
   readonly transferPenaltyMinutes: number;
+  /**
+   * The DESTINATION-side walk: the access station this route ends at to
+   * the destination point itself. Already inside `totalMinutes` (it is
+   * part of the Dijkstra state's own total) — reported separately so the
+   * UI can break the journey down end to end.
+   */
+  readonly destinationWalkMinutes: number;
   readonly confidence: Confidence;
   readonly label: typeof COMMUTE_LABEL;
   readonly path: readonly CommutePathHop[];
@@ -46,7 +54,10 @@ export interface CommuteEstimateResult {
 /**
  * `totalMinutes = dijkstraState.totalMinutes + ACCESS_WALK_MINUTES` — the
  * fixed neighborhood-to-station walk is added exactly once here, never
- * inside the Dijkstra search itself. Returns `null` when
+ * inside the Dijkstra search itself. The DESTINATION-side walk is the
+ * mirror image: it varies per access station, so the search must know it
+ * to choose between them, and it is therefore already inside
+ * `dijkstraState.totalMinutes` — do not add it again here. Returns `null` when
  * `originStationGroupId` is unreachable from the destination (absent from
  * `dijkstraResult`).
  */
@@ -72,6 +83,7 @@ export function estimateCommute(
     waitMinutes: state.waitMinutes,
     transferCount: state.transferCount,
     transferPenaltyMinutes: state.transferPenaltyMinutes,
+    destinationWalkMinutes: state.destinationWalkMinutes,
     confidence: state.confidence,
     label: COMMUTE_LABEL,
     path,

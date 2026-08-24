@@ -1,11 +1,40 @@
 /**
  * The reverse Dijkstra commute search. Run ONCE per optimization request,
- * seeded at the destination, walking the graph's REVERSE adjacency (i.e.
- * simulating travel backwards in time from the destination towards every
- * candidate origin). The result is "cost to reach the destination FROM
- * node X" for every reachable X — not the other way around, which matters
- * once the graph is asymmetric (see the module doc below for why reversal
- * is safe here).
+ * seeded at the destination's access stations, walking the graph's REVERSE
+ * adjacency (i.e. simulating travel backwards in time from the destination
+ * towards every candidate origin). The result is "cost to reach the
+ * destination FROM node X" for every reachable X — not the other way
+ * around, which matters once the graph is asymmetric (see the module doc
+ * below for why reversal is safe here).
+ *
+ * ---------------------------------------------------------------------
+ * Multi-source: the destination is a POINT, not a station
+ * ---------------------------------------------------------------------
+ * A real destination (an office) sits between stations, so the search is
+ * seeded with SEVERAL access stations, each carrying its own
+ * `walkMinutes` — the walk from that station to the destination point.
+ * Each seed therefore enters the search at cost `walkMinutes` rather than
+ * at cost 0, which is what lets the search itself decide which access
+ * station wins for each candidate origin: an origin two stops from a
+ * station with an 11-minute walk may still prefer a station five stops
+ * away with a 2-minute walk, and only a search that pays the walk up
+ * front can see that. Seeding every access station at 0 and adding the
+ * walk afterwards optimizes the rail leg in isolation and picks the wrong
+ * access station.
+ *
+ * This is exactly a single-source search from a virtual super-source
+ * joined to each seed by an edge of weight `walkMinutes` — the super-source
+ * is never materialized, its outgoing edges are simply pre-relaxed into
+ * the heap before the first `pop()`. All those weights are non-negative
+ * (enforced by `reverseDijkstra`), so the pop sequence stays monotonically
+ * non-decreasing and Dijkstra's settle-once argument is untouched.
+ *
+ * That destination-side walk is carried verbatim on every state as
+ * `destinationWalkMinutes` and is included in `totalMinutes`. It is
+ * deliberately NOT folded into `waitMinutes`: the response reports the
+ * components separately ("8 min walk + 24 rail + 6 wait + 11 min walk to
+ * the office"), and a 6-minute wait must not be reported as an 18-minute
+ * one.
  *
  * ---------------------------------------------------------------------
  * The cost model (see task-8-brief.md for the authoritative statement)
@@ -101,15 +130,26 @@ export interface DijkstraPrevious {
 }
 
 export interface DijkstraState {
-  /** `railMinutes + waitMinutes + transferPenaltyMinutes`. Excludes the access walk. */
+  /**
+   * `railMinutes + waitMinutes + transferPenaltyMinutes +
+   * destinationWalkMinutes`. Excludes the ORIGIN-side access walk (the
+   * neighbourhood-to-station walk, added once in `estimateCommute`).
+   */
   readonly totalMinutes: number;
   readonly railMinutes: number;
   readonly waitMinutes: number;
   readonly transferCount: number;
   readonly transferPenaltyMinutes: number;
+  /**
+   * The walk from the access station this path ends at to the true
+   * destination point — i.e. the `walkMinutes` of whichever seed the best
+   * path reaches. Set once when the seed enters the search and carried
+   * verbatim through every relaxation.
+   */
+  readonly destinationWalkMinutes: number;
   /** The minimum confidence among every edge on this node's best path. */
   readonly confidence: Confidence;
-  /** `null` for the destination itself (the search root). */
+  /** `null` for a seed access station itself (the search's roots). */
   readonly previous: DijkstraPrevious | null;
 }
 
@@ -246,8 +286,22 @@ interface SearchState {
   readonly waitMinutes: number;
   readonly transferCount: number;
   readonly transferPenaltyMinutes: number;
+  readonly destinationWalkMinutes: number;
   readonly confidence: Confidence;
   readonly previous: DijkstraPrevious | null;
+}
+
+/**
+ * One access station for the true destination point, and the walk from
+ * that station to it. See the module doc comment's "Multi-source" section.
+ */
+export interface DijkstraSeed {
+  readonly node: GraphNode;
+  /**
+   * Minutes on foot from `node` to the destination point. Must be finite
+   * and non-negative — `reverseDijkstra` throws otherwise.
+   */
+  readonly walkMinutes: number;
 }
 
 /**
@@ -283,6 +337,9 @@ function relax(current: SearchState, edge: GraphEdge): SearchState {
       waitMinutes: current.waitMinutes,
       transferCount: current.transferCount + 1,
       transferPenaltyMinutes: current.transferPenaltyMinutes + TRANSFER_PENALTY_MINUTES,
+      // Carried verbatim: the destination-side walk belongs to the seed
+      // this path ends at, and no rail edge can change it.
+      destinationWalkMinutes: current.destinationWalkMinutes,
       confidence: minConfidence(current.confidence, edge.confidence),
       previous,
     };
@@ -299,6 +356,7 @@ function relax(current: SearchState, edge: GraphEdge): SearchState {
       waitMinutes: current.waitMinutes,
       transferCount: current.transferCount,
       transferPenaltyMinutes: current.transferPenaltyMinutes,
+      destinationWalkMinutes: current.destinationWalkMinutes,
       confidence: minConfidence(current.confidence, edge.confidence),
       previous,
     };
@@ -318,18 +376,92 @@ function relax(current: SearchState, edge: GraphEdge): SearchState {
     waitMinutes: current.waitMinutes + edge.waitMinutes,
     transferCount: current.transferCount + (isImplicitTransfer ? 1 : 0),
     transferPenaltyMinutes: current.transferPenaltyMinutes + penalty,
+    destinationWalkMinutes: current.destinationWalkMinutes,
     confidence: minConfidence(current.confidence, edge.confidence),
     previous,
   };
 }
 
 /**
- * Runs one reverse Dijkstra from `destinationId` over `graph`'s reverse
- * adjacency, returning the best-cost path to the destination from every
- * reachable node. Nodes with no path to the destination are absent from
- * the returned map.
+ * Collapses `seeds` to at most one entry per node, keeping the SMALLEST
+ * `walkMinutes`, and rejects walks that would break the search.
+ *
+ * Keeping the MINIMUM walk is the only correct reading — if two walking
+ * routes reach the same station you take the shorter one — and it is what
+ * makes the seed phase order-independent by construction. Two seeds for
+ * the same node share the same `(node, null)` state key, so without this
+ * the result depends on `offer`'s min-guard alone to discard the worse
+ * duplicate. That guard does hold today, which makes this the second of
+ * two layers rather than the only one; it is here because dropping to a
+ * single layer fails silently. A "last one wins" dedupe (the easy thing to
+ * write) is worse than no dedupe at all: it reports the wrong walk and can
+ * route origins through the wrong access station.
+ *
+ * The validation is here rather than at a schema boundary because this is
+ * a pure-domain function with no schema in scope, and the failure it
+ * prevents is a domain failure: `NaN` makes every `<` comparison false,
+ * so the seed is silently never recorded as an improvement and the node
+ * vanishes from the result instead of crashing. A negative walk breaks
+ * settle-once outright (Dijkstra's proof needs non-negative weights).
+ * Neither shows up as a crash or a type error — only as wrong numbers.
  */
-export function reverseDijkstra(graph: TransitGraph, destinationId: GraphNode): DijkstraResult {
+function normalizeSeeds(seeds: readonly DijkstraSeed[]): DijkstraSeed[] {
+  const bestWalkByNode = new Map<GraphNode, number>();
+  for (const seed of seeds) {
+    if (!Number.isFinite(seed.walkMinutes)) {
+      throw new Error(
+        `reverseDijkstra: seed "${seed.node}" has a non-finite walkMinutes ` +
+          `(${String(seed.walkMinutes)}); walk minutes must be a finite number.`,
+      );
+    }
+    if (seed.walkMinutes < 0) {
+      throw new Error(
+        `reverseDijkstra: seed "${seed.node}" has a negative walkMinutes ` +
+          `(${String(seed.walkMinutes)}); walk minutes must be >= 0.`,
+      );
+    }
+    const known = bestWalkByNode.get(seed.node);
+    if (known === undefined || seed.walkMinutes < known) {
+      bestWalkByNode.set(seed.node, seed.walkMinutes);
+    }
+  }
+  return [...bestWalkByNode].map(([node, walkMinutes]) => ({ node, walkMinutes }));
+}
+
+/**
+ * Runs one reverse Dijkstra from every seed access station over `graph`'s
+ * reverse adjacency, returning the best-cost path to the destination
+ * POINT from every reachable node — including each path's own
+ * destination-side walk, so origins that are better served by a
+ * further-but-closer-to-the-office station are ranked correctly. Nodes
+ * with no path to any seed are absent from the returned map.
+ *
+ * Throws when `seeds` is empty, or when any seed's `walkMinutes` is
+ * non-finite or negative.
+ *
+ * An empty seed list throws rather than returning an empty result on
+ * purpose. An empty result is not a wrong answer in the abstract — a
+ * search from no sources reaches nothing — but it is indistinguishable
+ * from a genuinely disconnected graph, so the caller would render a
+ * plausible-looking "no neighbourhood is reachable" response for what is
+ * really a bug or an unresolvable destination. Callers must decide what
+ * an unresolvable destination means BEFORE calling: the route validates
+ * the destination and returns its own error code (Task 6), which makes
+ * this throw an unreachable backstop in production rather than a
+ * user-facing path.
+ */
+export function reverseDijkstra(
+  graph: TransitGraph,
+  seeds: readonly DijkstraSeed[],
+): DijkstraResult {
+  if (seeds.length === 0) {
+    throw new Error(
+      "reverseDijkstra: seeds must not be empty — a search with no access " +
+        "stations reaches nothing, which is indistinguishable from a fully " +
+        "disconnected graph. Reject an unresolvable destination before calling.",
+    );
+  }
+
   const byNode = new Map<GraphNode, DijkstraState>();
   /** Every settled `(node, line)` state, not just each node's winner — see `DijkstraResult`'s doc comment. */
   const byState = new Map<string, SearchState>();
@@ -338,19 +470,57 @@ export function reverseDijkstra(graph: TransitGraph, destinationId: GraphNode): 
   const bestSeen = new Map<string, number>();
   const heap = new MinHeap<SearchState>();
 
-  const start: SearchState = {
-    node: destinationId,
-    currentLineId: null,
-    totalMinutes: 0,
-    railMinutes: 0,
-    waitMinutes: 0,
-    transferCount: 0,
-    transferPenaltyMinutes: 0,
-    confidence: "high",
-    previous: null,
+  /**
+   * The ONLY way a state enters the heap — seeds and relaxations alike.
+   *
+   * INVARIANT: a state's heap priority is ALWAYS its own `totalMinutes`.
+   * `MinHeap.push` takes the priority as a separate argument that the type
+   * system cannot relate to the value, so the two can silently drift; when
+   * they do, states pop out of cost order and the search returns
+   * wrong-but-plausible times with no crash, no type error, and no failing
+   * "a number came back" test. Funnelling every push through here is what
+   * makes that drift impossible to introduce at a call site.
+   *
+   * Sharing the `settled`/`bestSeen` min-guard with the seed phase is the
+   * other half: a seed must be admitted under exactly this guard, never a
+   * blind `bestSeen.set`, because seeds for the same node collide on one
+   * `(node, null)` key and a blind write of a worse walk would both report
+   * the worse cost and lock the better state out as "not an improvement".
+   */
+  const offer = (state: SearchState): void => {
+    const key = stateKey(state.node, state.currentLineId);
+    if (settled.has(key)) return;
+    const known = bestSeen.get(key);
+    if (known !== undefined && state.totalMinutes >= known) return;
+    bestSeen.set(key, state.totalMinutes);
+    heap.push(state.totalMinutes, state);
   };
-  bestSeen.set(stateKey(start.node, start.currentLineId), 0);
-  heap.push(0, start);
+
+  // Every seed must be in the heap BEFORE the first pop(): Dijkstra settles
+  // a state permanently on pop, which is only sound while the pop sequence
+  // is monotonically non-decreasing. A seed offered after the loop has
+  // started could arrive cheaper than an already-settled state and would
+  // simply be ignored.
+  //
+  // `currentLineId: null` (so the first boarding pays its wait and no
+  // implicit-transfer penalty) and `confidence: "high"` (a walk crosses no
+  // edge, and "high" is the identity of the `minConfidence` fold — the
+  // value is a statement about EDGE data provenance) are both deliberate;
+  // see the module doc comment.
+  for (const seed of normalizeSeeds(seeds)) {
+    offer({
+      node: seed.node,
+      currentLineId: null,
+      totalMinutes: seed.walkMinutes,
+      railMinutes: 0,
+      waitMinutes: 0,
+      transferCount: 0,
+      transferPenaltyMinutes: 0,
+      destinationWalkMinutes: seed.walkMinutes,
+      confidence: "high",
+      previous: null,
+    });
+  }
 
   while (heap.size() > 0) {
     const current = heap.pop();
@@ -369,6 +539,7 @@ export function reverseDijkstra(graph: TransitGraph, destinationId: GraphNode): 
         waitMinutes: current.waitMinutes,
         transferCount: current.transferCount,
         transferPenaltyMinutes: current.transferPenaltyMinutes,
+        destinationWalkMinutes: current.destinationWalkMinutes,
         confidence: current.confidence,
         previous: current.previous,
       });
@@ -376,15 +547,7 @@ export function reverseDijkstra(graph: TransitGraph, destinationId: GraphNode): 
 
     const incoming = graph.reverse.get(current.node) ?? [];
     for (const edge of incoming) {
-      const next = relax(current, edge);
-      const nextKey = stateKey(next.node, next.currentLineId);
-      if (settled.has(nextKey)) continue;
-
-      const known = bestSeen.get(nextKey);
-      if (known === undefined || next.totalMinutes < known) {
-        bestSeen.set(nextKey, next.totalMinutes);
-        heap.push(next.totalMinutes, next);
-      }
+      offer(relax(current, edge));
     }
   }
 

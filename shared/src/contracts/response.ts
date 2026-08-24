@@ -53,11 +53,19 @@ export type RentEstimate = z.infer<typeof rentEstimateSchema>;
 
 export const commuteEstimateSchema = z.object({
   totalMinutes: z.number(),
+  /** The origin-side walk: neighborhood to its own station. */
   accessWalkMinutes: z.number(),
   railMinutes: z.number(),
   waitMinutes: z.number(),
   transferCount: z.number(),
   transferPenaltyMinutes: z.number(),
+  /**
+   * The destination-side walk: the access station this route ends at to
+   * the destination point. Already included in `totalMinutes`; reported
+   * separately so a client can show the full breakdown ("8 min walk + 24
+   * rail + 6 wait + 11 min walk to the office").
+   */
+  destinationWalkMinutes: z.number(),
   confidence: confidenceSchema,
   label: z.string(),
   path: z.array(
