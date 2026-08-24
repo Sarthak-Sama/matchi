@@ -15,9 +15,19 @@ function makeRow(overrides: Partial<Record<string, number | null>> = {}): Lifest
     normAmenitySupermarket: 70,
     normAmenityRestaurant: 60,
     normQuietness: 50,
+    normAmenityConvenience: 65,
+    normAmenityCuisineVariety: 55,
+    normGreenSpace: 45,
+    normAmenityLateNight: 35,
+    normAmenityHealth: 40,
     supermarketCount: 6,
     restaurantCount: 20,
     cafeCount: 4,
+    convenienceCount: 8,
+    cuisineVarietyCount: 5,
+    greenSpaceShare: 0.3,
+    lateNightCount: 3,
+    healthCount: 2,
     ...overrides,
   };
 }
@@ -50,6 +60,11 @@ describe("readLifestyleNormScores", () => {
       normAmenitySupermarket: 70,
       normAmenityRestaurant: 60,
       normQuietness: 50,
+      normAmenityConvenience: 65,
+      normAmenityCuisineVariety: 55,
+      normGreenSpace: 45,
+      normAmenityLateNight: 35,
+      normAmenityHealth: 40,
     });
   });
 
@@ -67,6 +82,11 @@ describe("readLifestyleRawCounts", () => {
       supermarketCount: 6,
       restaurantCount: 20,
       cafeCount: 4,
+      convenienceCount: 8,
+      cuisineVarietyCount: 5,
+      greenSpaceShare: 0.3,
+      lateNightCount: 3,
+      healthCount: 2,
     });
   });
 

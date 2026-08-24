@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { LIFESTYLE_AXIS_IDS } from "../config/lifestyle-axes.js";
+import { LIFESTYLE_AXIS_IDS, MAX_SELECTED_LIFESTYLE_AXES } from "../config/lifestyle-axes.js";
 import { optimizationRequestSchema } from "./request.js";
 
 function validRequest() {
@@ -119,10 +119,23 @@ describe("optimizationRequestSchema preferences", () => {
     expect(result.data?.preferences).toEqual({ quietness: "high" });
   });
 
-  it("accepts every registered axis at once", () => {
-    const preferences = Object.fromEntries(LIFESTYLE_AXIS_IDS.map((id) => [id, "medium"]));
+  it("accepts the maximum allowed number of axes", () => {
+    const preferences = Object.fromEntries(
+      LIFESTYLE_AXIS_IDS.slice(0, MAX_SELECTED_LIFESTYLE_AXES).map((id) => [id, "medium"]),
+    );
     const result = optimizationRequestSchema.safeParse({ ...validRequest(), preferences });
     expect(result.success).toBe(true);
+  });
+
+  it("rejects selecting every registered axis when that exceeds the maximum allowed", () => {
+    // With nine registered axes and a max of five, submitting all of them
+    // (the app's own untouched default state before Task 4's frontend fix)
+    // must 400 rather than silently accept — this is exactly the guard
+    // MAX_SELECTED_LIFESTYLE_AXES exists to enforce as the axis set grows.
+    expect(LIFESTYLE_AXIS_IDS.length).toBeGreaterThan(MAX_SELECTED_LIFESTYLE_AXES);
+    const preferences = Object.fromEntries(LIFESTYLE_AXIS_IDS.map((id) => [id, "medium"]));
+    const result = optimizationRequestSchema.safeParse({ ...validRequest(), preferences });
+    expect(result.success).toBe(false);
   });
 
   it("rejects an empty preferences object (no axis rated)", () => {

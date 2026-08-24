@@ -62,9 +62,19 @@ export interface LifestyleMetricsInput {
   readonly normAmenitySupermarket: number;
   readonly normAmenityRestaurant: number;
   readonly normQuietness: number;
+  readonly normAmenityConvenience: number;
+  readonly normAmenityCuisineVariety: number;
+  readonly normGreenSpace: number;
+  readonly normAmenityLateNight: number;
+  readonly normAmenityHealth: number;
   readonly supermarketCount: number;
   readonly restaurantCount: number;
   readonly cafeCount: number;
+  readonly convenienceCount: number;
+  readonly cuisineVarietyCount: number;
+  readonly greenSpaceShare: number;
+  readonly lateNightCount: number;
+  readonly healthCount: number;
   readonly sourceDate: string | null;
   readonly confidence: Confidence;
 }

@@ -34,9 +34,19 @@ const FULL_ROW = {
   normAmenitySupermarket: 60,
   normAmenityRestaurant: 90,
   normQuietness: 40,
+  normAmenityConvenience: 55,
+  normAmenityCuisineVariety: 65,
+  normGreenSpace: 45,
+  normAmenityLateNight: 35,
+  normAmenityHealth: 50,
   supermarketCount: 6,
   restaurantCount: 50,
   cafeCount: 10,
+  convenienceCount: 12,
+  cuisineVarietyCount: 8,
+  greenSpaceShare: 0.15,
+  lateNightCount: 4,
+  healthCount: 3,
   derivedAt: new Date("2026-08-01T00:00:00Z"),
   sourceDates: { pois: "2026-01-01T00:00:00Z" },
   catchmentRadiusM: 800,
@@ -59,7 +69,10 @@ describe("GET /v1/neighborhoods/:stationGroupId", () => {
     const pool: DbPool = { query: vi.fn().mockResolvedValue({ rows: [] }) };
     const app = buildTestApp(pool);
 
-    const response = await app.inject({ method: "GET", url: "/v1/neighborhoods/sg-does-not-exist" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/neighborhoods/sg-does-not-exist",
+    });
     await app.close();
 
     expect(response.statusCode).toBe(404);
@@ -105,7 +118,17 @@ describe("GET /v1/neighborhoods/:stationGroupId", () => {
     expect(body.rent?.layout).toBe("1LDK");
     expect(body.rent?.label).toBe("modeled area rent");
     expect(body.factors.map((f) => f.key).sort()).toEqual(
-      ["floodSafety", "quietness", "restaurants", "supermarkets"].sort(),
+      [
+        "floodSafety",
+        "quietness",
+        "restaurants",
+        "supermarkets",
+        "konbini",
+        "cuisineVariety",
+        "greenSpace",
+        "lateNight",
+        "health",
+      ].sort(),
     );
     expect(body.catchment.geoJson).toMatchObject({ type: "Polygon" });
     expect(body.sourceDates["pois"]).toBe("2026-01-01T00:00:00Z");
