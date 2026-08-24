@@ -115,7 +115,7 @@ describe("reverseDijkstra + reconstructPath — main fixture", () => {
     //   railMinutes = 3 + 4 = 7, waitMinutes = 6 (not 12), transferCount = 0.
     //   totalMinutes = 7 + 6 + 0 = 13.
     const graph = buildGraph(MAIN_EDGES, "offpeak");
-    const result = reverseDijkstra(graph, "sg-c");
+    const result = reverseDijkstra(graph, [{ node: "sg-c", walkMinutes: 0 }]);
     const state = result.get("sg-a");
     expect(state).toBeDefined();
     expect(state?.railMinutes).toBe(7);
@@ -133,7 +133,7 @@ describe("reverseDijkstra + reconstructPath — main fixture", () => {
     //   transferPenaltyMinutes = 5, transferCount = 1
     //   totalMinutes = 9 + 6 + 5 = 20
     const graph = buildGraph(MAIN_EDGES, "offpeak");
-    const result = reverseDijkstra(graph, "sg-c2");
+    const result = reverseDijkstra(graph, [{ node: "sg-c2", walkMinutes: 0 }]);
     const state = result.get("sg-a");
     expect(state).toBeDefined();
     expect(state?.railMinutes).toBe(9);
@@ -152,7 +152,7 @@ describe("reverseDijkstra + reconstructPath — main fixture", () => {
     //   transferPenaltyMinutes = 5, transferCount = 1
     //   totalMinutes = 7 + 12 + 5 = 24
     const graph = buildGraph(MAIN_EDGES, "offpeak");
-    const result = reverseDijkstra(graph, "sg-e");
+    const result = reverseDijkstra(graph, [{ node: "sg-e", walkMinutes: 0 }]);
     const state = result.get("sg-c2");
     expect(state).toBeDefined();
     expect(state?.railMinutes).toBe(7);
@@ -170,8 +170,10 @@ describe("reverseDijkstra + reconstructPath — main fixture", () => {
     const offpeakGraph = buildGraph(MAIN_EDGES, "offpeak");
     const peakGraph = buildGraph(MAIN_EDGES, "peak");
 
-    const offpeakState = reverseDijkstra(offpeakGraph, "sg-dest").get("sg-a");
-    const peakState = reverseDijkstra(peakGraph, "sg-dest").get("sg-a");
+    const offpeakState = reverseDijkstra(offpeakGraph, [{ node: "sg-dest", walkMinutes: 0 }]).get(
+      "sg-a",
+    );
+    const peakState = reverseDijkstra(peakGraph, [{ node: "sg-dest", walkMinutes: 0 }]).get("sg-a");
 
     expect(offpeakState?.totalMinutes).toBe(47);
     expect(peakState?.totalMinutes).toBe(43);
@@ -182,7 +184,7 @@ describe("reverseDijkstra + reconstructPath — main fixture", () => {
 
   it("a disconnected node is absent from the result map", () => {
     const graph = buildGraph(MAIN_EDGES, "offpeak");
-    const result = reverseDijkstra(graph, "sg-dest");
+    const result = reverseDijkstra(graph, [{ node: "sg-dest", walkMinutes: 0 }]);
     // sg-isolated-test is never referenced by any edge in this fixture
     // (mirrors the real seed's sg-isolated-test, which has zero rail_edges rows).
     expect(result.has("sg-isolated-test")).toBe(false);
@@ -191,7 +193,7 @@ describe("reverseDijkstra + reconstructPath — main fixture", () => {
 
   it("reconstructPath returns the correct ordered stations and lines for the full two-transfer journey", () => {
     const graph = buildGraph(MAIN_EDGES, "offpeak");
-    const result = reverseDijkstra(graph, "sg-dest");
+    const result = reverseDijkstra(graph, [{ node: "sg-dest", walkMinutes: 0 }]);
     const hops = reconstructPath(result, "sg-a");
 
     expect(hops).toEqual([
@@ -207,7 +209,7 @@ describe("reverseDijkstra + reconstructPath — main fixture", () => {
 
   it("reconstructPath returns null for an unreachable origin", () => {
     const graph = buildGraph(MAIN_EDGES, "offpeak");
-    const result = reverseDijkstra(graph, "sg-dest");
+    const result = reverseDijkstra(graph, [{ node: "sg-dest", walkMinutes: 0 }]);
     expect(reconstructPath(result, "sg-isolated-test")).toBeNull();
   });
 
@@ -215,7 +217,7 @@ describe("reverseDijkstra + reconstructPath — main fixture", () => {
     // Edge confidences: sg-a-b high, sg-b-c medium, transfer high,
     // sg-c2-d high, sg-d-e LOW, sg-e-dest high. Min = low.
     const graph = buildGraph(MAIN_EDGES, "offpeak");
-    const result = reverseDijkstra(graph, "sg-dest");
+    const result = reverseDijkstra(graph, [{ node: "sg-dest", walkMinutes: 0 }]);
     expect(result.get("sg-a")?.confidence).toBe("low");
     // sg-c2's own best path to sg-dest also crosses the low-confidence
     // sg-d->sg-e edge, so it's "low" too.
@@ -244,14 +246,18 @@ describe("reverseDijkstra + reconstructPath — main fixture", () => {
     const graph = buildGraph(oneWay, "offpeak");
 
     // Destination sg-only-y: sg-only-x can reach it (forward edge exists).
-    const toY = reverseDijkstra(graph, "sg-only-y");
+    const toY = reverseDijkstra(graph, [{ node: "sg-only-y", walkMinutes: 0 }]);
     expect(toY.has("sg-only-x")).toBe(true);
 
     // Destination sg-only-x: sg-only-y has no path TO sg-only-x (the only
-    // edge runs the other way) — only sg-only-x itself (cost 0) appears.
-    const toX = reverseDijkstra(graph, "sg-only-x");
+    // edge runs the other way) — only sg-only-x itself appears, at the
+    // cost of its OWN seed walk (0 here, since this fixture seeds a bare
+    // station with no walk to a separate destination point; see the
+    // multi-source suite below for a seed whose cost is a real walk).
+    const toX = reverseDijkstra(graph, [{ node: "sg-only-x", walkMinutes: 0 }]);
     expect(toX.has("sg-only-y")).toBe(false);
     expect(toX.get("sg-only-x")?.totalMinutes).toBe(0);
+    expect(toX.get("sg-only-x")?.destinationWalkMinutes).toBe(0);
   });
 });
 
@@ -359,7 +365,7 @@ const HUB_VS_LONG_EDGES: RailEdgeRow[] = [
 describe("reverseDijkstra picks the genuinely cheapest route", () => {
   it("prefers the longer (4-hop, no transfer) route over the shorter (3-hop, one transfer) route", () => {
     const graph = buildGraph(HUB_VS_LONG_EDGES, "offpeak");
-    const result = reverseDijkstra(graph, "sg-dest2");
+    const result = reverseDijkstra(graph, [{ node: "sg-dest2", walkMinutes: 0 }]);
     const state = result.get("sg-origin2");
 
     expect(state?.totalMinutes).toBe(22);
@@ -387,16 +393,23 @@ describe("reverseDijkstra picks the genuinely cheapest route", () => {
 //   sg-branch-u -(rl-branch-l, 3min)-> sg-branch-v -(rl-branch-l, 14min)-> sg-branch-dest
 //                                       sg-branch-v -(rl-branch-m, 12min)-> sg-branch-dest
 //
+// Seeded with a REAL destination walk (BRANCH_WALK_MINUTES = 7 min from
+// sg-branch-dest to the destination point) so the path-integrity identity
+// at the end of the test has a non-zero `destinationWalkMinutes` to
+// account for — a walk of 0 would let a dropped-walk bug pass.
+//
 // By hand (offpeak, OFFPEAK_WAIT_MINUTES = 6, TRANSFER_PENALTY_MINUTES = 5):
-//   (v, rl-branch-m): boarding 12 + 6 = 18  <- v's OWN cheapest state
-//   (v, rl-branch-l): boarding 14 + 6 = 20
+//   seed (dest, no line): 7 (the walk)
+//   (v, rl-branch-m): 7 + boarding 12 + 6 = 25  <- v's OWN cheapest state
+//   (v, rl-branch-l): 7 + boarding 14 + 6 = 27
 //   (u, rl-branch-l) via (v, rl-branch-l), SAME line -> no new wait:
-//     18 is NOT usable here (different line, non-null -> would need
-//     TRANSFER_PENALTY_MINUTES + a fresh wait: 18 + 3 + 6 + 5 = 32)
-//     20 + 3 (same line, continues the run) = 23  <- cheaper, and correct
-//   So u's best is 23 via (v, rl-branch-l) — NOT via v's own best state
-//   (v, rl-branch-m) at 18, which would cost 32 from u.
-//   railMinutes = 3 + 14 = 17, waitMinutes = 6 (one boarding), totalMinutes = 23.
+//     25 is NOT usable here (different line, non-null -> would need
+//     TRANSFER_PENALTY_MINUTES + a fresh wait: 25 + 3 + 6 + 5 = 39)
+//     27 + 3 (same line, continues the run) = 30  <- cheaper, and correct
+//   So u's best is 30 via (v, rl-branch-l) — NOT via v's own best state
+//   (v, rl-branch-m) at 25, which would cost 39 from u.
+//   railMinutes = 3 + 14 = 17, waitMinutes = 6 (one boarding),
+//   destinationWalkMinutes = 7, totalMinutes = 17 + 6 + 7 = 30.
 // ---------------------------------------------------------------------------
 const BRANCHING_EDGES: RailEdgeRow[] = [
   {
@@ -437,21 +450,27 @@ const BRANCHING_EDGES: RailEdgeRow[] = [
   },
 ];
 
+/** Minutes on foot from sg-branch-dest to the true destination point. */
+const BRANCH_WALK_MINUTES = 7;
+
 describe("reconstructPath at a branching station follows the actual state chain, not each node's own best state", () => {
   it("sg-branch-v's own best state uses rl-branch-m, but sg-branch-u's cheapest path through it uses rl-branch-l", () => {
     const graph = buildGraph(BRANCHING_EDGES, "offpeak");
-    const result = reverseDijkstra(graph, "sg-branch-dest");
+    const result = reverseDijkstra(graph, [
+      { node: "sg-branch-dest", walkMinutes: BRANCH_WALK_MINUTES },
+    ]);
 
-    // sg-branch-v's OWN best state really is via rl-branch-m (18), confirming
+    // sg-branch-v's OWN best state really is via rl-branch-m (25), confirming
     // this fixture actually branches rather than trivially agreeing.
-    expect(result.get("sg-branch-v")?.totalMinutes).toBe(18);
+    expect(result.get("sg-branch-v")?.totalMinutes).toBe(25);
 
     const uState = result.get("sg-branch-u");
-    expect(uState?.totalMinutes).toBe(23);
+    expect(uState?.totalMinutes).toBe(30);
     expect(uState?.railMinutes).toBe(17);
     expect(uState?.waitMinutes).toBe(6);
     expect(uState?.transferCount).toBe(0);
     expect(uState?.transferPenaltyMinutes).toBe(0);
+    expect(uState?.destinationWalkMinutes).toBe(BRANCH_WALK_MINUTES);
 
     const hops = reconstructPath(result, "sg-branch-u");
     expect(hops).toEqual([
@@ -464,10 +483,200 @@ describe("reconstructPath at a branching station follows the actual state chain,
     // from the hand-computed per-edge minutes above (NOT by re-invoking any
     // Dijkstra/relax logic), must equal the reported totalMinutes. This is
     // exactly the check that catches a path/total mismatch: the buggy
-    // version of this code reported 23 correctly while reconstructing a
-    // route through (v, rl-branch-m) that actually costs 32.
+    // version of this code reported 30 correctly while reconstructing a
+    // route through (v, rl-branch-m) that actually costs 39.
+    //
+    // The destination walk is part of that identity, not an addition to it:
+    // it enters the search on the seed and is carried verbatim, so a route
+    // whose rail/wait components are right but whose walk was dropped,
+    // doubled, or swapped for another seed's walk fails here.
     const recomputedRailMinutes = 3 + 14; // sg-branch-u->v (3) + sg-branch-v->dest via rl-branch-l (14)
     const recomputedWaitMinutes = OFFPEAK_WAIT_MINUTES; // one boarding, rl-branch-l used for both ride hops
-    expect(recomputedRailMinutes + recomputedWaitMinutes).toBe(uState?.totalMinutes);
+    expect(recomputedRailMinutes + recomputedWaitMinutes + BRANCH_WALK_MINUTES).toBe(
+      uState?.totalMinutes,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fourth fixture: TWO access stations for one destination point, with
+// different walks — the whole reason the search is multi-source.
+//
+//   sg-p -(rl-pa, 10min)-> sg-stn-a   (walk to the office: 20 min)
+//   sg-p -(rl-pb, 12min)-> sg-stn-b   (walk to the office:  3 min)
+//
+// By hand (offpeak, OFFPEAK_WAIT_MINUTES = 6):
+//   via sg-stn-a: walk 20 + boarding (10 + 6) = 36
+//   via sg-stn-b: walk  3 + boarding (12 + 6) = 21   <- the real winner
+//
+// The rail legs alone rank the other way (10 < 12), which is precisely the
+// trap: a search seeded at cost 0 that adds each seed's walk afterwards
+// optimizes the rail leg in isolation, settles sg-p through sg-stn-a, and
+// reports 36 for a 21-minute commute. The walk has to be inside the search.
+// ---------------------------------------------------------------------------
+const WALK_TO_A = 20;
+const WALK_TO_B = 3;
+
+const MULTI_ACCESS_EDGES: RailEdgeRow[] = [
+  {
+    fromStationGroupId: "sg-p",
+    toStationGroupId: "sg-stn-a",
+    railLineId: "rl-pa",
+    railLineName: "Line PA",
+    edgeType: "ride",
+    peakTravelMinutes: 10,
+    offpeakTravelMinutes: 10,
+    peakWaitMinutes: 0,
+    offpeakWaitMinutes: 0,
+    confidence: "high",
+  },
+  {
+    fromStationGroupId: "sg-p",
+    toStationGroupId: "sg-stn-b",
+    railLineId: "rl-pb",
+    railLineName: "Line PB",
+    edgeType: "ride",
+    peakTravelMinutes: 12,
+    offpeakTravelMinutes: 12,
+    peakWaitMinutes: 0,
+    offpeakWaitMinutes: 0,
+    confidence: "high",
+  },
+];
+
+const A_AND_B_SEEDS = [
+  { node: "sg-stn-a", walkMinutes: WALK_TO_A },
+  { node: "sg-stn-b", walkMinutes: WALK_TO_B },
+];
+
+describe("reverseDijkstra is multi-source: the search itself picks the access station", () => {
+  it("prefers the farther-by-rail access station when its walk to the destination is shorter", () => {
+    const graph = buildGraph(MULTI_ACCESS_EDGES, "offpeak");
+    const result = reverseDijkstra(graph, A_AND_B_SEEDS);
+
+    const pState = result.get("sg-p");
+    expect(pState?.totalMinutes).toBe(21);
+    expect(pState?.railMinutes).toBe(12);
+    expect(pState?.waitMinutes).toBe(OFFPEAK_WAIT_MINUTES);
+    expect(pState?.destinationWalkMinutes).toBe(WALK_TO_B);
+    expect(pState?.transferCount).toBe(0);
+
+    // And the route really is the sg-stn-b one, not sg-stn-a's cheaper rail
+    // leg wearing sg-stn-b's walk.
+    expect(reconstructPath(result, "sg-p")).toEqual([
+      { stationGroupId: "sg-p", railLineId: "rl-pb", edgeType: "ride" },
+      { stationGroupId: "sg-stn-b", railLineId: null, edgeType: null },
+    ]);
+  });
+
+  it("a seed's own cost is its walk to the destination, not zero", () => {
+    const graph = buildGraph(MULTI_ACCESS_EDGES, "offpeak");
+    const result = reverseDijkstra(graph, A_AND_B_SEEDS);
+
+    // Neither access station can reach the other by rail in this fixture,
+    // so each one's own best route really is its own walk.
+    expect(result.get("sg-stn-a")?.totalMinutes).toBe(WALK_TO_A);
+    expect(result.get("sg-stn-a")?.destinationWalkMinutes).toBe(WALK_TO_A);
+    expect(result.get("sg-stn-a")?.railMinutes).toBe(0);
+    expect(result.get("sg-stn-b")?.totalMinutes).toBe(WALK_TO_B);
+    expect(result.get("sg-stn-b")?.destinationWalkMinutes).toBe(WALK_TO_B);
+  });
+
+  it.each([
+    ["worse duplicate last", [...A_AND_B_SEEDS, { node: "sg-stn-b", walkMinutes: 30 }]],
+    ["worse duplicate first", [{ node: "sg-stn-b", walkMinutes: 30 }, ...A_AND_B_SEEDS]],
+  ])("a duplicate seed with a worse walk cannot corrupt the result (%s)", (_label, seeds) => {
+    // Duplicate seeds share the same `(node, null)` state key, so a blind
+    // write of the worse walk into the best-seen table would both report 30
+    // for sg-stn-b and lock the 3-minute state out as "not an improvement",
+    // pushing sg-p onto the sg-stn-a route. Order must not matter.
+    const graph = buildGraph(MULTI_ACCESS_EDGES, "offpeak");
+    const result = reverseDijkstra(graph, seeds);
+
+    expect(result.get("sg-stn-b")?.totalMinutes).toBe(WALK_TO_B);
+    expect(result.get("sg-p")?.totalMinutes).toBe(21);
+    expect(result.get("sg-p")?.destinationWalkMinutes).toBe(WALK_TO_B);
+  });
+
+  it("a seed reachable more cheaply by rail than by its own walk takes the rail route", () => {
+    // sg-stn-a's own walk is 20 min, but an explicit transfer to sg-stn-b
+    // (2 min + TRANSFER_PENALTY_MINUTES 5) plus sg-stn-b's 3-minute walk
+    // costs 10. The transfer state and the seed state collide on the same
+    // `(sg-stn-a, no line)` key, and the cheaper one must win.
+    const withTransfer: RailEdgeRow[] = [
+      ...MULTI_ACCESS_EDGES,
+      {
+        fromStationGroupId: "sg-stn-a",
+        toStationGroupId: "sg-stn-b",
+        railLineId: null,
+        railLineName: null,
+        edgeType: "transfer",
+        peakTravelMinutes: 2,
+        offpeakTravelMinutes: 2,
+        peakWaitMinutes: 0,
+        offpeakWaitMinutes: 0,
+        confidence: "high",
+      },
+    ];
+    const graph = buildGraph(withTransfer, "offpeak");
+    const result = reverseDijkstra(graph, A_AND_B_SEEDS);
+
+    const aState = result.get("sg-stn-a");
+    expect(aState?.totalMinutes).toBe(WALK_TO_B + 2 + TRANSFER_PENALTY_MINUTES);
+    expect(aState?.destinationWalkMinutes).toBe(WALK_TO_B);
+    expect(aState?.transferCount).toBe(1);
+    expect(reconstructPath(result, "sg-stn-a")).toEqual([
+      { stationGroupId: "sg-stn-a", railLineId: null, edgeType: "transfer" },
+      { stationGroupId: "sg-stn-b", railLineId: null, edgeType: null },
+    ]);
+  });
+
+  it("carries the destination walk verbatim through same-line, explicit-transfer and implicit-transfer hops", () => {
+    // MAIN_EDGES' sg-a -> sg-dest journey exercises all three `relax`
+    // branches. Its offpeak cost is 47 without a destination walk (see the
+    // peak/off-peak test above); a 9-minute walk must shift it by exactly
+    // 9 and leave every other component untouched — no double-count on the
+    // transfer hops, no reset on the line changes.
+    const walkMinutes = 9;
+    const graph = buildGraph(MAIN_EDGES, "offpeak");
+    const state = reverseDijkstra(graph, [{ node: "sg-dest", walkMinutes }]).get("sg-a");
+
+    expect(state?.railMinutes).toBe(19);
+    expect(state?.waitMinutes).toBe(3 * OFFPEAK_WAIT_MINUTES);
+    expect(state?.transferPenaltyMinutes).toBe(2 * TRANSFER_PENALTY_MINUTES);
+    expect(state?.destinationWalkMinutes).toBe(walkMinutes);
+    expect(state?.totalMinutes).toBe(47 + walkMinutes);
+  });
+});
+
+describe("reverseDijkstra rejects seed lists it cannot search correctly", () => {
+  const graph = buildGraph(MULTI_ACCESS_EDGES, "offpeak");
+
+  it("throws on an empty seed list rather than reporting every node as disconnected", () => {
+    expect(() => reverseDijkstra(graph, [])).toThrow(/must not be empty/);
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    "throws on a non-finite walkMinutes (%p), which would otherwise make the seed vanish silently",
+    (walkMinutes) => {
+      expect(() => reverseDijkstra(graph, [{ node: "sg-stn-a", walkMinutes }])).toThrow(
+        /non-finite walkMinutes/,
+      );
+    },
+  );
+
+  it("throws on a negative walkMinutes, which would break Dijkstra's settle-once guarantee", () => {
+    expect(() => reverseDijkstra(graph, [{ node: "sg-stn-a", walkMinutes: -1 }])).toThrow(
+      /negative walkMinutes/,
+    );
+  });
+
+  it("validates every seed, not just the first", () => {
+    expect(() =>
+      reverseDijkstra(graph, [
+        { node: "sg-stn-a", walkMinutes: 4 },
+        { node: "sg-stn-b", walkMinutes: Number.NaN },
+      ]),
+    ).toThrow(/sg-stn-b/);
   });
 });

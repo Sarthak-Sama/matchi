@@ -29,7 +29,7 @@ describe("estimateCommute", () => {
     //   dijkstra totalMinutes = 5 + 6 = 11.
     //   estimateCommute totalMinutes = 11 + 8 (access walk) = 19.
     const graph = buildGraph(DIRECT_EDGE, "offpeak");
-    const result = reverseDijkstra(graph, "sg-dest3");
+    const result = reverseDijkstra(graph, [{ node: "sg-dest3", walkMinutes: 0 }]);
 
     const estimate = estimateCommute(result, "sg-origin3");
 
@@ -75,7 +75,7 @@ describe("estimateCommute", () => {
       },
     ];
     const graph = buildGraph(multiHop, "offpeak");
-    const result = reverseDijkstra(graph, "sg-dest3");
+    const result = reverseDijkstra(graph, [{ node: "sg-dest3", walkMinutes: 0 }]);
     const dijkstraState = result.get("sg-before3");
     const estimate = estimateCommute(result, "sg-before3");
 
@@ -85,7 +85,7 @@ describe("estimateCommute", () => {
 
   it("returns null when the origin is unreachable (disconnected node)", () => {
     const graph = buildGraph(DIRECT_EDGE, "offpeak");
-    const result = reverseDijkstra(graph, "sg-dest3");
+    const result = reverseDijkstra(graph, [{ node: "sg-dest3", walkMinutes: 0 }]);
 
     expect(estimateCommute(result, "sg-isolated-test")).toBeNull();
   });

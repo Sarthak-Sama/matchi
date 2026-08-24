@@ -233,7 +233,13 @@ export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void
 
     const period = resolvePeriod(body.arrivalTime);
     const graph = period === "peak" ? deps.graphs.peak : deps.graphs.offpeak;
-    const dijkstraResult = reverseDijkstra(graph, body.destinationStationGroupId);
+    // One seed with a zero walk — today's request names a STATION as the
+    // destination, so the station is the only access point and there is no
+    // walk from it. Task 6 resolves a real destination POINT into several
+    // access stations, each with its own walk.
+    const dijkstraResult = reverseDijkstra(graph, [
+      { node: body.destinationStationGroupId, walkMinutes: 0 },
+    ]);
 
     const currentYear = new Date().getFullYear();
     const candidates: Candidate[] = [];
