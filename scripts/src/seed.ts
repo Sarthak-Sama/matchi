@@ -35,6 +35,7 @@ import {
   FLOOD_ZONES,
   POIS,
   MAJOR_ROADS,
+  GREEN_SPACES,
   multiPolygonWKT,
   multiLineStringWKT,
   pointWKT,
@@ -54,6 +55,7 @@ const OWNED_TABLES = [
   "flood_zones",
   "pois",
   "major_roads",
+  "green_spaces",
 ] as const;
 
 // Tables printed in the row-count summary: owned tables plus the tables
@@ -195,9 +197,9 @@ async function insertFloodZones(client: PoolClient): Promise<void> {
 async function insertPois(client: PoolClient): Promise<void> {
   for (const poi of POIS) {
     await client.query(
-      `INSERT INTO pois (category, name, point, source)
-       VALUES ($1, $2, ST_SetSRID(ST_GeomFromText($3), 4326), $4)`,
-      [poi.category, poi.name, pointWKT(poi.point), SEED_SOURCE],
+      `INSERT INTO pois (category, name, point, source, cuisine, opening_hours)
+       VALUES ($1, $2, ST_SetSRID(ST_GeomFromText($3), 4326), $4, $5, $6)`,
+      [poi.category, poi.name, pointWKT(poi.point), SEED_SOURCE, poi.cuisine, poi.openingHours],
     );
   }
 }
@@ -208,6 +210,16 @@ async function insertMajorRoads(client: PoolClient): Promise<void> {
       `INSERT INTO major_roads (name, road_class, geom, source)
        VALUES ($1, $2, ST_SetSRID(ST_GeomFromText($3), 4326), $4)`,
       [road.name, road.road_class, multiLineStringWKT([road.line]), SEED_SOURCE],
+    );
+  }
+}
+
+async function insertGreenSpaces(client: PoolClient): Promise<void> {
+  for (const gs of GREEN_SPACES) {
+    await client.query(
+      `INSERT INTO green_spaces (name, leisure_class, geom, source)
+       VALUES ($1, $2, ST_SetSRID(ST_GeomFromText($3), 4326), $4)`,
+      [gs.name, gs.leisure_class, multiPolygonWKT([gs.ring]), SEED_SOURCE],
     );
   }
 }
@@ -228,6 +240,7 @@ export async function runSeed(): Promise<void> {
       await insertFloodZones(client);
       await insertPois(client);
       await insertMajorRoads(client);
+      await insertGreenSpaces(client);
     });
 
     console.log("seed complete. Row counts:");

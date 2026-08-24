@@ -3,7 +3,7 @@
  * `neighborhood_metrics` rows Task 9's scoring engine and Task 10's API
  * read directly.
  *
- * Seven steps, each in its own transaction, each idempotent
+ * Eight steps, each in its own transaction, each idempotent
  * (delete-and-rebuild for `station_areas`; deterministic UPDATE for
  * `neighborhood_metrics` columns otherwise) so re-running produces
  * byte-identical results:
@@ -14,13 +14,15 @@
  *   4. zoning        — residential_zoning_share + road_rail_exposure_share
  *   5. quietness     — quietness_raw
  *   6. rent          — rent_* / land_price_* via @tokyo/shared's rent.ts
- *   7. normalization — norm_* (0-100) + source_dates
+ *   7. green-space   — green_space_share
+ *   8. normalization — norm_* (0-100) + source_dates
  *
- * Steps 2-7 depend on step 1 having run at least once (a neighborhood_metrics
+ * Steps 2-8 depend on step 1 having run at least once (a neighborhood_metrics
  * row must exist to UPDATE); quietness depends on amenities + zoning;
- * normalization depends on amenities + flood + zoning + quietness + rent.
- * Each step asserts its own prerequisites and fails with a clear message
- * naming the step to run first, rather than silently writing nulls.
+ * normalization depends on amenities + flood + zoning + quietness + rent +
+ * green-space. Each step asserts its own prerequisites and fails with a
+ * clear message naming the step to run first, rather than silently writing
+ * nulls.
  *
  * Usage:
  *   DATABASE_URL=postgresql://... pnpm derive
@@ -35,6 +37,7 @@ import { createPool } from "./lib/db.js";
 import { runAmenitiesStep } from "./derive/amenities.js";
 import { runCatchmentsStep } from "./derive/catchments.js";
 import { runFloodStep } from "./derive/flood.js";
+import { runGreenSpaceStep } from "./derive/green-space.js";
 import { runNormalizationStep } from "./derive/normalization.js";
 import { runQuietnessStep } from "./derive/quietness.js";
 import { runRentStep } from "./derive/rent.js";
@@ -48,6 +51,7 @@ const STEPS: readonly { readonly key: string; readonly run: StepRunner }[] = [
   { key: "zoning", run: runZoningStep },
   { key: "quietness", run: runQuietnessStep },
   { key: "rent", run: runRentStep },
+  { key: "green-space", run: runGreenSpaceStep },
   { key: "normalization", run: runNormalizationStep },
 ] as const;
 

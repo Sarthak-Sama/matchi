@@ -70,9 +70,9 @@ describe.runIf(Boolean(databaseUrl))(
       await pool.end();
     });
 
-    it("a full derive run completes all seven steps without throwing", async () => {
+    it("a full derive run completes all eight steps without throwing", async () => {
       const results = await runDerive(pool);
-      expect(results).toHaveLength(7);
+      expect(results).toHaveLength(8);
       expect(results.map((r) => r.name)).toEqual([
         "catchments",
         "amenities",
@@ -80,6 +80,7 @@ describe.runIf(Boolean(databaseUrl))(
         "zoning",
         "quietness",
         "rent",
+        "green-space",
         "normalization",
       ]);
     });
@@ -120,7 +121,7 @@ describe.runIf(Boolean(databaseUrl))(
     });
 
     it("re-running the full pipeline again (idempotence) still completes cleanly with the null-ward station present", async () => {
-      await expect(runDerive(pool)).resolves.toHaveLength(7);
+      await expect(runDerive(pool)).resolves.toHaveLength(8);
     });
   },
 );

@@ -1,5 +1,5 @@
 /**
- * Step 7 — normalization (and `source_dates`).
+ * Step 8 — normalization (and `source_dates`).
  *
  * Min-max normalizes across ALL station areas to 0-100:
  *   - `norm_amenity_supermarket` from `amenity_supermarket_equiv`
@@ -9,6 +9,33 @@
  *     then min-max-normalizing, are algebraically identical here — this
  *     does the former: `100 - normalize(flood_exposure_score)`).
  *   - `norm_quietness` from `quietness_raw`
+ *   - `norm_amenity_convenience` from `convenience_count` (raw column
+ *     already populated by amenities.ts; this step's only new work for
+ *     konbini is the min-max itself).
+ *   - `norm_amenity_cuisine_variety` from `cuisine_variety_count`.
+ *   - `norm_green_space` from `green_space_share` (written by the new
+ *     green-space step, 7).
+ *   - `norm_amenity_late_night` from `late_night_count`. Like the other
+ *     four new axes, this is a plain (non-inverted) min-max — but see
+ *     derive/amenities.ts's module doc for why `late_night_count` itself is
+ *     only an approximation of real closing times, and note the tension
+ *     below.
+ *   - `norm_amenity_health` from `health_count`.
+ *
+ * All five new axes are plain min-max (higher raw -> higher score), the
+ * same shape as `norm_amenity_supermarket`/`norm_amenity_restaurant` — none
+ * of them invert the way `norm_flood_safety` does.
+ *
+ * Tension a future reader will meet here, surfaced rather than hidden:
+ * `norm_quietness` (just above) is computed from `quietness_raw`, which
+ * factors in `nightlife_count` (bars) negatively (derive/quietness.ts). A
+ * station with many late-closing bars/restaurants therefore tends to score
+ * well on `norm_amenity_late_night` immediately below and *worse* on
+ * `norm_quietness` — the same underlying venues pulling two axes in
+ * opposite directions. That is a deliberate product tradeoff (late-night
+ * food access and residential quiet genuinely compete), not a
+ * double-count: the two axes measure different things that happen to share
+ * a source.
  *
  * Min-max edge case (mandated by the brief): when every station has the
  * same value on an axis (min == max), that axis's `norm_*` is exactly `50`
@@ -24,10 +51,13 @@
  * `pickRentStat` chose in step 6). Keys with no known date are omitted
  * (`jsonb_strip_nulls`) rather than stored as an explicit `null`, since the
  * seed fixtures don't set `source_updated_at` anywhere yet — real imports
- * will.
+ * will. `green_spaces` is intentionally not added to this lookup here —
+ * out of this task's scope (task-3-brief.md only asks for the five new
+ * `norm_*` CASE blocks, the SET list, and assertColumnsPopulated).
  *
  * Depends on every earlier step: amenities (2), flood (3), zoning (4),
- * quietness (5), and rent (6, for the `source_dates` rent lookup).
+ * quietness (5), rent (6, for the `source_dates` rent lookup), and
+ * green-space (7).
  */
 
 import type { Pool } from "pg";
@@ -48,9 +78,14 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
       "cafe_count",
       "flood_exposure_score",
       "quietness_raw",
+      "convenience_count",
+      "cuisine_variety_count",
+      "late_night_count",
+      "health_count",
+      "green_space_share",
     ],
     "normalization",
-    "the full pipeline up through `--only=quietness`",
+    "the full pipeline up through `--only=green-space`",
   );
   // rent_source is checked separately (not folded into the generic
   // assertColumnsPopulated call above): the source_dates rent lookup below
@@ -70,7 +105,12 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
           amenity_supermarket_equiv,
           (restaurant_count + cafe_count)::double precision AS restaurant_cafe_total,
           flood_exposure_score,
-          quietness_raw
+          quietness_raw,
+          convenience_count::double precision AS convenience_count,
+          cuisine_variety_count::double precision AS cuisine_variety_count,
+          green_space_share,
+          late_night_count::double precision AS late_night_count,
+          health_count::double precision AS health_count
         FROM neighborhood_metrics
       ),
       bounds AS (
@@ -78,7 +118,12 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
           MIN(amenity_supermarket_equiv) AS min_amenity, MAX(amenity_supermarket_equiv) AS max_amenity,
           MIN(restaurant_cafe_total) AS min_rest, MAX(restaurant_cafe_total) AS max_rest,
           MIN(flood_exposure_score) AS min_flood, MAX(flood_exposure_score) AS max_flood,
-          MIN(quietness_raw) AS min_quiet, MAX(quietness_raw) AS max_quiet
+          MIN(quietness_raw) AS min_quiet, MAX(quietness_raw) AS max_quiet,
+          MIN(convenience_count) AS min_convenience, MAX(convenience_count) AS max_convenience,
+          MIN(cuisine_variety_count) AS min_cuisine, MAX(cuisine_variety_count) AS max_cuisine,
+          MIN(green_space_share) AS min_green, MAX(green_space_share) AS max_green,
+          MIN(late_night_count) AS min_late_night, MAX(late_night_count) AS max_late_night,
+          MIN(health_count) AS min_health, MAX(health_count) AS max_health
         FROM base
       ),
       normalized AS (
@@ -99,7 +144,27 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
           CASE WHEN bd.max_quiet = bd.min_quiet THEN 50
             ELSE LEAST(100, GREATEST(0,
               (b.quietness_raw - bd.min_quiet) / (bd.max_quiet - bd.min_quiet) * 100))
-          END AS norm_quietness
+          END AS norm_quietness,
+          CASE WHEN bd.max_convenience = bd.min_convenience THEN 50
+            ELSE LEAST(100, GREATEST(0,
+              (b.convenience_count - bd.min_convenience) / (bd.max_convenience - bd.min_convenience) * 100))
+          END AS norm_amenity_convenience,
+          CASE WHEN bd.max_cuisine = bd.min_cuisine THEN 50
+            ELSE LEAST(100, GREATEST(0,
+              (b.cuisine_variety_count - bd.min_cuisine) / (bd.max_cuisine - bd.min_cuisine) * 100))
+          END AS norm_amenity_cuisine_variety,
+          CASE WHEN bd.max_green = bd.min_green THEN 50
+            ELSE LEAST(100, GREATEST(0,
+              (b.green_space_share - bd.min_green) / (bd.max_green - bd.min_green) * 100))
+          END AS norm_green_space,
+          CASE WHEN bd.max_late_night = bd.min_late_night THEN 50
+            ELSE LEAST(100, GREATEST(0,
+              (b.late_night_count - bd.min_late_night) / (bd.max_late_night - bd.min_late_night) * 100))
+          END AS norm_amenity_late_night,
+          CASE WHEN bd.max_health = bd.min_health THEN 50
+            ELSE LEAST(100, GREATEST(0,
+              (b.health_count - bd.min_health) / (bd.max_health - bd.min_health) * 100))
+          END AS norm_amenity_health
         FROM base b CROSS JOIN bounds bd
       )
       UPDATE neighborhood_metrics nm
@@ -107,7 +172,12 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
         norm_amenity_supermarket = n.norm_amenity_supermarket,
         norm_amenity_restaurant = n.norm_amenity_restaurant,
         norm_flood_safety = n.norm_flood_safety,
-        norm_quietness = n.norm_quietness
+        norm_quietness = n.norm_quietness,
+        norm_amenity_convenience = n.norm_amenity_convenience,
+        norm_amenity_cuisine_variety = n.norm_amenity_cuisine_variety,
+        norm_green_space = n.norm_green_space,
+        norm_amenity_late_night = n.norm_amenity_late_night,
+        norm_amenity_health = n.norm_amenity_health
       FROM normalized n
       WHERE nm.station_group_id = n.station_group_id
     `);
