@@ -51,10 +51,15 @@
  *    ("coffee_shop") = 9 distinct cuisine values over restaurant+cafe POIs.
  *  - `late_night_count`: 2 restaurants closing at/after 23:00
  *    (`RESTAURANT_LATE_NIGHT_HOURS`), 2 bars at `24/7`, and 1 cafe at
- *    `24/7` = 5 counted. A 3rd bar is deliberately given
- *    `"Mo-Su 18:00-02:00"` (open past 2am) to demonstrate the conservative
- *    heuristic in derive/amenities.ts declining a cross-midnight range it
- *    can't confidently parse — NOT counted, by design.
+ *    `24/7` = 5 counted. Two more restaurant/bar fixtures deliberately are
+ *    NOT counted, to demonstrate the conservative heuristic in
+ *    derive/amenities.ts (`lateNightConditionSql`) declining strings it
+ *    can't confidently read: a 3rd bar given `"Mo-Su 18:00-02:00"` (open
+ *    past 2am, a cross-midnight range the heuristic doesn't understand),
+ *    and restaurant #10 given `RESTAURANT_OFF_EXAMPLE`
+ *    (`"Mo-Su 09:00-22:00; Tu 22:00-23:30 off"` — its trailing `off`
+ *    modifier marks that segment CLOSED, so counting it would be a false
+ *    positive; see that constant's own comment below).
  *
  * See derive.test.ts's "task-3 raw counts" test for the live assertions
  * against these exact numbers.
@@ -130,8 +135,9 @@ function repeat(
 // -- sg-shibuya: 40 hand-authored POIs (dense) ---------------------------
 
 // 8 of the 15 restaurants carry a distinct `cuisine`; the first 2 of those
-// also close late (>= 23:00). The remaining 7 restaurants carry neither
-// (same as every filler POI).
+// also close late (>= 23:00). Restaurant #10 (index 9) carries a real,
+// constructible OSM `off` rule modifier — see RESTAURANT_OFF_EXAMPLE below.
+// The remaining restaurants carry neither (same as every filler POI).
 const RESTAURANT_CUISINES: readonly string[] = [
   "ramen",
   "sushi",
@@ -144,12 +150,23 @@ const RESTAURANT_CUISINES: readonly string[] = [
 ];
 const RESTAURANT_LATE_NIGHT_HOURS: readonly string[] = ["11:00-23:30", "11:00-23:45"];
 
+// A false-positive regression fixture (task-3 fix-up): this superficially
+// matches the "-HH:MM closing at/after 23:00" pattern (it contains
+// "-23:30"), but the trailing `off` modifier marks that Tuesday segment as
+// CLOSED — the venue never actually opens past 22:00. Must NOT contribute
+// to `late_night_count`. See derive/amenities.ts's `lateNightConditionSql`
+// doc comment and derive/amenities.test.ts for the heuristic-level test of
+// this exact string.
+const RESTAURANT_OFF_EXAMPLE_INDEX = 9;
+const RESTAURANT_OFF_EXAMPLE = "Mo-Su 09:00-22:00; Tu 22:00-23:30 off";
+
 const shibuyaRestaurants: PoiFixture[] = Array.from({ length: 15 }, (_, i) => ({
   category: "restaurant",
   name: `Shibuya Restaurant ${i + 1}`,
   point: near(shibuya.point, 450),
   cuisine: RESTAURANT_CUISINES[i] ?? null,
-  openingHours: RESTAURANT_LATE_NIGHT_HOURS[i] ?? null,
+  openingHours:
+    i === RESTAURANT_OFF_EXAMPLE_INDEX ? RESTAURANT_OFF_EXAMPLE : (RESTAURANT_LATE_NIGHT_HOURS[i] ?? null),
 }));
 
 // The first of 8 cafes carries a 9th distinct cuisine value and a `24/7`

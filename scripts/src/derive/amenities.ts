@@ -48,6 +48,24 @@
  *     worked examples of both the counted and the deliberately-uncounted
  *     shapes.
  *
+ *     It WAS considered and rejected to match on a bare `-HH:MM` substring
+ *     without checking for OSM's `off` rule modifier, which marks the
+ *     time range it follows as CLOSED, not open — e.g.
+ *     `"Mo-Su 09:00-22:00; Tu 22:00-23:30 off"` describes a venue that
+ *     never opens past 22:00, but its `-23:30` substring would otherwise
+ *     match. `off`-with-times is a standard, common OSM construct (lunch
+ *     breaks, holiday exceptions), not a theoretical edge case, and
+ *     matching it would be a false positive — exactly what the brief
+ *     forbids. So the condition below additionally declines to count ANY
+ *     string containing a standalone `off` token at all (word-bounded, so
+ *     it doesn't misfire on `off` appearing inside an unrelated word like
+ *     "Standoff"), spending another false negative rather than risk one
+ *     more false positive. `lateNightConditionSql` below is the exact
+ *     fragment embedded into the query — factored out so
+ *     derive/amenities.test.ts can exercise it directly against a table of
+ *     sample `opening_hours` strings (including the `off` case above)
+ *     without needing the full pois/station_groups schema.
+ *
  *     Tension worth surfacing, not hiding: `nightlife_count` (bars) already
  *     feeds `norm_quietness` inversely (derive/quietness.ts). A station
  *     with many late-closing bars/restaurants will therefore tend to score
@@ -73,6 +91,21 @@ import { withTransaction } from "../lib/db.js";
 import { assertCatchmentsDerived } from "./prerequisites.js";
 import type { StepResult } from "./types.js";
 
+/**
+ * The late-night heuristic's boolean SQL fragment, parameterized only on
+ * the `opening_hours` column reference so it can be reused verbatim
+ * (byte-for-byte, not re-typed) both in the real query below and in
+ * derive/amenities.test.ts's direct unit coverage of the heuristic. See
+ * this module's doc comment above for what it does and doesn't match, and
+ * why.
+ */
+export function lateNightConditionSql(openingHoursColumn: string): string {
+  return `(
+    ${openingHoursColumn} !~* '\\yoff\\y'
+    AND (${openingHoursColumn} = '24/7' OR ${openingHoursColumn} ~ '-2[3-9]:[0-5][0-9]')
+  )`;
+}
+
 export async function runAmenitiesStep(pool: Pool): Promise<StepResult> {
   const start = Date.now();
   await assertCatchmentsDerived(pool);
@@ -92,7 +125,7 @@ export async function runAmenitiesStep(pool: Pool): Promise<StepResult> {
           COALESCE(SUM((p.category = 'health')::int), 0) AS health_count,
           COALESCE(SUM((
             p.category IN ('restaurant', 'cafe', 'bar')
-            AND (p.opening_hours = '24/7' OR p.opening_hours ~ '-2[3-9]:[0-5][0-9]')
+            AND ${lateNightConditionSql("p.opening_hours")}
           )::int), 0) AS late_night_count,
           COUNT(DISTINCT p.cuisine) FILTER (WHERE p.category IN ('restaurant', 'cafe'))
             AS cuisine_variety_count
