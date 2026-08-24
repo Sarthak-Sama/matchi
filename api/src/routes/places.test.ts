@@ -100,6 +100,40 @@ describe("GET /v1/places", () => {
     expect(sql).not.toContain("shibuya");
   });
 
+  it("escapes LIKE wildcards so a typed % is matched literally, not as `match everything`", async () => {
+    const pool = fakePool();
+    const app = buildTestApp(pool);
+    await app.inject({ method: "GET", url: "/v1/places?query=%25" });
+    await app.close();
+
+    expect(pool.query).toHaveBeenCalledWith(expect.any(String), ["\\%", PLACES_LIMIT]);
+  });
+
+  it("rejects a query longer than the 100-character cap", async () => {
+    const app = buildTestApp(fakePool());
+    const response = await app.inject({
+      method: "GET",
+      url: `/v1/places?query=${"a".repeat(101)}`,
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(400);
+    const body = response.json() as { error: { code: string; details: { path: string }[] } };
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.details.some((d) => d.path === "query")).toBe(true);
+  });
+
+  it("accepts a query at exactly the cap", async () => {
+    const app = buildTestApp(fakePool());
+    const response = await app.inject({
+      method: "GET",
+      url: `/v1/places?query=${"a".repeat(100)}`,
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+  });
+
   it("rejects an unknown query parameter rather than ignoring it", async () => {
     const app = buildTestApp(fakePool());
     const response = await app.inject({ method: "GET", url: "/v1/places?query=a&limit=5" });
@@ -191,6 +225,17 @@ describe.runIf(Boolean(databaseUrl))("GET /v1/places (integration)", () => {
     await app.close();
 
     expect(placesResponseSchema.parse(response.json()).results.length).toBe(PLACES_LIMIT);
+  });
+
+  it("a bare % returns nothing, not the whole table", async () => {
+    // The abuse case the escaping exists for: unescaped, this is
+    // `ILIKE '%' || '%' || '%'` — every named POI in the database.
+    const app = buildApp({ config: testConfig(), pool, graphs: emptyGraphs() });
+    const response = await app.inject({ method: "GET", url: "/v1/places?query=%25" });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(placesResponseSchema.parse(response.json()).results).toEqual([]);
   });
 
   it("returns an empty list, not an error, for a query that matches nothing", async () => {

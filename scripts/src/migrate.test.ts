@@ -196,6 +196,42 @@ const EXPECTED_GIST_INDEXES = [
   "station_groups_point_geog_gist_idx",
 ];
 
+/**
+ * Every `gin_trgm_ops` index in the schema, across ALL tables.
+ *
+ * Deliberately schema-wide rather than per-table: this list is the drift
+ * check for text search the same way EXPECTED_GIST_INDEXES is for geometry.
+ * A route that starts matching `ILIKE '%...%'` against a newly-searched
+ * column works perfectly on seed data whether or not the column is indexed
+ * — the only symptom of the missing index is a sequential scan that shows
+ * up at import scale. Listing them all here means adding such a route
+ * forces an explicit decision about its index instead of leaving one to be
+ * discovered in production. (Task 6 added the `pois` entry, and found the
+ * gap exactly this way.)
+ */
+/**
+ * Every migration file, in apply order. Single source of truth for both
+ * the "recorded in schema_migrations" test and the idempotence test's
+ * count — a new migration should require editing ONE list, not one list
+ * plus a hardcoded number in an unrelated assertion.
+ */
+const EXPECTED_MIGRATION_FILENAMES = [
+  "0001_init.sql",
+  "0002_geography_indexes.sql",
+  "0003_land_price_used_fallback.sql",
+  "0004_lifestyle_metrics.sql",
+  "0005_poi_name_trigram_index.sql",
+];
+
+const EXPECTED_TRGM_INDEXES = [
+  // 0001_init.sql — back GET /v1/stations.
+  "station_groups_name_en_trgm_idx",
+  "station_groups_name_ja_trgm_idx",
+  // 0005_poi_name_trigram_index.sql (Task 6) — backs the POI half of
+  // GET /v1/places.
+  "pois_name_trgm_idx",
+];
+
 describe.runIf(Boolean(databaseUrl))("migrate", () => {
   const scratchSchema = `migrate_test_${process.pid}_${Date.now()}`;
   let adminPool: Pool;
@@ -246,12 +282,7 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
     const { rows } = await adminPool.query<{ filename: string }>(
       `SELECT filename FROM "${scratchSchema}".schema_migrations ORDER BY filename`,
     );
-    expect(rows.map((r) => r.filename)).toEqual([
-      "0001_init.sql",
-      "0002_geography_indexes.sql",
-      "0003_land_price_used_fallback.sql",
-      "0004_lifestyle_metrics.sql",
-    ]);
+    expect(rows.map((r) => r.filename)).toEqual(EXPECTED_MIGRATION_FILENAMES);
   });
 
   it("has the postgis and pg_trgm extensions installed", async () => {
@@ -271,16 +302,23 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
     expect(actual).toEqual([...EXPECTED_GIST_INDEXES].sort());
   });
 
-  it("has a GIN trigram index on station_groups.name_en and name_ja", async () => {
+  it("has a GIN trigram index on every column an ILIKE '%...%' route searches", async () => {
     const { rows } = await adminPool.query<{ indexname: string }>(
       `SELECT indexname FROM pg_indexes
-       WHERE schemaname = $1 AND tablename = 'station_groups' AND indexdef ILIKE '%gin_trgm_ops%'`,
+       WHERE schemaname = $1 AND indexdef ILIKE '%gin_trgm_ops%'`,
       [scratchSchema],
     );
-    expect(rows.map((r) => r.indexname).sort()).toEqual([
-      "station_groups_name_en_trgm_idx",
-      "station_groups_name_ja_trgm_idx",
-    ]);
+    expect(rows.map((r) => r.indexname).sort()).toEqual([...EXPECTED_TRGM_INDEXES].sort());
+  });
+
+  it("indexes pois.name on the raw column, so ILIKE can use it without a lower() expression", async () => {
+    const { rows } = await adminPool.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes
+       WHERE schemaname = $1 AND indexname = 'pois_name_trgm_idx'`,
+      [scratchSchema],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.indexdef).toContain("USING gin (name gin_trgm_ops)");
   });
 
   it("prevents duplicate transfer edges (rail_line_id IS NULL) via a partial unique index", async () => {
@@ -311,7 +349,7 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
     const { rows } = await adminPool.query<{ filename: string }>(
       `SELECT filename FROM "${scratchSchema}".schema_migrations`,
     );
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(EXPECTED_MIGRATION_FILENAMES.length);
   });
 });
 
