@@ -33,6 +33,7 @@ import { runImport } from "./lib/import-run.js";
 import { expectRowCount } from "./lib/validate.js";
 import { runMigrations } from "./migrate.js";
 import { runSeed } from "./seed.js";
+import { destructiveTestDatabaseUrl } from "./test-support/database-url.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(__dirname, "fixtures/mlit");
@@ -194,7 +195,7 @@ describe("flood parsing", () => {
 // DB-guarded integration tests.
 // ---------------------------------------------------------------------------
 
-const databaseUrl = process.env["DATABASE_URL"];
+const databaseUrl = destructiveTestDatabaseUrl();
 
 const GOOD_ARGS: ImportMlitArgs = {
   wardsPath: fixturePath("wards.geojson"),

@@ -15,8 +15,9 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { runMigrations } from "./migrate.js";
+import { destructiveTestDatabaseUrl } from "./test-support/database-url.js";
 
-const databaseUrl = process.env["DATABASE_URL"];
+const databaseUrl = destructiveTestDatabaseUrl();
 
 const EXPECTED_COLUMNS: Record<string, readonly string[]> = {
   import_runs: [

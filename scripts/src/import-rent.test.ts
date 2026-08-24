@@ -31,6 +31,7 @@ import { parseArgs, runRentImport } from "./import-rent.js";
 import { runImport } from "./lib/import-run.js";
 import { runMigrations } from "./migrate.js";
 import { runSeed } from "./seed.js";
+import { destructiveTestDatabaseUrl } from "./test-support/database-url.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(__dirname, "fixtures/rent");
@@ -249,7 +250,7 @@ describe("rent-unit: convertToPerSqm + --rent-unit", () => {
 // DB-guarded integration tests.
 // ---------------------------------------------------------------------------
 
-const databaseUrl = process.env["DATABASE_URL"];
+const databaseUrl = destructiveTestDatabaseUrl();
 
 const GOOD_ARGS: ImportRentArgs = {
   estatPath: fixturePath("estat.csv"),
