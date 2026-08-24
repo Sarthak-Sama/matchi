@@ -102,11 +102,23 @@ const CANDIDATE_ROWS = [
     normQuietness: 90,
   }),
   makeCandidateRow({ stationGroupId: "sg-isolated", nameEn: "Isolated Station", nameJa: "孤立駅" }),
+  // The DESTINATION's own area is a candidate like every other one — the
+  // `WHERE nm.station_group_id != $1` filter that used to delete it is gone
+  // (see CANDIDATES_SQL's comment in optimize.ts).
+  makeCandidateRow({ stationGroupId: "sg-dest", nameEn: "Destination", nameJa: "目的地" }),
 ];
 
-function fakeOptimizePool(overrides: { candidates?: unknown[]; importRuns?: unknown[] } = {}): DbPool {
+function fakeOptimizePool(
+  overrides: {
+    candidates?: unknown[];
+    importRuns?: unknown[];
+    /** Rows the destination-point `ST_DWithin` lookup returns. */
+    accessStations?: { stationGroupId: string; distanceM: number }[];
+  } = {},
+): DbPool {
   const candidates = overrides.candidates ?? CANDIDATE_ROWS;
   const importRuns = overrides.importRuns ?? [];
+  const accessStations = overrides.accessStations ?? [{ stationGroupId: "sg-dest", distanceM: 0 }];
 
   return {
     query: vi.fn((text: string) => {
@@ -115,6 +127,11 @@ function fakeOptimizePool(overrides: { candidates?: unknown[]; importRuns?: unkn
       }
       if (text.includes("FROM rail_lines")) {
         return Promise.resolve({ rows: RAIL_LINE_NAME_ROWS });
+      }
+      // Must be checked BEFORE the bare `FROM station_groups` name-lookup
+      // branch below — the access-station query selects from that table too.
+      if (text.includes("ST_DWithin")) {
+        return Promise.resolve({ rows: accessStations });
       }
       if (text.includes("FROM station_groups")) {
         return Promise.resolve({ rows: STATION_NAME_ROWS });
@@ -177,13 +194,22 @@ describe("POST /v1/optimize", () => {
         expect(prev.overallScore).toBeGreaterThanOrEqual(cur.overallScore);
       }
     }
-    // The destination itself must never appear among the results.
-    expect(parsed.results.some((r) => r.stationGroupId === "sg-dest")).toBe(false);
+    // The destination's own area IS a result now — living at the
+    // destination is a legitimate answer, and deleting it was the bug.
+    const destination = parsed.results.find((r) => r.stationGroupId === "sg-dest");
+    expect(destination).toBeDefined();
+    expect(destination?.isDestinationAccessStation).toBe(true);
+    // Every OTHER area is reached by rail, not on foot.
+    for (const result of parsed.results) {
+      if (result.stationGroupId !== "sg-dest") {
+        expect(result.isDestinationAccessStation).toBe(false);
+      }
+    }
     // sg-isolated has no rail_edges at all — must be absent from results and
     // counted under excludedByDisconnected.
     expect(parsed.results.some((r) => r.stationGroupId === "sg-isolated")).toBe(false);
     expect(parsed.diagnostics.excludedByDisconnected).toBe(1);
-    expect(parsed.diagnostics.candidatesConsidered).toBe(3);
+    expect(parsed.diagnostics.candidatesConsidered).toBe(4);
   });
 
   it("replaces placeholder path hop names/lines with real display names, never raw ids", async () => {
@@ -341,6 +367,238 @@ describe("POST /v1/optimize", () => {
     expect(typeof body.diagnostics.suggestion).toBe("string");
   });
 
+  // -------------------------------------------------------------------------
+  // The destination as a POINT
+  // -------------------------------------------------------------------------
+
+  describe("destinationPoint", () => {
+    function pointRequest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+      const payload: Record<string, unknown> = {
+        ...baseRequest(),
+        destinationPoint: { lat: 35.6555, lon: 139.7055, label: "The Office" },
+        ...overrides,
+      };
+      delete payload["destinationStationGroupId"];
+      return payload;
+    }
+
+    it("resolves a point to seeds and itemizes a NON-ZERO destination walk in every commute", async () => {
+      // 400 straight-line metres from sg-dest -> 400 * 1.3 / 80 = 6.5 -> 7 min.
+      const app = buildTestApp(
+        fakeOptimizePool({ accessStations: [{ stationGroupId: "sg-dest", distanceM: 400 }] }),
+      );
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/optimize",
+        payload: pointRequest(),
+      });
+      await app.close();
+
+      expect(response.statusCode).toBe(200);
+      const body = optimizeResponseSchema.parse(response.json());
+      expect(body.results.length).toBeGreaterThan(0);
+
+      for (const result of body.results) {
+        expect(result.commute.destinationWalkMinutes).toBe(7);
+        // Itemized, and counted exactly ONCE in the total — the rule
+        // commute.ts:63-70 states and commute.test.ts pins directly.
+        expect(result.commute.totalMinutes).toBe(
+          result.commute.accessWalkMinutes +
+            result.commute.railMinutes +
+            result.commute.waitMinutes +
+            result.commute.transferPenaltyMinutes +
+            result.commute.destinationWalkMinutes,
+        );
+      }
+    });
+
+    it("keeps the destination's own area in the list, flagged as an access station", async () => {
+      const app = buildTestApp(
+        fakeOptimizePool({ accessStations: [{ stationGroupId: "sg-dest", distanceM: 400 }] }),
+      );
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/optimize",
+        payload: pointRequest(),
+      });
+      await app.close();
+
+      const body = optimizeResponseSchema.parse(response.json());
+      const destination = body.results.find((r) => r.stationGroupId === "sg-dest");
+      expect(destination).toBeDefined();
+      expect(destination?.isDestinationAccessStation).toBe(true);
+      // 8 min home->station + 0 rail + 0 wait + 7 min walk to the office.
+      expect(destination?.commute.railMinutes).toBe(0);
+      expect(destination?.commute.totalMinutes).toBe(15);
+    });
+
+    it("flags EVERY seed station, not just the nearest one", async () => {
+      const app = buildTestApp(
+        fakeOptimizePool({
+          accessStations: [
+            { stationGroupId: "sg-dest", distanceM: 400 },
+            { stationGroupId: "sg-near", distanceM: 800 },
+          ],
+        }),
+      );
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/optimize",
+        payload: pointRequest(),
+      });
+      await app.close();
+
+      const body = optimizeResponseSchema.parse(response.json());
+      expect(body.results.find((r) => r.stationGroupId === "sg-dest")?.isDestinationAccessStation).toBe(true);
+      expect(body.results.find((r) => r.stationGroupId === "sg-near")?.isDestinationAccessStation).toBe(true);
+      expect(body.results.find((r) => r.stationGroupId === "sg-far")?.isDestinationAccessStation).toBe(false);
+    });
+
+    it("lets the search pick the cheaper access station per origin, not the nearest to the office", async () => {
+      // arrivalTime 09:00 is peak, so a hop costs 10 rail + 3 wait.
+      // sg-near is 1 hop from sg-dest, which is a 1-minute walk from the
+      // office (10 + 3 + 1 = 14); walking from sg-near itself would be
+      // ceil(1200 * 1.3 / 80) = 20. Riding must win, and the search — not
+      // a nearest-station heuristic — is what discovers that.
+      const app = buildTestApp(
+        fakeOptimizePool({
+          accessStations: [
+            { stationGroupId: "sg-dest", distanceM: 60 },
+            { stationGroupId: "sg-near", distanceM: 1200 },
+          ],
+        }),
+      );
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/optimize",
+        payload: pointRequest(),
+      });
+      await app.close();
+
+      const body = optimizeResponseSchema.parse(response.json());
+      // sg-near's own best route ends at sg-dest with a 1-minute walk, not
+      // at sg-near with a 20-minute one.
+      const near = body.results.find((r) => r.stationGroupId === "sg-near");
+      expect(near?.commute.destinationWalkMinutes).toBe(1);
+      expect(near?.commute.railMinutes).toBe(10);
+      // 8 access walk + 10 rail + 3 wait + 1 destination walk.
+      expect(near?.commute.totalMinutes).toBe(22);
+    });
+
+    it("a point with no station in range -> 400 NO_ACCESS_STATIONS, not a 500 and not an empty ranked list", async () => {
+      // reverseDijkstra throws a plain Error on an empty seed list, which
+      // the global handler would render as a generic 500 INTERNAL_ERROR.
+      // The route must reject BEFORE calling it.
+      const app = buildTestApp(fakeOptimizePool({ accessStations: [] }));
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/optimize",
+        payload: pointRequest({ destinationPoint: { lat: 35.0, lon: 145.0 } }),
+      });
+      await app.close();
+
+      expect(response.statusCode).toBe(400);
+      const body = response.json() as { error: { code: string; message: string } };
+      expect(body.error.code).toBe("NO_ACCESS_STATIONS");
+      expect(body.error.code).not.toBe("INTERNAL_ERROR");
+      expect(body.error.message).toContain("1500");
+    });
+
+    it("rejects supplying both destination forms", async () => {
+      const app = buildTestApp(fakeOptimizePool());
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/optimize",
+        payload: { ...baseRequest(), destinationPoint: { lat: 35.6, lon: 139.7 } },
+      });
+      await app.close();
+
+      expect(response.statusCode).toBe(400);
+      const body = response.json() as { error: { code: string; details: { path: string }[] } };
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+      expect(body.error.details.some((d) => d.path === "destinationStationGroupId")).toBe(true);
+    });
+
+    it("rejects an out-of-range coordinate at the schema boundary", async () => {
+      const app = buildTestApp(fakeOptimizePool());
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/optimize",
+        payload: pointRequest({ destinationPoint: { lat: 91, lon: 139.7 } }),
+      });
+      await app.close();
+
+      expect(response.statusCode).toBe(400);
+      const body = response.json() as { error: { code: string; details: { path: string }[] } };
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+      expect(body.error.details.some((d) => d.path === "destinationPoint.lat")).toBe(true);
+    });
+
+    it("echoes the destinationPoint back in the response's request", async () => {
+      const app = buildTestApp(fakeOptimizePool());
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/optimize",
+        payload: pointRequest(),
+      });
+      await app.close();
+
+      const body = optimizeResponseSchema.parse(response.json());
+      expect(body.request.destinationPoint).toEqual({
+        lat: 35.6555,
+        lon: 139.7055,
+        label: "The Office",
+      });
+      expect(body.request.destinationStationGroupId).toBeUndefined();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // diagnostics identity — must survive dropping the self-exclusion
+  // -------------------------------------------------------------------------
+
+  describe("diagnostics reconcile after the destination's own area rejoined the pool", () => {
+    const cases: { name: string; payload: Record<string, unknown> }[] = [
+      { name: "a station destination", payload: baseRequest() },
+      {
+        name: "a point destination",
+        payload: (() => {
+          const p: Record<string, unknown> = {
+            ...baseRequest(),
+            destinationPoint: { lat: 35.6555, lon: 139.7055 },
+          };
+          delete p["destinationStationGroupId"];
+          return p;
+        })(),
+      },
+      { name: "an infeasible commute cap", payload: baseRequest({ maxCommuteMinutes: 5 }) },
+      { name: "an infeasible budget", payload: baseRequest({ monthlyBudgetYen: 1 }) },
+    ];
+
+    for (const testCase of cases) {
+      it(`excludedBy* + feasibleCount === candidatesConsidered for ${testCase.name}`, async () => {
+        const app = buildTestApp(fakeOptimizePool());
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/optimize",
+          payload: testCase.payload,
+        });
+        await app.close();
+
+        expect(response.statusCode).toBe(200);
+        const { diagnostics } = optimizeResponseSchema.parse(response.json());
+        expect(
+          diagnostics.excludedByRent +
+            diagnostics.excludedByCommute +
+            diagnostics.excludedByDisconnected +
+            diagnostics.feasibleCount,
+        ).toBe(diagnostics.candidatesConsidered);
+        // And the destination's own area is genuinely in that count now.
+        expect(diagnostics.candidatesConsidered).toBe(4);
+      });
+    }
+  });
+
   it("returns 503 GRAPH_UNAVAILABLE when the transit graph has no edges", async () => {
     const app = buildTestApp(fakeOptimizePool(), emptyGraphs());
     const response = await app.inject({
@@ -441,6 +699,122 @@ describe.runIf(Boolean(databaseUrl))("POST /v1/optimize (integration)", () => {
     for (const result of body.results) {
       expect(result.rent.label).toBe("modeled area rent");
     }
+  });
+
+  it("a destinationPoint near Shibuya: real seeds, a non-zero itemized walk, and Shibuya itself in the list", async () => {
+    const { loadRailEdges } = await import("../domain/transit/loader.js");
+    const { buildGraphs } = await import("../domain/transit/graph.js");
+    const graphs = buildGraphs(await loadRailEdges(pool));
+    const app = buildApp({ config: testConfig(), pool, graphs });
+
+    // ~400 m south-east of sg-shibuya (139.7016, 35.6580) — an office
+    // between stations, the case the whole feature exists for.
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/optimize",
+      payload: {
+        destinationPoint: { lat: 35.6555, lon: 139.7055, label: "Shibuya Office" },
+        arrivalTime: "09:00",
+        monthlyBudgetYen: 200_000,
+        layout: "1LDK",
+        maxCommuteMinutes: 45,
+        preferences: {
+          floodSafety: "high",
+          supermarkets: "medium",
+          restaurants: "low",
+          quietness: "essential",
+        },
+      },
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    const body = optimizeResponseSchema.parse(response.json());
+    expect(body.results.length).toBeGreaterThan(0);
+
+    // Every commute pays a real walk at the destination end, itemized and
+    // counted exactly once.
+    for (const result of body.results) {
+      expect(result.commute.destinationWalkMinutes).toBeGreaterThan(0);
+      expect(result.commute.totalMinutes).toBe(
+        result.commute.accessWalkMinutes +
+          result.commute.railMinutes +
+          result.commute.waitMinutes +
+          result.commute.transferPenaltyMinutes +
+          result.commute.destinationWalkMinutes,
+      );
+    }
+
+    // The destination's own area is present — this is the filter that used
+    // to delete it.
+    const shibuya = body.results.find((r) => r.stationGroupId === "sg-shibuya");
+    expect(shibuya).toBeDefined();
+    expect(shibuya?.isDestinationAccessStation).toBe(true);
+    expect(shibuya?.commute.railMinutes).toBe(0);
+
+    expect(
+      body.diagnostics.excludedByRent +
+        body.diagnostics.excludedByCommute +
+        body.diagnostics.excludedByDisconnected +
+        body.diagnostics.feasibleCount,
+    ).toBe(body.diagnostics.candidatesConsidered);
+  });
+
+  it("a point in the middle of the ocean -> 400 NO_ACCESS_STATIONS, not a 500 and not an empty ranked list", async () => {
+    const { loadRailEdges } = await import("../domain/transit/loader.js");
+    const { buildGraphs } = await import("../domain/transit/graph.js");
+    const graphs = buildGraphs(await loadRailEdges(pool));
+    const app = buildApp({ config: testConfig(), pool, graphs });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/optimize",
+      payload: {
+        destinationPoint: { lat: 35.0, lon: 145.0 },
+        arrivalTime: "09:00",
+        monthlyBudgetYen: 200_000,
+        layout: "1LDK",
+        maxCommuteMinutes: 45,
+        preferences: { floodSafety: "high", supermarkets: "medium", restaurants: "low", quietness: "essential" },
+      },
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(400);
+    const body = response.json() as { error: { code: string } };
+    expect(body.error.code).toBe("NO_ACCESS_STATIONS");
+  });
+
+  it("a destinationStationGroupId request still works unchanged, with a zero destination walk", async () => {
+    const { loadRailEdges } = await import("../domain/transit/loader.js");
+    const { buildGraphs } = await import("../domain/transit/graph.js");
+    const graphs = buildGraphs(await loadRailEdges(pool));
+    const app = buildApp({ config: testConfig(), pool, graphs });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/optimize",
+      payload: {
+        destinationStationGroupId: "sg-shibuya",
+        arrivalTime: "09:00",
+        monthlyBudgetYen: 200_000,
+        layout: "1LDK",
+        maxCommuteMinutes: 45,
+        preferences: { floodSafety: "high", supermarkets: "medium", restaurants: "low", quietness: "essential" },
+      },
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    const body = optimizeResponseSchema.parse(response.json());
+    expect(body.results.length).toBeGreaterThan(0);
+    for (const result of body.results) {
+      expect(result.commute.destinationWalkMinutes).toBe(0);
+    }
+    // Shibuya is its own access station, so it is a candidate here too.
+    expect(
+      body.results.find((r) => r.stationGroupId === "sg-shibuya")?.isDestinationAccessStation,
+    ).toBe(true);
   });
 });
 
