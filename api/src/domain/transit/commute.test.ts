@@ -83,6 +83,28 @@ describe("estimateCommute", () => {
     expect(estimate?.totalMinutes).toBe(22);
   });
 
+  it("does NOT re-add the destination-side walk: it is already inside the Dijkstra total", () => {
+    // The one rule this module's doc comment states that nothing else
+    // enforces: `estimateCommute` adds the ORIGIN-side access walk and
+    // ONLY that. The destination-side walk varies per access station, so
+    // the search must price it to choose between them, and it is therefore
+    // already in `state.totalMinutes`.
+    //
+    // By hand (offpeak, walk 7 min from sg-dest3 to the destination point):
+    //   dijkstra totalMinutes = 5 rail + 6 wait + 7 walk = 18
+    //   estimateCommute totalMinutes = 18 + 8 (access walk) = 26  <- 19 + 7
+    // A stray `+ state.destinationWalkMinutes` here would give 33.
+    const graph = buildGraph(DIRECT_EDGE, "offpeak");
+    const result = reverseDijkstra(graph, [{ node: "sg-dest3", walkMinutes: 7 }]);
+
+    const estimate = estimateCommute(result, "sg-origin3");
+
+    expect(estimate?.railMinutes).toBe(5);
+    expect(estimate?.waitMinutes).toBe(OFFPEAK_WAIT_MINUTES);
+    expect(estimate?.destinationWalkMinutes).toBe(7);
+    expect(estimate?.totalMinutes).toBe(26);
+  });
+
   it("returns null when the origin is unreachable (disconnected node)", () => {
     const graph = buildGraph(DIRECT_EDGE, "offpeak");
     const result = reverseDijkstra(graph, [{ node: "sg-dest3", walkMinutes: 0 }]);

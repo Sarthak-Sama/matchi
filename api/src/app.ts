@@ -18,6 +18,7 @@ import { registerDataStatusRoute } from "./routes/data-status.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerNeighborhoodRoute } from "./routes/neighborhoods.js";
 import { registerOptimizeRoute } from "./routes/optimize.js";
+import { registerPlacesRoute } from "./routes/places.js";
 import { registerStationsRoute } from "./routes/stations.js";
 
 /**
@@ -104,6 +105,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
 
   registerHealthRoute(app, { pool: deps.pool });
   registerStationsRoute(app, deps);
+  registerPlacesRoute(app, deps);
   registerOptimizeRoute(app, deps);
   registerNeighborhoodRoute(app, deps);
   registerDataStatusRoute(app, deps);

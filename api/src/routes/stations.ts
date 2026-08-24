@@ -2,6 +2,9 @@
  * `GET /v1/stations?query=&limit=` — autocomplete over `station_groups`.
  *
  * Matches `name_en`, `name_ja`, or any entry in `aliases`, case-insensitive.
+ * The match predicate and the similarity ranking themselves live in
+ * `lib/text-ranking.ts` — `GET /v1/places` searches `station_groups` the
+ * same way, and the two must not drift apart.
  * The `ILIKE` predicates against `name_en`/`name_ja` are index-supported by
  * the `gin_trgm_ops` trigram indexes from `db/migrations/0001_init.sql`
  * (pg_trgm registers operator support for `ILIKE`/`LIKE` pattern matching
@@ -18,6 +21,11 @@ import { z } from "zod";
 
 import type { AppDeps } from "../app.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
+import {
+  similarityScoreSql,
+  STATION_GROUP_MATCH_COLUMNS,
+  textMatchSql,
+} from "./lib/text-ranking.js";
 import { parseOrThrow } from "./lib/validation.js";
 
 // `limit` is capped (not rejected) at `STATIONS_MAX_LIMIT` — see the route
@@ -40,14 +48,7 @@ const STATIONS_SQL = `
     ST_Y(sg.point) AS lat,
     ST_X(sg.point) AS lon,
     COALESCE(lines.names, ARRAY[]::text[]) AS lines,
-    GREATEST(
-      similarity(lower(sg.name_en), lower($1)),
-      similarity(lower(sg.name_ja), lower($1)),
-      COALESCE(
-        (SELECT MAX(similarity(lower(alias), lower($1))) FROM unnest(sg.aliases) AS alias),
-        0
-      )
-    ) AS score
+    ${similarityScoreSql(STATION_GROUP_MATCH_COLUMNS, "$1")} AS score
   FROM station_groups sg
   LEFT JOIN LATERAL (
     SELECT ARRAY_AGG(DISTINCT rl.name_en ORDER BY rl.name_en) AS names
@@ -56,9 +57,7 @@ const STATIONS_SQL = `
     WHERE (re.from_station_group_id = sg.station_group_id OR re.to_station_group_id = sg.station_group_id)
       AND rl.name_en IS NOT NULL
   ) lines ON true
-  WHERE sg.name_en ILIKE '%' || $1 || '%'
-     OR sg.name_ja ILIKE '%' || $1 || '%'
-     OR EXISTS (SELECT 1 FROM unnest(sg.aliases) AS alias WHERE alias ILIKE '%' || $1 || '%')
+  WHERE ${textMatchSql(STATION_GROUP_MATCH_COLUMNS, "$1")}
   ORDER BY score DESC, sg.name_en ASC
   LIMIT $2
 `;

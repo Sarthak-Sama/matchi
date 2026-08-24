@@ -3,10 +3,11 @@
  * estimator, the derived PostGIS metrics, the transit graph, and the
  * scoring engine all meet here for the first time.
  *
- * Flow: resolve the destination station -> pick peak/off-peak from
- * `arrivalTime` -> run ONE `reverseDijkstra` from the destination on the
- * preloaded in-memory graph -> load `neighborhood_metrics` joined to
- * `station_groups`/`wards` for every OTHER candidate -> build commute
+ * Flow: resolve the destination (a station group id, or a POINT via
+ * `lib/access-stations.ts`) into `reverseDijkstra` seeds -> pick
+ * peak/off-peak from `arrivalTime` -> run ONE `reverseDijkstra` from those
+ * seeds on the preloaded in-memory graph -> load `neighborhood_metrics`
+ * joined to `station_groups`/`wards` for EVERY candidate -> build commute
  * estimates (with placeholder path names replaced by real ones) -> apply
  * hard filters -> score -> rank -> return the top 20 plus full
  * `diagnostics`, the echoed `request`, and `dataVintages`.
@@ -15,14 +16,22 @@
 import type { Candidate, LifestyleMetricsInput } from "../domain/scoring.js";
 import { applyHardFilters, rankCandidates, scoreCandidate } from "../domain/scoring.js";
 import type { Confidence, LayoutId, OptimizationRequest, OptimizeResponse } from "@tokyo/shared";
-import { optimizationRequestSchema, optimizeResponseSchema, RESULTS_LIMIT } from "@tokyo/shared";
+import {
+  MAX_DESTINATION_WALK_M,
+  optimizationRequestSchema,
+  optimizeResponseSchema,
+  RESULTS_LIMIT,
+} from "@tokyo/shared";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 
 import type { AppDeps } from "../app.js";
 import { ApiError } from "../app.js";
+import type { DbPool } from "../db.js";
 import { estimateCommute } from "../domain/transit/commute.js";
+import type { DijkstraSeed } from "../domain/transit/dijkstra.js";
 import { reverseDijkstra } from "../domain/transit/dijkstra.js";
 import { resolvePeriod } from "../domain/transit/period.js";
+import { findAccessStations } from "./lib/access-stations.js";
 import { loadLatestSuccessfulImportRuns } from "./lib/data-vintages.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
 import type { LifestyleMetricColumns } from "./lib/lifestyle-columns.js";
@@ -74,8 +83,15 @@ const CANDIDATES_SQL = `
   FROM neighborhood_metrics nm
   JOIN station_groups sg ON sg.station_group_id = nm.station_group_id
   LEFT JOIN wards w ON w.ward_code = nm.ward_code
-  WHERE nm.station_group_id != $1
 `;
+// NO destination filter here, deliberately: the destination's own area is a
+// candidate like any other. The old `WHERE nm.station_group_id != $1`
+// existed only because a station's commute to itself was a degenerate 0
+// minutes; now that the destination carries a real walk, "live at Hatagaya,
+// walk 11 minutes to the office" is a legitimate — and often the BEST —
+// answer, which the model merely overstates slightly (8 min home->station +
+// 0 rail + the walk). Do not restore the filter: deleting the prime
+// neighbourhoods outright is by far the larger error.
 
 interface CandidateRow extends LifestyleMetricColumns {
   readonly stationGroupId: string;
@@ -118,6 +134,7 @@ interface CandidateRow extends LifestyleMetricColumns {
 function buildCandidate(
   row: CandidateRow,
   dijkstraResult: ReturnType<typeof reverseDijkstra>,
+  seedNodes: ReadonlySet<string>,
   layout: LayoutId,
   currentYear: number,
   nameLookups: NameLookups,
@@ -196,7 +213,69 @@ function buildCandidate(
     rent,
     commute,
     lifestyle,
+    isDestinationAccessStation: seedNodes.has(row.stationGroupId),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Destination resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Turns either destination form into the `reverseDijkstra` seed list.
+ *
+ * Both branches reject BEFORE the search runs, on purpose:
+ * `reverseDijkstra` throws a plain `Error` on an empty seed list (by
+ * design — see its doc comment), which the global error handler would
+ * render as a generic `500 INTERNAL_ERROR`. An unresolvable destination is
+ * a client-fixable condition, so it gets a typed 4xx that says what to fix.
+ *
+ * The two branches report DIFFERENT errors because they are different
+ * failures. A `destinationStationGroupId` that names no station is a bad
+ * identifier — `404 STATION_NOT_FOUND`, unchanged from before this route
+ * accepted points, because that request is unchanged. A
+ * `destinationPoint` with nothing in walking range is a well-formed
+ * request about a real place we simply cannot serve — `400
+ * NO_ACCESS_STATIONS`. There is no station id to report "not found" for in
+ * that case, which is exactly why it needs its own code.
+ */
+async function resolveDestinationSeeds(
+  pool: DbPool,
+  body: OptimizationRequest,
+  nameLookups: NameLookups,
+): Promise<DijkstraSeed[]> {
+  if (body.destinationPoint) {
+    const seeds = await findAccessStations(pool, body.destinationPoint);
+    if (seeds.length === 0) {
+      throw new ApiError(
+        400,
+        "NO_ACCESS_STATIONS",
+        `No station is within ${String(MAX_DESTINATION_WALK_M)} m of the destination point ` +
+          `(${String(body.destinationPoint.lat)}, ${String(body.destinationPoint.lon)}) — ` +
+          `there is no way to commute to it by rail.`,
+      );
+    }
+    return seeds;
+  }
+
+  // The schema's `.refine` guarantees exactly one destination form is
+  // present, so this branch always has an id; the check keeps that
+  // guarantee visible to the type system rather than asserting it away.
+  const destinationStationGroupId = body.destinationStationGroupId;
+  if (
+    destinationStationGroupId === undefined ||
+    !nameLookups.stationNames.has(destinationStationGroupId)
+  ) {
+    throw new ApiError(
+      404,
+      "STATION_NOT_FOUND",
+      `Unknown destination station "${String(destinationStationGroupId)}"`,
+    );
+  }
+
+  // A named station IS the access station, and the walk from it to itself
+  // is zero — the one case where a zero destination walk is honest.
+  return [{ node: destinationStationGroupId, walkMinutes: 0 }];
 }
 
 // ---------------------------------------------------------------------------
@@ -218,28 +297,17 @@ export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void
 
     const [nameLookups, candidateRowsResult] = await Promise.all([
       loadNameLookups(deps.pool),
-      deps.pool.query(CANDIDATES_SQL, [body.destinationStationGroupId]) as Promise<{
+      deps.pool.query(CANDIDATES_SQL) as Promise<{
         rows: CandidateRow[];
       }>,
     ]);
 
-    if (!nameLookups.stationNames.has(body.destinationStationGroupId)) {
-      throw new ApiError(
-        404,
-        "STATION_NOT_FOUND",
-        `Unknown destination station "${body.destinationStationGroupId}"`,
-      );
-    }
+    const seeds = await resolveDestinationSeeds(deps.pool, body, nameLookups);
+    const seedNodes = new Set(seeds.map((seed) => seed.node));
 
     const period = resolvePeriod(body.arrivalTime);
     const graph = period === "peak" ? deps.graphs.peak : deps.graphs.offpeak;
-    // One seed with a zero walk — today's request names a STATION as the
-    // destination, so the station is the only access point and there is no
-    // walk from it. Task 6 resolves a real destination POINT into several
-    // access stations, each with its own walk.
-    const dijkstraResult = reverseDijkstra(graph, [
-      { node: body.destinationStationGroupId, walkMinutes: 0 },
-    ]);
+    const dijkstraResult = reverseDijkstra(graph, seeds);
 
     const currentYear = new Date().getFullYear();
     const candidates: Candidate[] = [];
@@ -247,6 +315,7 @@ export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void
       const candidate = buildCandidate(
         row,
         dijkstraResult,
+        seedNodes,
         body.layout,
         currentYear,
         nameLookups,

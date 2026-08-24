@@ -93,6 +93,7 @@ function makeCandidate(overrides: Partial<Candidate> = {}): Candidate {
     rent: makeRent(),
     commute: makeCommute(),
     lifestyle: makeLifestyle(),
+    isDestinationAccessStation: false,
     ...overrides,
   };
 }
@@ -145,6 +146,7 @@ function makeScored(overrides: {
     reasonsFor: [],
     reasonsAgainst: [],
     catchmentLabel: CATCHMENT_LABEL,
+    isDestinationAccessStation: false,
   };
 }
 
