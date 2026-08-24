@@ -44,7 +44,12 @@ const placesQuerySchema = z
   })
   .strict();
 
-const POI_MATCH_COLUMNS = { text: ["p.name"] } as const;
+// Both name columns: `pois.name` is the OSM `name` tag, which in Tokyo is
+// the Japanese name, and `pois.name_en` is `name:en`. Searching only the
+// former meant "University of Tokyo" returned nothing while 東京大学
+// returned its faculties. Each column has its own gin_trgm_ops index
+// (0005, 0006), so adding the second does not cost a sequential scan.
+const POI_MATCH_COLUMNS = { text: ["p.name", "p.name_en"] } as const;
 
 // One UNION ALL, ordered and limited ONCE over the combined set — not two
 // separate top-N queries stitched together, which would either pad the
@@ -70,14 +75,20 @@ const PLACES_SQL = `
     SELECT
       'poi' AS kind,
       'poi:' || p.id AS id,
-      p.name AS name,
-      NULL::text AS "nameJa",
+      -- Prefer the English name for display, falling back to the OSM
+      -- name tag when name:en is absent (roughly half of real landmarks).
+      -- nameJa then carries the Japanese original, but only when it is
+      -- genuinely a *second* name: when name_en is null the fallback
+      -- already shows the Japanese name, and repeating it would render
+      -- the same string twice.
+      COALESCE(p.name_en, p.name) AS name,
+      CASE WHEN p.name_en IS NOT NULL THEN p.name END AS "nameJa",
       p.category AS category,
       ST_Y(p.point) AS lat,
       ST_X(p.point) AS lon,
       ${similarityScoreSql(POI_MATCH_COLUMNS, "$1")} AS score
     FROM pois p
-    WHERE p.name IS NOT NULL
+    WHERE COALESCE(p.name_en, p.name) IS NOT NULL
       AND ${textMatchSql(POI_MATCH_COLUMNS, "$1")}
   ) matches
   ORDER BY score DESC, name ASC

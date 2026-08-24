@@ -1,0 +1,33 @@
+-- `pois.name_en` — the OSM `name:en` tag, so destination search works in
+-- English.
+--
+-- `pois.name` holds the OSM `name` tag verbatim, and in Tokyo that tag is
+-- the Japanese name. The first live `import:osm --download` made the
+-- consequence obvious: the 23-ward extract yields 11,239 `landmark` POIs,
+-- but only 785 of them have a purely Latin-script `name`. Searching
+-- `/v1/places` for "University of Tokyo" returned nothing at all, while
+-- 東京大学 returned its faculties — an English-speaking user could not
+-- find their own campus or office.
+--
+-- OSM's answer to this is the `name:en` tag, which is well populated for
+-- exactly the landmarks people navigate by: "The University of Tokyo,
+-- Komaba Research Campus", "Institute of Medical Science, the University
+-- of Tokyo", "Bunkamura". It is NOT universal — roughly half of the
+-- elements sampled around 東京大学 carry it — so this is a nullable column
+-- and `name` remains the fallback, never replaced. A POI with no `name:en`
+-- stays exactly as searchable as it was.
+--
+-- This mirrors `station_groups`, which has carried `name_en`/`name_ja`
+-- since 0001_init.sql precisely so a station is findable in either
+-- language; `pois` simply never got the same treatment, because until
+-- Task 6 nothing searched POI names at all.
+--
+-- The trigram index is the same shape and for the same reason as
+-- `pois_name_trgm_idx` in 0005: `/v1/places` runs a leading-wildcard
+-- `ILIKE '%$1%'` against this column too, and only `gin_trgm_ops` can
+-- serve that. Adding the column without the index would reintroduce the
+-- per-keystroke sequential scan 0005 exists to prevent, on the very column
+-- English-speaking users will hit most.
+ALTER TABLE pois ADD COLUMN IF NOT EXISTS name_en text;
+
+CREATE INDEX IF NOT EXISTS pois_name_en_trgm_idx ON pois USING gin (name_en gin_trgm_ops);

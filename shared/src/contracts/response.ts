@@ -185,7 +185,15 @@ export const placeSuggestionSchema = z.object({
    */
   id: z.string(),
   name: z.string(),
-  /** A station's Japanese name. Always `null` for a POI — `pois` has one name column. */
+  /**
+   * The Japanese name, when `name` is showing a different one.
+   *
+   * For a station, `name` is `name_en` and this is `name_ja`. For a POI,
+   * `name` prefers the OSM `name:en` tag and this carries the original
+   * `name` tag — but only when `name:en` existed, since otherwise `name`
+   * is already the Japanese name and repeating it would show the same
+   * string twice.
+   */
   nameJa: z.string().nullable(),
   /** A POI's category (`supermarket`, `cafe`, ...). Always `null` for a station. */
   category: z.string().nullable(),

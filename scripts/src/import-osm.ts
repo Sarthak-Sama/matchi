@@ -135,18 +135,19 @@ async function upsertPois(
 ): Promise<number> {
   for (const p of pois) {
     await client.query(
-      `INSERT INTO pois (category, name, osm_type, osm_id, point, source, source_updated_at, cuisine, opening_hours)
-       VALUES ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7, $8, $9, $10)
+      `INSERT INTO pois (category, name, name_en, osm_type, osm_id, point, source, source_updated_at, cuisine, opening_hours)
+       VALUES ($1, $2, $3, $4, $5, ST_SetSRID(ST_MakePoint($6, $7), 4326), $8, $9, $10, $11)
        ON CONFLICT (osm_type, osm_id) DO UPDATE SET
          category = EXCLUDED.category,
          name = EXCLUDED.name,
+         name_en = EXCLUDED.name_en,
          point = EXCLUDED.point,
          source = EXCLUDED.source,
          source_updated_at = EXCLUDED.source_updated_at,
          cuisine = EXCLUDED.cuisine,
          opening_hours = EXCLUDED.opening_hours,
          imported_at = now()`,
-      [p.category, p.name, p.osmType, p.osmId, p.lon, p.lat, SOURCE, sourceUpdatedAt, p.cuisine, p.openingHours],
+      [p.category, p.name, p.nameEn, p.osmType, p.osmId, p.lon, p.lat, SOURCE, sourceUpdatedAt, p.cuisine, p.openingHours],
     );
   }
 

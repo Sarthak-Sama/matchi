@@ -122,6 +122,7 @@ const EXPECTED_COLUMNS: Record<string, readonly string[]> = {
     "imported_at",
     "cuisine",
     "opening_hours",
+    "name_en",
   ],
   major_roads: ["id", "name", "road_class", "geom", "source", "source_updated_at", "imported_at"],
   green_spaces: [
@@ -209,6 +210,7 @@ const EXPECTED_MIGRATION_FILENAMES = [
   "0003_land_price_used_fallback.sql",
   "0004_lifestyle_metrics.sql",
   "0005_poi_name_trigram_index.sql",
+  "0006_poi_name_en.sql",
 ];
 
 /**
@@ -231,6 +233,9 @@ const EXPECTED_TRGM_INDEXES = [
   // 0005_poi_name_trigram_index.sql (Task 6) — backs the POI half of
   // GET /v1/places.
   "pois_name_trgm_idx",
+  // 0006_poi_name_en.sql — backs the same search against the OSM name:en
+  // column, so English queries are indexed too.
+  "pois_name_en_trgm_idx",
 ];
 
 describe.runIf(Boolean(databaseUrl))("migrate", () => {
