@@ -231,6 +231,17 @@ export const IMPORTANCE_VALUES = {
 } as const;
 
 /**
+ * `IMPORTANCE_VALUES`'s keys, in declaration order, as a plain array — the
+ * form both the shareable-link query-string parser and the rating `<select>`
+ * need. Exported once here rather than each of `web/app/page.tsx` and
+ * `web/app/components/LifestylePicker.tsx` re-deriving the identical
+ * `Object.keys(IMPORTANCE_VALUES) as Importance[]` locally.
+ */
+export const IMPORTANCE_OPTIONS = Object.keys(IMPORTANCE_VALUES) as ReadonlyArray<
+  keyof typeof IMPORTANCE_VALUES
+>;
+
+/**
  * `scoreAffordability` awards the full 100 when the modeled median rent is
  * at or below this fraction of the monthly budget, 0 when it meets or
  * exceeds the budget, linear in between. Added in Task 9.

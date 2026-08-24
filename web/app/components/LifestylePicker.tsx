@@ -20,13 +20,11 @@
 
 import type { Importance, LifestyleAxisId } from "@tokyo/shared";
 import {
-  IMPORTANCE_VALUES,
+  IMPORTANCE_OPTIONS,
   LIFESTYLE_AXES,
   LIFESTYLE_AXIS_IDS,
   MAX_SELECTED_LIFESTYLE_AXES,
 } from "@tokyo/shared";
-
-const IMPORTANCE_OPTIONS = Object.keys(IMPORTANCE_VALUES) as Importance[];
 
 /** Assigned the moment an axis is selected, so it is always already valid to submit. */
 const DEFAULT_IMPORTANCE: Importance = "medium";

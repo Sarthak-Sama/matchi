@@ -16,6 +16,7 @@ import type {
 } from "@tokyo/shared";
 import {
   COMMUTE_LABEL,
+  IMPORTANCE_OPTIONS,
   IMPORTANCE_VALUES,
   LAYOUT_IDS,
   LAYOUTS,
@@ -30,8 +31,6 @@ import {
 
 import { ApiClientError, getJson, postJson } from "../lib/api";
 import { LifestylePicker } from "./components/LifestylePicker";
-
-const IMPORTANCE_OPTIONS = Object.keys(IMPORTANCE_VALUES) as Importance[];
 
 /**
  * A destination the user has actually committed to, in whichever of the two
@@ -363,7 +362,19 @@ export default function Home() {
               className="mt-1 w-full rounded border border-neutral-400 px-3 py-2"
             />
             {placesLoading && <p className="mt-1 text-sm text-neutral-500">Searching…</p>}
-            {placeSuggestions.length > 0 && (
+            {/*
+              `!selectedDestination` guards against a stale `/v1/places`
+              response repainting the dropdown over a committed selection:
+              nothing cancels the in-flight fetch fired by the debounce
+              effect above (no AbortController, no staleness token), so a
+              slow request that resolves AFTER `commitDestination` has
+              already cleared `placeSuggestions` can still call
+              `setPlaceSuggestions` with its stale results. Gating on
+              `selectedDestination` here — the same guard `showStationFallback`
+              already uses below — means that stale repaint has nothing to
+              render into, regardless of when the fetch resolves.
+            */}
+            {!selectedDestination && placeSuggestions.length > 0 && (
               <ul className="absolute z-10 mt-1 w-full rounded border border-neutral-300 bg-white shadow">
                 {placeSuggestions.map((place) => (
                   <li key={place.id}>
@@ -566,24 +577,55 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="mt-2">
-                <p className="font-medium">
-                  Commute — {COMMUTE_LABEL} ({result.commute.confidence} confidence)
-                </p>
-                <p>
-                  Total {Math.round(result.commute.totalMinutes)} min —{" "}
-                  {Math.round(result.commute.accessWalkMinutes)} min walk +{" "}
-                  {Math.round(result.commute.railMinutes + result.commute.transferPenaltyMinutes)}{" "}
-                  min rail + {Math.round(result.commute.waitMinutes)} min wait +{" "}
-                  {Math.round(result.commute.destinationWalkMinutes)} min walk to{" "}
-                  {resultDestinationLabel ?? "destination"}
-                  {result.commute.transferCount > 0
-                    ? ` (${result.commute.transferCount} transfer${
-                        result.commute.transferCount === 1 ? "" : "s"
-                      })`
-                    : ""}
-                </p>
-              </div>
+              {(() => {
+                // `railMinutes`/`waitMinutes` accumulate from `double
+                // precision` DB columns and are not guaranteed to be
+                // integers (unlike `accessWalkMinutes`/
+                // `destinationWalkMinutes`, which are always whole minutes —
+                // see `walkMinutesForMetres`'s `Math.ceil` and the fixed
+                // `ACCESS_WALK_MINUTES` constant). Rounding all four
+                // displayed terms independently can therefore add up to a
+                // different number than the independently-rounded total
+                // (e.g. rail=6.5 + wait=3.5 rounds to 7 + 4 = 11, a minute
+                // more than a total that itself rounds down).
+                //
+                // Fix: round the total and three of the four terms
+                // normally, then derive the fourth — `wait` — as the
+                // residual. `wait` absorbs it (not rail) because rail is
+                // the number a rider is most likely to mentally check
+                // against a known train timetable; wait is already a soft,
+                // modeled buffer, so a display shifted by up to a minute
+                // there is the least likely to read as "wrong". The two
+                // walk terms are untouched because they are always already
+                // exact integers — rounding them is a no-op, and diverting
+                // the residual onto one of them would make an
+                // already-precise figure look adjusted for no reason.
+                const totalRounded = Math.round(result.commute.totalMinutes);
+                const accessWalkRounded = Math.round(result.commute.accessWalkMinutes);
+                const railRounded = Math.round(
+                  result.commute.railMinutes + result.commute.transferPenaltyMinutes,
+                );
+                const destWalkRounded = Math.round(result.commute.destinationWalkMinutes);
+                const waitRounded =
+                  totalRounded - accessWalkRounded - railRounded - destWalkRounded;
+                return (
+                  <div className="mt-2">
+                    <p className="font-medium">
+                      Commute — {COMMUTE_LABEL} ({result.commute.confidence} confidence)
+                    </p>
+                    <p>
+                      Total {totalRounded} min — {accessWalkRounded} min walk + {railRounded} min
+                      rail + {waitRounded} min wait + {destWalkRounded} min walk to{" "}
+                      {resultDestinationLabel ?? "destination"}
+                      {result.commute.transferCount > 0
+                        ? ` (${result.commute.transferCount} transfer${
+                            result.commute.transferCount === 1 ? "" : "s"
+                          })`
+                        : ""}
+                    </p>
+                  </div>
+                );
+              })()}
 
               <div className="mt-2">
                 <p className="font-medium">Lifestyle factors</p>
