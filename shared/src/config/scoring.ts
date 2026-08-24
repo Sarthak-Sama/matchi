@@ -160,6 +160,59 @@ export const MIN_EXPECTED_WAIT_MINUTES = 1;
 export const MAX_EXPECTED_WAIT_MINUTES = 15;
 
 // ---------------------------------------------------------------------------
+// Destination-side walk (Task 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * Walking speed in metres per minute.
+ *
+ * 80 m/min is not a guess or an average from a study: it is the figure
+ * Japanese property listings are legally required to use when they state
+ * 徒歩○分 ("N minutes on foot"), under the Fair Competition Code for real
+ * estate advertising. Using the same number means the walk times this API
+ * reports line up with the walk times users have already read on every
+ * listing site they have open in another tab, instead of quietly
+ * disagreeing with them by a minute or two on every station.
+ */
+export const WALK_SPEED_M_PER_MIN = 80;
+
+/**
+ * Straight-line (great-circle) distance is multiplied by this before it is
+ * converted to minutes. Nobody walks through buildings — the real route
+ * follows a street grid — so a straight line understates the walk. 1.3 is
+ * the usual circuity factor for a dense grid-like street network, and
+ * erring on the high side is the safe direction here: overstating a
+ * commute by a minute costs a user nothing, understating it sends them to
+ * view an apartment that is further from work than we promised.
+ */
+export const WALK_DETOUR_FACTOR = 1.3;
+
+/**
+ * The straight-line radius (metres) `routes/lib/access-stations.ts`
+ * searches for a destination point's access stations, via
+ * `ST_DWithin(sg.point::geography, ..., MAX_DESTINATION_WALK_M)`. With
+ * `WALK_DETOUR_FACTOR` and `WALK_SPEED_M_PER_MIN` this caps a
+ * destination-side walk at roughly 24 minutes (24.4, reported as 25 once
+ * rounded up to whole minutes).
+ *
+ * Deliberately much wider than the home-side `CATCHMENT_RADIUS_M` (800),
+ * and the two are not in tension — they measure different behaviour.
+ * `CATCHMENT_RADIUS_M` asks "how far will someone walk to the shops and
+ * back, several times a week, by choice?"; this asks "how far will
+ * someone walk to the one fixed office they commute to?" People
+ * demonstrably walk much further for the latter.
+ *
+ * The failure mode of a tight cap is also the wrong-shaped one: a
+ * destination in a low-density area — exactly where an office genuinely
+ * does sit a long way from any station, and exactly where "which station
+ * do I even type in?" is hardest to answer — would resolve to zero access
+ * stations and return `NO_ACCESS_STATIONS`, i.e. the feature would fail
+ * precisely where it is most needed. A generous radius costs only a few
+ * extra seeds, which the search then discards on cost.
+ */
+export const MAX_DESTINATION_WALK_M = 1500;
+
+// ---------------------------------------------------------------------------
 // Scoring weights
 // ---------------------------------------------------------------------------
 
@@ -253,6 +306,14 @@ export const STATIONS_DEFAULT_LIMIT = 10;
 
 /** `GET /v1/stations`'s `limit` query param is capped (not rejected) at this value. */
 export const STATIONS_MAX_LIMIT = 50;
+
+/**
+ * `GET /v1/places` returns at most this many combined POI + station
+ * suggestions. Fixed rather than caller-tunable (unlike `/v1/stations`'s
+ * `limit`): `/v1/places` has exactly one consumer — the destination
+ * autocomplete — and one list length.
+ */
+export const PLACES_LIMIT = 10;
 
 /** `GET /v1/neighborhoods/:id`'s `layout` query param default when omitted. */
 export const NEIGHBORHOOD_DEFAULT_LAYOUT = "1LDK" as const;

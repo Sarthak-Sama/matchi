@@ -97,6 +97,13 @@ export interface Candidate {
   readonly rent: RentEstimateResult;
   readonly commute: CommuteEstimateResult | null;
   readonly lifestyle: LifestyleMetricsInput;
+  /**
+   * True when this area's own station is one of the destination's access
+   * stations. Carried through scoring untouched — it changes no score, it
+   * is purely a label the response passes to the UI (see
+   * `NeighborhoodResult.isDestinationAccessStation`).
+   */
+  readonly isDestinationAccessStation: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -557,6 +564,7 @@ export function scoreCandidate(
     reasonsFor,
     reasonsAgainst,
     catchmentLabel: CATCHMENT_LABEL,
+    isDestinationAccessStation: candidate.isDestinationAccessStation,
   };
 }
 

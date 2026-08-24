@@ -161,3 +161,75 @@ describe("optimizationRequestSchema preferences", () => {
     expect(result.error?.issues[0]?.path).toEqual(["preferences", "quietness"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The destination: exactly one of destinationStationGroupId / destinationPoint
+// ---------------------------------------------------------------------------
+
+describe("optimizationRequestSchema — destination", () => {
+  /** `validRequest()` minus its station id — the only valid base for a point request. */
+  function withoutStationId() {
+    const request: Record<string, unknown> = validRequest();
+    delete request["destinationStationGroupId"];
+    return request;
+  }
+
+  function withPoint(point: unknown) {
+    return { ...withoutStationId(), destinationPoint: point };
+  }
+
+  it("accepts a destinationPoint instead of a destinationStationGroupId", () => {
+    const result = optimizationRequestSchema.safeParse(
+      withPoint({ lat: 35.658, lon: 139.7016, label: "Shibuya Office" }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a destinationPoint without the optional label", () => {
+    const result = optimizationRequestSchema.safeParse(withPoint({ lat: 35.658, lon: 139.7016 }));
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects supplying BOTH a station id and a point", () => {
+    const result = optimizationRequestSchema.safeParse({
+      ...validRequest(),
+      destinationPoint: { lat: 35.658, lon: 139.7016 },
+    });
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(["destinationStationGroupId"]);
+  });
+
+  it("rejects supplying NEITHER, naming destinationStationGroupId in the path", () => {
+    const result = optimizationRequestSchema.safeParse(withoutStationId());
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toEqual(["destinationStationGroupId"]);
+  });
+
+  it.each([
+    ["latitude above 90", { lat: 91, lon: 139.7 }],
+    ["latitude below -90", { lat: -91, lon: 139.7 }],
+    ["longitude above 180", { lat: 35.6, lon: 181 }],
+    ["longitude below -180", { lat: 35.6, lon: -181 }],
+    ["NaN latitude", { lat: Number.NaN, lon: 139.7 }],
+    ["infinite longitude", { lat: 35.6, lon: Number.POSITIVE_INFINITY }],
+    ["a missing lon", { lat: 35.6 }],
+    ["a string lat", { lat: "35.6", lon: 139.7 }],
+  ])("rejects a destinationPoint with %s", (_name, point) => {
+    expect(optimizationRequestSchema.safeParse(withPoint(point)).success).toBe(false);
+  });
+
+  it("rejects an unknown key inside destinationPoint rather than dropping it", () => {
+    const result = optimizationRequestSchema.safeParse(
+      withPoint({ lat: 35.6, lon: 139.7, altitude: 40 }),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a far-away but well-formed coordinate — out of range is the resolver's answer, not a validation error", () => {
+    // Deliberate: a point in the middle of the Pacific parses fine and is
+    // rejected later, by the route, as NO_ACCESS_STATIONS — which names the
+    // real problem. See destinationPointSchema's doc comment.
+    const result = optimizationRequestSchema.safeParse(withPoint({ lat: 35.0, lon: 145.0 }));
+    expect(result.success).toBe(true);
+  });
+});

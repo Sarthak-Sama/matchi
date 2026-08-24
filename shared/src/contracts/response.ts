@@ -102,6 +102,15 @@ export const neighborhoodResultSchema = z.object({
   reasonsFor: z.array(z.string()),
   reasonsAgainst: z.array(z.string()),
   catchmentLabel: z.string(),
+  /**
+   * True when this area's own station is one of the destination's access
+   * stations — i.e. living here means walking to the destination rather
+   * than riding to it. The commute estimate for such an area is honest but
+   * pessimistic (a fixed 8-minute walk to the station plus 0 rail minutes
+   * plus the walk from that station), so the UI should mark it rather than
+   * present its total as directly comparable to a rail commute.
+   */
+  isDestinationAccessStation: z.boolean(),
 });
 export type NeighborhoodResult = z.infer<typeof neighborhoodResultSchema>;
 
@@ -150,6 +159,41 @@ export const stationsResponseSchema = z.object({
   results: z.array(stationSuggestionSchema),
 });
 export type StationsResponse = z.infer<typeof stationsResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// placeSuggestionSchema
+// ---------------------------------------------------------------------------
+
+/**
+ * One `GET /v1/places` suggestion. The endpoint searches named `pois` AND
+ * `station_groups` in one ranked list, because a user typing a destination
+ * is thinking of a PLACE ("Shibuya Hikarie") and should not have to
+ * translate it into a station themselves.
+ */
+export const placeSuggestionSchema = z.object({
+  kind: z.enum(["station", "poi"]),
+  /**
+   * Unique within a response. For `kind: "station"` this IS the
+   * `station_group_id` — send it back as `destinationStationGroupId`. For
+   * `kind: "poi"` it is `poi:<pois.id>`, opaque to the API: send the
+   * suggestion's `lat`/`lon`/`name` back as `destinationPoint` instead.
+   */
+  id: z.string(),
+  name: z.string(),
+  /** A station's Japanese name. Always `null` for a POI — `pois` has one name column. */
+  nameJa: z.string().nullable(),
+  /** A POI's category (`supermarket`, `cafe`, ...). Always `null` for a station. */
+  category: z.string().nullable(),
+  lat: z.number(),
+  lon: z.number(),
+});
+export type PlaceSuggestion = z.infer<typeof placeSuggestionSchema>;
+
+/** `GET /v1/places`'s full response envelope. */
+export const placesResponseSchema = z.object({
+  results: z.array(placeSuggestionSchema),
+});
+export type PlacesResponse = z.infer<typeof placesResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // dataStatusSchema
