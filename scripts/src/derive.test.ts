@@ -41,9 +41,11 @@ const CHECKSUM_QUERY = `
       rent_confidence, rent_source, rent_source_period, rent_per_sqm_yen, management_fee_yen,
       land_price_multiplier, land_price_point_count, land_price_used_fallback, supermarket_count, grocery_count,
       convenience_count, amenity_supermarket_equiv, restaurant_count, cafe_count, nightlife_count,
+      health_count, cuisine_variety_count, late_night_count, green_space_share,
       flood_share_by_category, flood_exposure_score, residential_zoning_share,
       road_rail_exposure_share, quietness_raw, norm_amenity_supermarket, norm_amenity_restaurant,
-      norm_flood_safety, norm_quietness, source_dates
+      norm_flood_safety, norm_quietness, norm_amenity_convenience, norm_amenity_cuisine_variety,
+      norm_green_space, norm_amenity_late_night, norm_amenity_health, source_dates
     FROM neighborhood_metrics
     ORDER BY station_group_id
   ) x
@@ -65,7 +67,7 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
     await pool.end();
   });
 
-  it("prints a StepResult for every one of the seven steps, each covering all 21 stations", async () => {
+  it("prints a StepResult for every one of the eight steps, each covering all 21 stations", async () => {
     const results = await runDerive(pool);
     expect(results.map((r) => r.name)).toEqual([
       "catchments",
@@ -74,6 +76,7 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
       "zoning",
       "quietness",
       "rent",
+      "green-space",
       "normalization",
     ]);
     for (const r of results) {
@@ -137,6 +140,48 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
     expect(yogaTotal, "sg-yoga total amenity count").toBe(5);
   });
 
+  it("task-3 raw counts: sg-shibuya health/cuisine-variety/late-night match the hand-authored fixtures; sg-yoga is 0 on all three", async () => {
+    const { rows } = await pool.query<{
+      station_group_id: string;
+      health_count: number;
+      cuisine_variety_count: number;
+      late_night_count: number;
+    }>(
+      `SELECT station_group_id, health_count, cuisine_variety_count, late_night_count
+       FROM neighborhood_metrics WHERE station_group_id IN ('sg-shibuya', 'sg-yoga')`,
+    );
+    const byId = new Map(rows.map((r) => [r.station_group_id, r]));
+
+    const shibuya = byId.get("sg-shibuya");
+    expect(shibuya, "sg-shibuya row").toBeDefined();
+    // fixtures/seed/pois.ts: 3 "Shibuya Health" POIs.
+    expect(Number(shibuya?.health_count), "sg-shibuya health_count").toBe(3);
+    // 8 distinct restaurant cuisines (RESTAURANT_CUISINES) + 1 distinct
+    // cafe cuisine ("coffee_shop") = 9.
+    expect(Number(shibuya?.cuisine_variety_count), "sg-shibuya cuisine_variety_count").toBe(9);
+    // 2 restaurants closing >=23:00, 2 bars at 24/7, 1 cafe at 24/7 = 5.
+    // The 3rd bar ("Mo-Su 18:00-02:00", open past 2am) is deliberately NOT
+    // counted — see amenities.ts's conservative-heuristic doc comment.
+    expect(Number(shibuya?.late_night_count), "sg-shibuya late_night_count").toBe(5);
+
+    const yoga = byId.get("sg-yoga");
+    expect(yoga, "sg-yoga row").toBeDefined();
+    expect(Number(yoga?.health_count), "sg-yoga health_count").toBe(0);
+    expect(Number(yoga?.cuisine_variety_count), "sg-yoga cuisine_variety_count").toBe(0);
+    expect(Number(yoga?.late_night_count), "sg-yoga late_night_count").toBe(0);
+  });
+
+  it("green_space_share: sg-nakano is fully covered by the fixture park (~1), sg-shibuya touches none (0)", async () => {
+    const { rows } = await pool.query<{ station_group_id: string; green_space_share: number }>(
+      `SELECT station_group_id, green_space_share FROM neighborhood_metrics
+       WHERE station_group_id IN ('sg-nakano', 'sg-shibuya')`,
+    );
+    const byId = new Map(rows.map((r) => [r.station_group_id, Number(r.green_space_share)]));
+
+    expect(byId.get("sg-nakano"), "sg-nakano green_space_share").toBeGreaterThan(0.9);
+    expect(byId.get("sg-shibuya"), "sg-shibuya green_space_share").toBe(0);
+  });
+
   it("flood_share_by_category values are within [0,1]; sg-shibuya overlaps two categories", async () => {
     const { rows } = await pool.query<{
       station_group_id: string;
@@ -180,11 +225,22 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
   });
 
   it("every norm_* column is within [0,100], with at least one 100 and one 0 per axis", async () => {
+    // Hand-written literals, deliberately not driven off the shared
+    // lifestyle-axes registry: at this point in the plan (task-3) the
+    // registry still only lists the original four axes, so a
+    // registry-driven list here would leave exactly this task's five new
+    // columns unchecked. Task 4 replaces this whole list with a
+    // registry-driven one once the registry knows about all nine axes.
     const axes = [
       "norm_amenity_supermarket",
       "norm_amenity_restaurant",
       "norm_flood_safety",
       "norm_quietness",
+      "norm_amenity_convenience",
+      "norm_amenity_cuisine_variety",
+      "norm_green_space",
+      "norm_amenity_late_night",
+      "norm_amenity_health",
     ] as const;
     const { rows } = await pool.query<Record<(typeof axes)[number], number>>(
       `SELECT ${axes.join(", ")} FROM neighborhood_metrics`,

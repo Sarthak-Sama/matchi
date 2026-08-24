@@ -33,8 +33,9 @@ const EXPECTED_ROW_COUNTS: Record<string, number> = {
   land_prices: 78,
   zoning_areas: 6,
   flood_zones: 3,
-  pois: 222,
+  pois: 225,
   major_roads: 4,
+  green_spaces: 1,
 };
 
 const GEOMETRY_COLUMNS: readonly { table: string; column: string }[] = [
@@ -45,6 +46,7 @@ const GEOMETRY_COLUMNS: readonly { table: string; column: string }[] = [
   { table: "pois", column: "point" },
   { table: "major_roads", column: "geom" },
   { table: "land_prices", column: "point" },
+  { table: "green_spaces", column: "geom" },
 ];
 
 const ISOLATED_STATION = "sg-isolated-test";
