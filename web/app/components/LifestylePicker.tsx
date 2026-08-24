@@ -50,8 +50,9 @@ export function LifestylePicker({ preferences, onChange }: LifestylePickerProps)
   return (
     <div className="space-y-3">
       <p className="text-sm text-neutral-600">
-        Pick 4–5 priorities that matter most ({selectedCount} of {MAX_SELECTED_LIFESTYLE_AXES} max
-        selected), then rate each from low to essential.
+        Pick up to {MAX_SELECTED_LIFESTYLE_AXES} priorities that matter most — 4–5 is a good
+        starting point ({selectedCount} of {MAX_SELECTED_LIFESTYLE_AXES} max selected), then rate
+        each from low to essential.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         {LIFESTYLE_AXIS_IDS.map((id) => {

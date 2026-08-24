@@ -22,11 +22,19 @@ import { z } from "zod";
 import type { AppDeps } from "../app.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
 import {
+  escapeLikeWildcards,
   similarityScoreSql,
   STATION_GROUP_MATCH_COLUMNS,
   textMatchSql,
 } from "./lib/text-ranking.js";
 import { parseOrThrow } from "./lib/validation.js";
+
+// `.max(STATIONS_QUERY_MAX_LENGTH)`: same rationale as `/v1/places`' own
+// `PLACES_QUERY_MAX_LENGTH` — an autocomplete query is something a person
+// types into a box, so anything longer is a mistake or an attempt to make
+// the server do trigram work on a megabyte of text. Rejected outright
+// rather than truncated.
+const STATIONS_QUERY_MAX_LENGTH = 100;
 
 // `limit` is capped (not rejected) at `STATIONS_MAX_LIMIT` — see the route
 // handler below — rather than validated with `.max(STATIONS_MAX_LIMIT)`
@@ -34,7 +42,7 @@ import { parseOrThrow } from "./lib/validation.js";
 // silently-truncated autocomplete result instead of a 400.
 const stationsQuerySchema = z
   .object({
-    query: z.string().min(1),
+    query: z.string().min(1).max(STATIONS_QUERY_MAX_LENGTH),
     limit: z.coerce.number().int().min(1).default(STATIONS_DEFAULT_LIMIT),
   })
   .strict();
@@ -77,7 +85,13 @@ export function registerStationsRoute(app: FastifyInstance, deps: AppDeps): void
     const { query, limit } = parseOrThrow(stationsQuerySchema, request.query);
     const effectiveLimit = Math.min(limit, STATIONS_MAX_LIMIT);
 
-    const result = (await deps.pool.query(STATIONS_SQL, [query, effectiveLimit])) as {
+    // Bound as a parameter AND escaped: the parameter stops injection, the
+    // escape stops a typed `%` from being read as "match everything" (see
+    // `/v1/places`, which has the same fix).
+    const result = (await deps.pool.query(STATIONS_SQL, [
+      escapeLikeWildcards(query),
+      effectiveLimit,
+    ])) as {
       rows: StationRow[];
     };
 

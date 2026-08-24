@@ -483,6 +483,15 @@ describe("POST /v1/optimize", () => {
       expect(near?.commute.railMinutes).toBe(10);
       // 8 access walk + 10 rail + 3 wait + 1 destination walk.
       expect(near?.commute.totalMinutes).toBe(22);
+
+      // sg-near is ALSO one of the destination's own access stations (it's
+      // in `accessStations` above), so `isDestinationAccessStation` is true
+      // here at the same time `railMinutes` is 10, not 0. This is exactly
+      // the fixture the UI's "destination area" banner must not fire on:
+      // the flag alone does not mean "you just walk there" — only
+      // `isDestinationAccessStation && commute.railMinutes === 0` does. See
+      // `web/app/page.tsx`'s banner gate.
+      expect(near?.isDestinationAccessStation).toBe(true);
     });
 
     it("a point with no station in range -> 400 NO_ACCESS_STATIONS, not a 500 and not an empty ranked list", async () => {

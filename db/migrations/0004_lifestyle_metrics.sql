@@ -5,6 +5,15 @@
 --
 -- `pnpm derive` (Task 3) populates the new raw columns and all `norm_*`
 -- columns after import; this migration only adds structure.
+--
+-- DEPLOY ORDER: the five new `norm_*` columns are NULL for every existing
+-- row until `pnpm derive` runs. The API (`readLifestyleNormScores`) treats
+-- a station with ANY NULL `norm_*` column — old or new — as having no
+-- lifestyle metrics at all, and fails closed rather than fabricating a
+-- score. On a populated database this means: apply this migration, then
+-- run a full `pnpm derive` to completion, BEFORE deploying the API version
+-- that depends on it — otherwise every candidate is dropped and
+-- `/v1/optimize` returns an empty result with no ranked stations.
 
 -- ---------------------------------------------------------------------------
 -- pois — two nullable OSM tag passthroughs, needed to derive cuisine
