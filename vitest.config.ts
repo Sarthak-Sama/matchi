@@ -28,6 +28,9 @@ export default defineConfig({
           root: "./shared",
           environment: "node",
           globals: false,
+          // Runs before every file in this project — see the setup
+          // file for why this is global rather than per-suite.
+          setupFiles: ["../vitest.setup.database-guard.ts"],
           include: ["src/**/*.test.ts"],
         },
       },
@@ -37,6 +40,9 @@ export default defineConfig({
           root: "./api",
           environment: "node",
           globals: false,
+          // Runs before every file in this project — see the setup
+          // file for why this is global rather than per-suite.
+          setupFiles: ["../vitest.setup.database-guard.ts"],
           include: ["src/**/*.test.ts"],
         },
       },
@@ -46,6 +52,9 @@ export default defineConfig({
           root: "./scripts",
           environment: "node",
           globals: false,
+          // Runs before every file in this project — see the setup
+          // file for why this is global rather than per-suite.
+          setupFiles: ["../vitest.setup.database-guard.ts"],
           include: ["src/**/*.test.ts"],
         },
       },
@@ -55,6 +64,9 @@ export default defineConfig({
           root: "./web",
           environment: "node",
           globals: false,
+          // Runs before every file in this project — see the setup
+          // file for why this is global rather than per-suite.
+          setupFiles: ["../vitest.setup.database-guard.ts"],
           include: ["lib/**/*.test.ts"],
         },
       },

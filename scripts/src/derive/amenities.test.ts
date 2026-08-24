@@ -18,8 +18,9 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { lateNightConditionSql } from "./amenities.js";
+import { destructiveTestDatabaseUrl } from "../test-support/database-url.js";
 
-const databaseUrl = process.env["DATABASE_URL"];
+const databaseUrl = destructiveTestDatabaseUrl();
 
 const CASES: readonly { readonly openingHours: string | null; readonly expected: boolean }[] = [
   { openingHours: "24/7", expected: true },
