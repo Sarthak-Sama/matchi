@@ -1,0 +1,34 @@
+-- A GIN trigram index on `pois.name`, needed by Task 6's `GET /v1/places`.
+--
+-- `/v1/places` is the destination autocomplete: it searches named `pois`
+-- AND `station_groups` in one ranked list, so a user can type where they
+-- are actually going ("Shibuya Hikarie") instead of guessing which station
+-- serves it. Its POI half runs `p.name ILIKE '%' || $1 || '%'` and then
+-- `similarity(lower(p.name), lower($1))` on every match.
+--
+-- `station_groups` has had `name_en`/`name_ja` trigram indexes since
+-- 0001_init.sql (they back `GET /v1/stations`), but `pois` never did —
+-- until this task nothing queried `pois.name` at all. `pois`'s three
+-- existing indexes are on `point` (twice, geometry and geography — see
+-- 0002_geography_indexes.sql) and `category`; none of them can serve a
+-- name search. Without this index every keystroke sequentially scans the
+-- whole table.
+--
+-- That is invisible at seed scale (~225 rows) and severe at real scale:
+-- `import:osm` pulls the OSM extract for the 23 special wards, which is
+-- 10^5-10^6 POI rows. This is exactly the class of problem that only shows
+-- up after the data import lands, which is why it goes in now rather than
+-- being left for whoever first notices the autocomplete has become slow.
+--
+-- `gin_trgm_ops` is what makes a leading-wildcard `ILIKE '%foo%'` indexable
+-- at all — a btree index cannot serve one — and it is the same operator
+-- class 0001_init.sql used for `station_groups`. Note this indexes the raw
+-- column, not `lower(name)`: pg_trgm registers operator support for
+-- `ILIKE`/`LIKE` directly on the base column, so no expression index is
+-- needed here (unlike the `geography` cast case documented in
+-- 0002_geography_indexes.sql).
+--
+-- `IF NOT EXISTS` for the same reason the runner tracks applied filenames:
+-- re-running this statement against a database that somehow already has
+-- the index is a no-op rather than a failed migration.
+CREATE INDEX IF NOT EXISTS pois_name_trgm_idx ON pois USING gin (name gin_trgm_ops);

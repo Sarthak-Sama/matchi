@@ -83,15 +83,15 @@ const CANDIDATES_SQL = `
   FROM neighborhood_metrics nm
   JOIN station_groups sg ON sg.station_group_id = nm.station_group_id
   LEFT JOIN wards w ON w.ward_code = nm.ward_code
+  -- There is deliberately NO destination filter, and adding one back is a
+  -- bug, not a fix. "WHERE nm.station_group_id != $1" used to live right
+  -- here; it existed only because a station's commute to itself was a
+  -- degenerate 0 minutes. Now that the destination carries a real walk,
+  -- "live at Hatagaya, walk 11 minutes to the office" is a legitimate --
+  -- and often the BEST -- answer, which the model merely overstates
+  -- slightly (8 min home->station + 0 rail + the walk). Deleting the prime
+  -- neighbourhoods outright is by far the larger error.
 `;
-// NO destination filter here, deliberately: the destination's own area is a
-// candidate like any other. The old `WHERE nm.station_group_id != $1`
-// existed only because a station's commute to itself was a degenerate 0
-// minutes; now that the destination carries a real walk, "live at Hatagaya,
-// walk 11 minutes to the office" is a legitimate — and often the BEST —
-// answer, which the model merely overstates slightly (8 min home->station +
-// 0 rail + the walk). Do not restore the filter: deleting the prime
-// neighbourhoods outright is by far the larger error.
 
 interface CandidateRow extends LifestyleMetricColumns {
   readonly stationGroupId: string;

@@ -24,15 +24,23 @@ import { z } from "zod";
 import type { AppDeps } from "../app.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
 import {
+  escapeLikeWildcards,
   similarityScoreSql,
   STATION_GROUP_MATCH_COLUMNS,
   textMatchSql,
 } from "./lib/text-ranking.js";
 import { parseOrThrow } from "./lib/validation.js";
 
+// `.max(PLACES_QUERY_MAX_LENGTH)`: an autocomplete query is something a
+// person types into a box, so anything longer is a mistake or an attempt to
+// make the server do trigram work on a megabyte of text. Rejected outright
+// rather than truncated — silently searching for something other than what
+// was asked would be worse than saying no.
+const PLACES_QUERY_MAX_LENGTH = 100;
+
 const placesQuerySchema = z
   .object({
-    query: z.string().min(1),
+    query: z.string().min(1).max(PLACES_QUERY_MAX_LENGTH),
   })
   .strict();
 
@@ -90,7 +98,12 @@ export function registerPlacesRoute(app: FastifyInstance, deps: AppDeps): void {
   app.get("/v1/places", async (request, reply) => {
     const { query } = parseOrThrow(placesQuerySchema, request.query);
 
-    const result = (await deps.pool.query(PLACES_SQL, [query, PLACES_LIMIT])) as {
+    // Bound as a parameter AND escaped: the parameter stops injection, the
+    // escape stops a typed `%` from being read as "match everything".
+    const result = (await deps.pool.query(PLACES_SQL, [
+      escapeLikeWildcards(query),
+      PLACES_LIMIT,
+    ])) as {
       rows: PlaceRow[];
     };
 
