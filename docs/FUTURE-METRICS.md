@@ -6,6 +6,26 @@ deliberately deferred to future work. Each entry below records what was proposed
 why it was set aside, and what it would take to build it — so the next person
 doesn't have to rediscover the decision.
 
+## The critical distinction: computable from existing data vs. new import
+
+Four of the nine deferred metrics are **computable today** from data already in the
+database. These are high-value, low-cost wins — they need algorithm work or schema
+changes, not new data sources:
+
+- **Line diversity and direct-ride reach** — computable from existing rail graph
+- **Two-sided preference weights** — data available in OSM tags already captured
+- **Catchment overlap deduplication** — station distance already known
+- **Land-price trend** — MLIT L01 already imported; only multi-year curation needed
+
+The remaining five require **new data sources** and will demand dedicated import
+efforts:
+
+- **Hilliness** — MLIT DEM
+- **Train congestion** — MLIT 混雑率
+- **Earthquake and liquefaction hazard** — J-SHIS
+- **Last train time** — GTFS/ODPT schedules
+- **Pedestrian routing isochrones** — OSM pedestrian network
+
 ## Hilliness
 
 **Proposed:** Detect steep slopes in Tokyo's terrain using a digital elevation model
@@ -42,17 +62,18 @@ aggregate into station-level congestion scores; integrate into derive.
 **Proposed:** Track residential land-price direction over multiple years using the
 MLIT L01 dataset (published annually).
 
-**Why deferred:** The current system uses only the most recent L01 snapshot
-(a single level per station). Trajectory — price up or down over 3–5 years —
-requires holding multiple years of data and computing a trend. This is valuable
-signal (rising prices can signal gentrification or development; falling prices
-signal possible neighbourhood decline), but the implementation would double the
-storage footprint of land-price data without the algorithm being ready to weight
-temporal signals yet.
+**Why deferred:** The system already imports MLIT L01 and scores stations by current
+rent. However, it uses only the most recent snapshot (one level per station).
+Trajectory — price up or down over 3–5 years — requires holding multiple years of
+data and computing a trend. This is valuable signal (rising prices can signal
+gentrification or development; falling prices signal possible neighbourhood decline),
+but the implementation would double the storage footprint of land-price data without
+the algorithm being ready to weight temporal signals yet. **No new data source is
+required — only multi-year curation of an existing import.**
 
-**Rough cost:** Curate multi-year MLIT L01 downloads; expand schema to store
-yearly values; implement trend calculation in derive; add a weighting control
-to the API.
+**Rough cost:** Curate and download multiple years of MLIT L01 data; expand schema
+to store yearly values; implement trend calculation in derive; add a weighting
+control to the API.
 
 ## Earthquake and liquefaction hazard
 
@@ -106,11 +127,11 @@ select the opposite end.
 **Why deferred:** The current system computes quietness as an absence (low
 traffic, low ambient noise) but does not capture what makes a place _lively_
 (density of bars, restaurants, cultural venues — proxy signals from OSM). The
-data is available in OSM tags already captured by the importer. However,
+OSM importer already captures the tags needed for lively-ness signals. However,
 implementing a true two-ended axis requires rethinking the normalisation — both
 endpoints (quiet and lively) should map to score 100, and the midpoint to score
-0 — which conflicts with the current min-max framework. This is a UI and algorithm
-refactor, not a data problem.
+0 — which conflicts with the current min-max framework. **No new data source is
+required — this is a UI and algorithm refactor.**
 
 **Rough cost:** Redesign normalisation for two-sided axes; add new OSM tag queries
 for "lively" signals; refactor scoring to handle opposing preferences; test the
@@ -127,8 +148,8 @@ walk time and catchment amenities. When stations are close, the top results are
 near-duplicates — which is honest (the user _can_ reach both) but unhelpful (both
 describe the same few blocks). A dedup pass would suppress the second-ranked
 station if the first ranked is within 900 m, or allow the user to filter "show me
-distinct neighbourhoods only" as a preference. This is a UX improvement, not a
-data or scoring problem.
+distinct neighbourhoods only" as a preference. **No new data source is required —
+station positions are already known; this is a UX and ranking-engine improvement.**
 
 **Rough cost:** Add dedup logic to the ranking engine; add a preference flag; test
 with the seeded database to ensure results remain meaningful.
