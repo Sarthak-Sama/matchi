@@ -270,9 +270,10 @@ async function resolveDestinationSeeds(
       throw new ApiError(
         400,
         "NO_ACCESS_STATIONS",
-        `No station is within ${String(MAX_DESTINATION_WALK_M)} m of the destination point ` +
-          `(${String(body.destinationPoint.lat)}, ${String(body.destinationPoint.lon)}) — ` +
-          `there is no way to commute to it by rail.`,
+        `No station in our data is within ${String(MAX_DESTINATION_WALK_M)} m of the destination ` +
+          `point (${String(body.destinationPoint.lat)}, ${String(body.destinationPoint.lon)}), ` +
+          `so we cannot estimate a rail commute to it. If you expected a station here, the ` +
+          `station data may be incomplete for this area rather than the area being unserved.`,
       );
     }
     return seeds;
