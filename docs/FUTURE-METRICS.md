@@ -8,20 +8,20 @@ doesn't have to rediscover the decision.
 
 ## The critical distinction: computable from existing data vs. new import
 
-Four of the nine deferred metrics are **computable today** from data already in the
+Three of the nine deferred metrics are **computable today** from data already in the
 database. These are high-value, low-cost wins — they need algorithm work or schema
 changes, not new data sources:
 
 - **Line diversity and direct-ride reach** — computable from existing rail graph
 - **Two-sided preference weights** — data available in OSM tags already captured
 - **Catchment overlap deduplication** — station distance already known
-- **Land-price trend** — MLIT L01 already imported; only multi-year curation needed
 
-The remaining five require **new data sources** and will demand dedicated import
-efforts:
+The remaining six require **new data sources or new data acquisition** and will
+demand dedicated import or curation efforts:
 
 - **Hilliness** — MLIT DEM
 - **Train congestion** — MLIT 混雑率
+- **Land-price trend** — multiple years of MLIT L01
 - **Earthquake and liquefaction hazard** — J-SHIS
 - **Last train time** — GTFS/ODPT schedules
 - **Pedestrian routing isochrones** — OSM pedestrian network
@@ -62,14 +62,15 @@ aggregate into station-level congestion scores; integrate into derive.
 **Proposed:** Track residential land-price direction over multiple years using the
 MLIT L01 dataset (published annually).
 
-**Why deferred:** The system already imports MLIT L01 and scores stations by current
-rent. However, it uses only the most recent snapshot (one level per station).
-Trajectory — price up or down over 3–5 years — requires holding multiple years of
-data and computing a trend. This is valuable signal (rising prices can signal
-gentrification or development; falling prices signal possible neighbourhood decline),
-but the implementation would double the storage footprint of land-price data without
-the algorithm being ready to weight temporal signals yet. **No new data source is
-required — only multi-year curation of an existing import.**
+**Why deferred:** The system already imports MLIT L01 via
+`scripts/src/import-mlit/land-prices.ts`, so this needs additional _years_ of that
+same dataset rather than a new source type. However, the repo currently holds only
+the most recent snapshot (one level per station). Trajectory — price up or down over
+3–5 years — requires downloading and curating multiple years of data, then computing
+a trend. This is valuable signal (rising prices can signal gentrification or
+development; falling prices signal possible neighbourhood decline), but the
+implementation would double the storage footprint of land-price data without the
+algorithm being ready to weight temporal signals yet.
 
 **Rough cost:** Curate and download multiple years of MLIT L01 data; expand schema
 to store yearly values; implement trend calculation in derive; add a weighting
