@@ -19,8 +19,9 @@ import { CATCHMENT_RADIUS_M, LIFESTYLE_AXES, LIFESTYLE_AXIS_IDS } from "@tokyo/s
 import { runDerive } from "./derive.js";
 import { runMigrations } from "./migrate.js";
 import { runSeed } from "./seed.js";
+import { destructiveTestDatabaseUrl } from "./test-support/database-url.js";
 
-const databaseUrl = process.env["DATABASE_URL"];
+const databaseUrl = destructiveTestDatabaseUrl();
 
 // π · 800² — the true area of an 800m-radius circle. station_areas.area_sqm
 // is computed from a polygonal buffer approximation, so a small (<1%)

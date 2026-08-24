@@ -33,8 +33,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runDerive } from "./derive.js";
 import { runMigrations } from "./migrate.js";
 import { runSeed } from "./seed.js";
+import { destructiveTestDatabaseUrl } from "./test-support/database-url.js";
 
-const databaseUrl = process.env["DATABASE_URL"];
+const databaseUrl = destructiveTestDatabaseUrl();
 
 const NULL_WARD_STATION_ID = "sg-outside-all-wards-test";
 

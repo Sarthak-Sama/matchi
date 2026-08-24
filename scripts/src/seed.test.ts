@@ -20,8 +20,9 @@ import { CATCHMENT_RADIUS_M } from "@tokyo/shared";
 import { PINNED_POI_COUNTS } from "./fixtures/seed/index.js";
 import { runMigrations } from "./migrate.js";
 import { runSeed } from "./seed.js";
+import { destructiveTestDatabaseUrl } from "./test-support/database-url.js";
 
-const databaseUrl = process.env["DATABASE_URL"];
+const databaseUrl = destructiveTestDatabaseUrl();
 
 const EXPECTED_ROW_COUNTS: Record<string, number> = {
   wards: 4,

@@ -30,6 +30,7 @@ import { parseArgs, runOsmImport } from "./import-osm.js";
 import { runImport } from "./lib/import-run.js";
 import { runMigrations } from "./migrate.js";
 import { runSeed } from "./seed.js";
+import { destructiveTestDatabaseUrl } from "./test-support/database-url.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(__dirname, "fixtures/osm");
@@ -500,7 +501,7 @@ describe("parseArgs", () => {
 // DB integration — guarded on DATABASE_URL.
 // ---------------------------------------------------------------------------
 
-const databaseUrl = process.env["DATABASE_URL"];
+const databaseUrl = destructiveTestDatabaseUrl();
 
 const GOOD_ARGS: ImportOsmArgs = {
   filePath: fixturePath("overpass-sample.osm.json"),

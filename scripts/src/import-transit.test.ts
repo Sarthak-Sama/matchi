@@ -60,6 +60,7 @@ import { parseArgs, runTransitImport } from "./import-transit.js";
 import { runImport } from "./lib/import-run.js";
 import { runMigrations } from "./migrate.js";
 import { runSeed } from "./seed.js";
+import { destructiveTestDatabaseUrl } from "./test-support/database-url.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(__dirname, "fixtures/gtfs");
@@ -550,7 +551,7 @@ describe("GTFS bulk tables are never persisted", () => {
 // DB-guarded integration tests.
 // ---------------------------------------------------------------------------
 
-const databaseUrl = process.env["DATABASE_URL"];
+const databaseUrl = destructiveTestDatabaseUrl();
 
 /**
  * Builds a plausible MultiLineString for `railLineId` by walking the
