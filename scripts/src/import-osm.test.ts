@@ -226,6 +226,89 @@ describe("parseOverpassResponse: valid fixture", () => {
   });
 });
 
+describe("parseOverpassResponse: degenerate green-space geometry", () => {
+  // OSM genuinely contains unfinished park outlines with fewer than 3
+  // vertices. The real 23-ward extract aborted the whole import transaction
+  // on osm way 1156828012 (a 2-vertex leisure way) before these were skipped.
+  function responseWith(elements: readonly unknown[]): string {
+    return JSON.stringify({ version: 0.6, generator: "test", elements });
+  }
+
+  it("skips a 2-vertex park way instead of aborting the import", () => {
+    const raw = responseWith([
+      {
+        type: "way",
+        id: 1156828012,
+        tags: { leisure: "park", name: "Unfinished Outline" },
+        geometry: [
+          { lat: 35.664, lon: 139.709 },
+          { lat: 35.6645, lon: 139.7095 },
+        ],
+      },
+    ]);
+    const result = parseOverpassResponse(raw);
+    expect(result.greenSpaces).toHaveLength(0);
+    expect(result.skippedElements).toBe(1);
+  });
+
+  it("keeps a relation's valid outer rings when only some members are degenerate", () => {
+    const raw = responseWith([
+      {
+        type: "relation",
+        id: 42,
+        tags: { leisure: "park", name: "Partly Mapped Park" },
+        members: [
+          {
+            type: "way",
+            role: "outer",
+            geometry: [
+              { lat: 35.664, lon: 139.709 },
+              { lat: 35.6645, lon: 139.7095 },
+            ],
+          },
+          {
+            type: "way",
+            role: "outer",
+            geometry: [
+              { lat: 35.665, lon: 139.711 },
+              { lat: 35.6655, lon: 139.7115 },
+              { lat: 35.6645, lon: 139.712 },
+            ],
+          },
+        ],
+      },
+    ]);
+    const result = parseOverpassResponse(raw);
+    expect(result.greenSpaces).toHaveLength(1);
+    expect(result.greenSpaces[0]?.geomWKT).toBe(
+      "MULTIPOLYGON(((139.711 35.665, 139.7115 35.6655, 139.712 35.6645, 139.711 35.665)))",
+    );
+  });
+
+  it("skips a relation whose every outer member is degenerate", () => {
+    const raw = responseWith([
+      {
+        type: "relation",
+        id: 43,
+        tags: { leisure: "garden", name: "All Unfinished" },
+        members: [
+          {
+            type: "way",
+            role: "outer",
+            geometry: [
+              { lat: 35.664, lon: 139.709 },
+              { lat: 35.6645, lon: 139.7095 },
+            ],
+          },
+        ],
+      },
+    ]);
+    const result = parseOverpassResponse(raw);
+    expect(result.greenSpaces).toHaveLength(0);
+    expect(result.skippedElements).toBe(1);
+  });
+});
+
 describe("parseOverpassResponse: malformed fixture", () => {
   it("a malformed element (missing coordinates) aborts with a clear message", () => {
     const raw = fixture("overpass-malformed.osm.json");

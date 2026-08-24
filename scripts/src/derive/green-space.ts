@@ -31,7 +31,16 @@ export async function runGreenSpaceStep(pool: Pool): Promise<StepResult> {
   const rowsWritten = await withTransaction(pool, async (client) => {
     const { rowCount } = await client.query(`
       WITH green_union AS (
-        SELECT ST_Union(geom) AS geom FROM green_spaces
+        -- ST_MakeValid before unioning: real OSM park polygons are not all
+        -- valid (35 of 9,868 in the live 23-ward extract self-intersect),
+        -- and ST_Union aborts the whole step on the first one with
+        -- "TopologyException: side location conflict". CollectionExtract(…, 3)
+        -- keeps only the polygonal component, since MakeValid can hand back
+        -- a GeometryCollection with stray lines/points for a degenerate
+        -- input — those would otherwise contribute nothing to an area share
+        -- but can still upset the union. Both are no-ops on valid input.
+        SELECT ST_Union(ST_CollectionExtract(ST_MakeValid(geom), 3)) AS geom
+        FROM green_spaces
       ),
       per_station AS (
         SELECT
