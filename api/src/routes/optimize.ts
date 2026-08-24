@@ -93,6 +93,20 @@ const CANDIDATES_SQL = `
   -- neighbourhoods outright is by far the larger error.
 `;
 
+/**
+ * Tallies WHY `buildCandidate` dropped rows, across the whole request, so
+ * the route can tell "every candidate had incomplete lifestyle metrics"
+ * (almost always: `pnpm derive` hasn't been re-run since a migration added
+ * `norm_*` columns — see `0004_lifestyle_metrics.sql`) apart from ordinary
+ * per-row data gaps. Only that one reason gets a request-level counter: it
+ * is the one failure mode that can silently zero out the entire candidate
+ * pool with no other diagnostic, so it is the one worth a dedicated,
+ * single-line signal instead of relying on N per-station `warn`s.
+ */
+interface ExclusionCounts {
+  missingLifestyleMetrics: number;
+}
+
 interface CandidateRow extends LifestyleMetricColumns {
   readonly stationGroupId: string;
   readonly nameEn: string;
@@ -139,6 +153,7 @@ function buildCandidate(
   currentYear: number,
   nameLookups: NameLookups,
   log: FastifyBaseLogger,
+  exclusionCounts: ExclusionCounts,
 ): Candidate | null {
   if (row.wardCode === null || row.wardNameEn === null || row.wardNameJa === null) {
     log.warn(
@@ -166,6 +181,7 @@ function buildCandidate(
 
   const normScores = readLifestyleNormScores(row);
   if (normScores === null) {
+    exclusionCounts.missingLifestyleMetrics += 1;
     log.warn(
       { stationGroupId: row.stationGroupId },
       "excluding candidate from /v1/optimize: incomplete normalized lifestyle metrics",
@@ -192,9 +208,13 @@ function buildCandidate(
     ? { ...rawCommute, path: resolvePathNames(rawCommute.path, nameLookups) }
     : null;
 
-  // The spreads are the drift tripwire: this is a real type-checked
-  // assignment into `LifestyleMetricsInput`, so a registry axis whose
-  // metric this module cannot supply fails to compile.
+  // NOTE: these spreads alone do not catch a registry axis this route can't
+  // supply — excess-property checking doesn't apply to spread-only object
+  // literals, so an extra registry axis compiles fine here even if nothing
+  // populates it. The real tripwire is `LIFESTYLE_AXIS_DESCRIBERS` in
+  // `lifestyle-axis-describe.ts`, whose `satisfies Record<LifestyleAxisId,
+  // ...>` forces a `describe` for every axis, and each `describe` reads the
+  // `metrics.normX` this object needs to provide.
   const lifestyle: LifestyleMetricsInput = {
     ...normScores,
     ...readLifestyleRawCounts(row),
@@ -311,6 +331,7 @@ export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void
 
     const currentYear = new Date().getFullYear();
     const candidates: Candidate[] = [];
+    const exclusionCounts: ExclusionCounts = { missingLifestyleMetrics: 0 };
     for (const row of candidateRowsResult.rows) {
       const candidate = buildCandidate(
         row,
@@ -320,8 +341,25 @@ export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void
         currentYear,
         nameLookups,
         request.log,
+        exclusionCounts,
       );
       if (candidate) candidates.push(candidate);
+    }
+
+    // A distinct, single-line signal for the specific failure mode where
+    // EVERY row was dropped for missing lifestyle metrics — as opposed to
+    // ordinary per-row exclusions (see `buildCandidate`'s per-station
+    // `warn`s). This is what a migration-without-a-re-derive looks like in
+    // production: an empty `/v1/optimize` response with no other clue.
+    if (
+      candidates.length === 0 &&
+      candidateRowsResult.rows.length > 0 &&
+      exclusionCounts.missingLifestyleMetrics === candidateRowsResult.rows.length
+    ) {
+      request.log.error(
+        { rowsConsidered: candidateRowsResult.rows.length },
+        "POST /v1/optimize: every candidate was excluded for incomplete normalized lifestyle metrics — has `pnpm derive` been run since the last schema migration?",
+      );
     }
 
     const { feasible, diagnostics } = applyHardFilters(candidates, body);

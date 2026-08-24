@@ -64,6 +64,17 @@ about.
 `import:transit` writes the in-memory rail graph's source data. The API builds
 that graph **once at startup**, so restart the API after a transit import.
 
+**Applying a migration to an already-populated database.** A migration that
+adds new `norm_*` lifestyle columns (e.g. `0004_lifestyle_metrics.sql`) does
+not populate them — those columns are NULL for every existing row until
+`pnpm derive` runs. The API fails closed on any NULL `norm_*` column: a
+station with even one missing normalized metric is treated as having no
+lifestyle metrics at all and is excluded from `/v1/optimize` and
+`/v1/neighborhoods/:id`. So on a real deploy, `pnpm db:migrate` and a full
+`pnpm derive` must both complete **before** the API version that depends on
+the new columns is deployed — otherwise every candidate is dropped and
+`/v1/optimize` quietly returns an empty result.
+
 ## Attribution
 
 OpenStreetMap data is © OpenStreetMap contributors and the attribution is

@@ -101,4 +101,38 @@ describe("GET /v1/stations", () => {
 
     expect(response.statusCode).toBe(400);
   });
+
+  it("escapes LIKE wildcards so a typed % is matched literally, not as `match everything`", async () => {
+    const pool = fakePool();
+    const app = buildTestApp(pool);
+    await app.inject({ method: "GET", url: "/v1/stations?query=%25" });
+    await app.close();
+
+    expect(pool.query).toHaveBeenCalledWith(expect.any(String), ["\\%", 10]);
+  });
+
+  it("a bare % returns nothing, not the whole station table", async () => {
+    // Matches the equivalent /v1/places test: a bare `%` must not fall
+    // through to `ILIKE '%' || '%' || '%'`, i.e. every row.
+    const pool = fakePool([]);
+    const app = buildTestApp(pool);
+
+    const response = await app.inject({ method: "GET", url: "/v1/stations?query=%25" });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { results: unknown[] };
+    expect(body.results).toHaveLength(0);
+  });
+
+  it("rejects a query longer than the 100-character cap", async () => {
+    const app = buildTestApp(fakePool());
+    const response = await app.inject({
+      method: "GET",
+      url: `/v1/stations?query=${"a".repeat(101)}`,
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(400);
+  });
 });

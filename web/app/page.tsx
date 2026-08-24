@@ -168,13 +168,27 @@ export default function Home() {
   // Auto-run once, right after hydration, if the URL already named a
   // destination — otherwise a "shareable" link would just reopen a blank
   // form.
+  //
+  // Also requires at least one selected lifestyle axis: an OLDER shared
+  // link may carry lifestyle params under axis ids that no longer exist in
+  // the registry (e.g. a pre-rename `flood=`/`quiet=`), which hydrates
+  // `preferences` to all-`undefined` — nothing in the current query string
+  // matches a current `LifestyleAxisId`. Auto-running that straight into
+  // `runOptimize` would immediately fail client-side with "Select at least
+  // one lifestyle priority before searching", so the user's first sight of
+  // the page would be an error banner instead of the (blank-preferences,
+  // but otherwise usable) form. Skipping the auto-run here just leaves the
+  // destination/commute fields pre-filled and lets the user pick priorities
+  // and submit normally.
   useEffect(() => {
-    if (hydrated && selectedDestination) {
+    const hasSelectedAxis = LIFESTYLE_AXIS_IDS.some((id) => preferences[id] !== undefined);
+    if (hydrated && selectedDestination && hasSelectedAxis) {
       void runOptimize();
     }
-    // Deliberately depends on `hydrated` alone: this must run exactly once,
-    // right after the hydration effect above has populated form state from
-    // the query string, not on every subsequent field change.
+    // Deliberately depends on `hydrated` alone (not `preferences` or
+    // `selectedDestination`): this must run exactly once, right after the
+    // hydration effect above has populated form state from the query
+    // string, not on every subsequent field change.
   }, [hydrated]);
 
   // Debounced destination autocomplete against `/v1/places`. Skipped
@@ -558,7 +572,7 @@ export default function Home() {
               <p>Overall score: {result.overallScore.toFixed(1)} / 100</p>
               <p className="text-sm text-neutral-500">{result.catchmentLabel}</p>
 
-              {result.isDestinationAccessStation && (
+              {result.isDestinationAccessStation && result.commute.railMinutes === 0 && (
                 <p className="mt-1 inline-block rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
                   Destination area — this is one of your destination&rsquo;s own access stations, so
                   this &ldquo;commute&rdquo; is really just the walk there.
@@ -615,7 +629,7 @@ export default function Home() {
                     </p>
                     <p>
                       Total {totalRounded} min — {accessWalkRounded} min walk + {railRounded} min
-                      rail + {waitRounded} min wait + {destWalkRounded} min walk to{" "}
+                      rail + transfers + {waitRounded} min wait + {destWalkRounded} min walk to{" "}
                       {resultDestinationLabel ?? "destination"}
                       {result.commute.transferCount > 0
                         ? ` (${result.commute.transferCount} transfer${

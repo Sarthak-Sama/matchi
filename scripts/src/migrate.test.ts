@@ -197,19 +197,6 @@ const EXPECTED_GIST_INDEXES = [
 ];
 
 /**
- * Every `gin_trgm_ops` index in the schema, across ALL tables.
- *
- * Deliberately schema-wide rather than per-table: this list is the drift
- * check for text search the same way EXPECTED_GIST_INDEXES is for geometry.
- * A route that starts matching `ILIKE '%...%'` against a newly-searched
- * column works perfectly on seed data whether or not the column is indexed
- * — the only symptom of the missing index is a sequential scan that shows
- * up at import scale. Listing them all here means adding such a route
- * forces an explicit decision about its index instead of leaving one to be
- * discovered in production. (Task 6 added the `pois` entry, and found the
- * gap exactly this way.)
- */
-/**
  * Every migration file, in apply order. Single source of truth for both
  * the "recorded in schema_migrations" test and the idempotence test's
  * count — a new migration should require editing ONE list, not one list
@@ -223,6 +210,19 @@ const EXPECTED_MIGRATION_FILENAMES = [
   "0005_poi_name_trigram_index.sql",
 ];
 
+/**
+ * Every `gin_trgm_ops` index in the schema, across ALL tables.
+ *
+ * Deliberately schema-wide rather than per-table: this list is the drift
+ * check for text search the same way EXPECTED_GIST_INDEXES is for geometry.
+ * A route that starts matching `ILIKE '%...%'` against a newly-searched
+ * column works perfectly on seed data whether or not the column is indexed
+ * — the only symptom of the missing index is a sequential scan that shows
+ * up at import scale. Listing them all here means adding such a route
+ * forces an explicit decision about its index instead of leaving one to be
+ * discovered in production. (Task 6 added the `pois` entry, and found the
+ * gap exactly this way.)
+ */
 const EXPECTED_TRGM_INDEXES = [
   // 0001_init.sql — back GET /v1/stations.
   "station_groups_name_en_trgm_idx",

@@ -157,6 +157,18 @@ export function registerNeighborhoodRoute(app: FastifyInstance, deps: AppDeps): 
     const normScores = row ? readLifestyleNormScores(row) : null;
 
     if (!row || row.derivedAt === null || normScores === null) {
+      if (row && normScores === null) {
+        // Distinct from a genuinely unknown station: the row exists but has
+        // an incomplete normalized lifestyle bundle — almost always a
+        // migration that added `norm_*` columns without a `pnpm derive`
+        // re-run since (see `0004_lifestyle_metrics.sql`). One line per
+        // request is enough here since this route is already scoped to a
+        // single station.
+        request.log.warn(
+          { stationGroupId },
+          "GET /v1/neighborhoods: excluding station with incomplete normalized lifestyle metrics — has `pnpm derive` been run since the last schema migration?",
+        );
+      }
       throw new ApiError(
         404,
         "NEIGHBORHOOD_NOT_FOUND",
@@ -193,9 +205,13 @@ export function registerNeighborhoodRoute(app: FastifyInstance, deps: AppDeps): 
       );
     }
 
-    // The spreads are the drift tripwire: this is a real type-checked
-    // assignment into `LifestyleMetricsInput`, so a registry axis whose
-    // metric this route cannot supply fails to compile.
+    // NOTE: these spreads alone do not catch a registry axis this route
+    // can't supply — excess-property checking doesn't apply to spread-only
+    // object literals, so an extra registry axis compiles fine here even if
+    // nothing populates it. The real tripwire is `LIFESTYLE_AXIS_DESCRIBERS`
+    // in `lifestyle-axis-describe.ts`, whose `satisfies Record<LifestyleAxisId,
+    // ...>` forces a `describe` for every axis, and each `describe` reads
+    // the `metrics.normX` this object needs to provide.
     const lifestyle: LifestyleMetricsInput = {
       ...normScores,
       ...readLifestyleRawCounts(row),

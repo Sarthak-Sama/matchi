@@ -36,12 +36,14 @@ export interface LifestyleAxisDescriber {
 /**
  * The lifestyle axes' `componentScore` is the precomputed `norm_*` value
  * itself (already 0-100 — `scoreLifestyle` does not re-derive it). The raw
- * value differs by axis: for the two amenity axes it's the plain count
- * within the catchment radius (matching the spec's own example, `"12
- * supermarkets within 800 m"`); for flood safety and quietness — which
- * have no equally intuitive count — it's the normalized score itself,
- * restated in a `X/100` label (quietness reusing the existing
- * `QUIETNESS_LABEL` constant).
+ * value differs by axis: for the six count-based amenity axes (supermarkets,
+ * restaurants, konbini, cuisineVariety, lateNight, health) it's the plain
+ * count within the catchment radius (matching the spec's own example, `"12
+ * supermarkets within 800 m"`); greenSpace is a share/ratio rather than a
+ * count, restated as a percentage of the catchment; and for flood safety
+ * and quietness — which have no equally intuitive count — it's the
+ * normalized score itself, restated in a `X/100` label (quietness reusing
+ * the existing `QUIETNESS_LABEL` constant).
  *
  * A `Record` keyed by `LifestyleAxisId` rather than a `switch`: it
  * preserves exhaustiveness exactly (a missing key is the same compile

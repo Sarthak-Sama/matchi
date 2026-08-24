@@ -103,12 +103,17 @@ export const neighborhoodResultSchema = z.object({
   reasonsAgainst: z.array(z.string()),
   catchmentLabel: z.string(),
   /**
-   * True when this area's own station is one of the destination's access
-   * stations — i.e. living here means walking to the destination rather
-   * than riding to it. The commute estimate for such an area is honest but
-   * pessimistic (a fixed 8-minute walk to the station plus 0 rail minutes
-   * plus the walk from that station), so the UI should mark it rather than
-   * present its total as directly comparable to a rail commute.
+   * True when this area's own station is within walking range of the
+   * destination (one of the destination's access stations), per
+   * `MAX_DESTINATION_WALK_M`. This does NOT mean living here means walking
+   * to the destination: the search is multi-source, so this station's
+   * cheapest route to the destination may still be by rail to a different
+   * access station, in which case `commute.railMinutes` is non-zero and the
+   * "just a walk" framing would be false. Only when `commute.railMinutes`
+   * is also 0 is the commute estimate the fixed walk-only figure (an
+   * 8-minute walk to the station plus the walk from the destination's
+   * access station), which the UI should mark as not directly comparable
+   * to a rail commute.
    */
   isDestinationAccessStation: z.boolean(),
 });
