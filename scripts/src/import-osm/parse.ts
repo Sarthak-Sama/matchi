@@ -209,6 +209,15 @@ export interface OverpassResponse {
 export interface ParsedPoi {
   readonly category: PoiCategory;
   readonly name: string | null;
+  /**
+   * From the OSM `name:en` tag, verbatim; null when absent.
+   *
+   * `name` is the OSM `name` tag, which in Tokyo is the Japanese name — so
+   * without this an English-speaking user cannot find their own campus or
+   * office. Roughly half of real landmarks carry `name:en`, so this
+   * supplements `name` and never replaces it.
+   */
+  readonly nameEn: string | null;
   readonly osmType: OsmElementType;
   readonly osmId: number;
   readonly lon: number;
@@ -253,6 +262,11 @@ function stringTag(tags: Readonly<Record<string, unknown>> | undefined | null, k
 
 function elementName(tags: Readonly<Record<string, unknown>> | undefined | null): string | null {
   return stringTag(tags, "name");
+}
+
+/** The OSM `name:en` tag — see `ParsedPoi.nameEn` for why it is carried separately. */
+function elementNameEn(tags: Readonly<Record<string, unknown>> | undefined | null): string | null {
+  return stringTag(tags, "name:en");
 }
 
 function elementContext(el: OverpassElement): string {
@@ -511,6 +525,7 @@ export function parseOverpassResponse(raw: string): ParsedOverpassData {
     pois.push({
       category: classification.category,
       name: elementName(el.tags),
+      nameEn: elementNameEn(el.tags),
       osmType: el.type,
       osmId: el.id,
       lon,

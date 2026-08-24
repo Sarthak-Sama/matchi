@@ -227,6 +227,43 @@ describe("parseOverpassResponse: valid fixture", () => {
   });
 });
 
+describe("parseOverpassResponse: name:en", () => {
+  function poiResponse(tags: Record<string, string>): string {
+    return JSON.stringify({
+      version: 0.6,
+      generator: "test",
+      elements: [{ type: "node", id: 9001, lat: 35.66, lon: 139.7, tags }],
+    });
+  }
+
+  it("captures the OSM name:en tag alongside the Japanese name", () => {
+    const parsed = parseOverpassResponse(
+      poiResponse({
+        amenity: "university",
+        name: "東京大学 駒場リサーチキャンパス",
+        "name:en": "The University of Tokyo, Komaba Research Campus",
+      }),
+    );
+    expect(parsed.pois[0]).toMatchObject({
+      category: "landmark",
+      name: "東京大学 駒場リサーチキャンパス",
+      nameEn: "The University of Tokyo, Komaba Research Campus",
+    });
+  });
+
+  it("leaves nameEn null when the tag is absent or empty, without disturbing name", () => {
+    const absent = parseOverpassResponse(
+      poiResponse({ amenity: "university", name: "東京大学（医学部）" }),
+    );
+    expect(absent.pois[0]).toMatchObject({ name: "東京大学（医学部）", nameEn: null });
+
+    const empty = parseOverpassResponse(
+      poiResponse({ amenity: "university", name: "東京大学（法学部）", "name:en": "" }),
+    );
+    expect(empty.pois[0]).toMatchObject({ name: "東京大学（法学部）", nameEn: null });
+  });
+});
+
 describe("parseOverpassResponse: degenerate green-space geometry", () => {
   // OSM genuinely contains unfinished park outlines with fewer than 3
   // vertices. The real 23-ward extract aborted the whole import transaction
