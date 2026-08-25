@@ -20,7 +20,9 @@
     "import:mlit": "tsx --env-file-if-exists=.env scripts/src/import-mlit.ts",
     "import:rent": "tsx --env-file-if-exists=.env scripts/src/import-rent.ts",
     "import:osm": "tsx --env-file-if-exists=.env scripts/src/import-osm.ts",
-    "import:transit": "tsx --env-file-if-exists=.env scripts/src/import-transit.ts"
+    "import:transit": "tsx --env-file-if-exists=.env scripts/src/import-transit.ts",
+    "stage:mlit": "tsx --env-file-if-exists=.env scripts/src/stage-mlit.ts",
+    "stage:flood": "tsx --env-file-if-exists=.env scripts/src/stage-flood.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

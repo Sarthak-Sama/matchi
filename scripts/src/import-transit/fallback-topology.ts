@@ -104,48 +104,52 @@ export async function computeFallbackEdges(client: PoolClient): Promise<Fallback
 
   for (const line of linesWithGeom) {
     // `rail_lines.geom` is typed `geometry(MultiLineString, 4326)` (see
-    // db/migrations/0001_init.sql) even for a single contiguous line —
-    // but `ST_LineLocatePoint`/`ST_LineSubstring` only accept a genuine
-    // LineString. `ST_LineMerge` collapses a MultiLineString's parts into
-    // one LineString when they connect end-to-end; a line whose digitized
-    // geometry is branching or has disconnected segments (so merging
-    // still leaves a MultiLineString) is skipped with a warning rather
-    // than crashing the whole run — this fallback mode assumes a simple
-    // single-path line, which every real train line in this vertical
-    // slice is, but a future MLIT import for a branching line should not
-    // silently produce wrong along-line distances.
-    const { rows: mergedRows } = await client.query<{ is_simple_line: boolean }>(
-      `SELECT GeometryType(ST_LineMerge(geom)) = 'LINESTRING' AS is_simple_line
-       FROM rail_lines WHERE rail_line_id = $1`,
-      [line.rail_line_id],
-    );
-    if (!mergedRows[0]?.is_simple_line) {
-      warnings.push(
-        `rail_line "${line.rail_line_id}": geometry does not merge into a single simple ` +
-          `LineString (branching or disconnected segments) — skipped in --from-topology mode.`,
-      );
-      continue;
-    }
-
+    // db/migrations/0001_init.sql). `ST_LineLocatePoint`/`ST_LineSubstring`
+    // only accept a genuine LineString, so the geometry is merged and then
+    // split into its connected components, and stations are ordered WITHIN
+    // each component.
+    //
+    // Per-component ordering is what makes along-line distance meaningful
+    // here. A real line is rarely one unbroken path: 中央線, 京王線, 東横線
+    // and 13 others in the 2025 MLIT export branch or arrive as disconnected
+    // runs once clipped to Tokyo. Ordering stations along a merged
+    // MULTILINESTRING as though it were one path would interleave stations
+    // from different branches and invent adjacencies that do not exist;
+    // treating the whole line as unusable (the previous behaviour) instead
+    // dropped 16 lines and left 17% of station groups with no edges at all.
+    // Splitting keeps each component's fraction scale self-consistent, so a
+    // pair is only ever adjacent within one continuous run of track.
     const { rows: pairs } = await client.query<AdjacentPairRow>(
-      `WITH merged AS (
-         SELECT ST_LineMerge(geom) AS geom FROM rail_lines WHERE rail_line_id = $1
+      `WITH parts AS (
+         -- COALESCE: ST_Dump returns an EMPTY path array when its input is
+         -- already a single LineString, so d.path[1] is NULL there. A NULL
+         -- part_index makes every part_index = part_index join below
+         -- false, which silently drops edges for exactly the lines whose
+         -- geometry is cleanest.
+         SELECT d.geom AS geom, COALESCE(d.path[1], 1) AS part_index
+         FROM rail_lines rl, LATERAL ST_Dump(ST_LineMerge(rl.geom)) d
+         WHERE rl.rail_line_id = $1
        ),
        ordered AS (
-         SELECT sg.station_group_id,
-                ST_LineLocatePoint(merged.geom, sg.point) AS frac,
-                row_number() OVER (ORDER BY ST_LineLocatePoint(merged.geom, sg.point)) AS rn
-         FROM station_groups sg, merged
-         WHERE ST_DWithin(sg.point::geography, merged.geom::geography, $2)
+         SELECT p.part_index,
+                sg.station_group_id,
+                ST_LineLocatePoint(p.geom, sg.point) AS frac,
+                row_number() OVER (
+                  PARTITION BY p.part_index
+                  ORDER BY ST_LineLocatePoint(p.geom, sg.point)
+                ) AS rn
+         FROM parts p
+         JOIN station_groups sg
+           ON ST_DWithin(sg.point::geography, p.geom::geography, $2)
        )
        SELECT a.station_group_id AS from_id,
               b.station_group_id AS to_id,
               ST_Length(
-                ST_LineSubstring(merged.geom, LEAST(a.frac, b.frac), GREATEST(a.frac, b.frac))::geography
+                ST_LineSubstring(p.geom, LEAST(a.frac, b.frac), GREATEST(a.frac, b.frac))::geography
               ) AS distance_m
        FROM ordered a
-       JOIN ordered b ON b.rn = a.rn + 1
-       CROSS JOIN merged`,
+       JOIN ordered b ON b.part_index = a.part_index AND b.rn = a.rn + 1
+       JOIN parts p ON p.part_index = a.part_index`,
       [line.rail_line_id, STATION_MERGE_RADIUS_M],
     );
 

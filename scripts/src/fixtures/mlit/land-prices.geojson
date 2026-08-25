@@ -3,17 +3,17 @@
   "features": [
     {
       "type": "Feature",
-      "properties": { "L01_006": 850000, "L01_005": 2025, "L01_022": "住宅" },
+      "properties": { "L01_008": 850000, "L01_007": 2025, "L01_028": "住宅" },
       "geometry": { "type": "Point", "coordinates": [139.7, 35.66] }
     },
     {
       "type": "Feature",
-      "properties": { "L01_006": 920000, "L01_005": 2025, "L01_022": "residential" },
+      "properties": { "L01_008": 920000, "L01_007": 2025, "L01_028": "residential" },
       "geometry": { "type": "Point", "coordinates": [139.705, 35.655] }
     },
     {
       "type": "Feature",
-      "properties": { "L01_006": 1500000, "L01_005": 2025, "L01_022": "commercial" },
+      "properties": { "L01_008": 1500000, "L01_007": 2025, "L01_028": "commercial" },
       "geometry": { "type": "Point", "coordinates": [139.7, 35.69] }
     }
   ]
