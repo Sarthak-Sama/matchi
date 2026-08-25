@@ -2,10 +2,19 @@
  * Land prices dataset — MLIT's official posted land price points (dataset
  * code L01, 地価公示).
  *
- * ASSUMED property names (see task-11-report.md): `L01_006` (price per m²
- * in yen) and `L01_005` (survey year) are the field codes used in recent
- * L01 vintages; `price_yen_per_sqm` / `year` are accepted as friendlier
- * aliases. `L01_022` / `use_category` (land use category) is optional —
+ * VERIFIED property names (2026 L01 Tokyo export, `L01-26_13`): `L01_008`
+ * is price per m² in yen, `L01_007` is the survey year, and `L01_028` is
+ * the land-use category; `price_yen_per_sqm` / `year` / `use_category` are
+ * accepted as friendlier aliases.
+ *
+ * The codes this module originally assumed — `L01_005` (year), `L01_006`
+ * (price), `L01_022` (use) — are WRONG, and wrong in the most dangerous
+ * way: those fields still exist in the real export carrying unrelated
+ * values (`L01_005 = "000"`, `L01_006 = "001"`, `L01_022 = "0"`). Because
+ * `pickProperty` returns the first key it finds, merely ADDING the correct
+ * codes to these lists would have changed nothing — every point would have
+ * imported as ¥1/m² in the year 0. They are removed rather than kept as
+ * fallbacks for exactly that reason. `L01_028` (land use) is optional —
  * `derive`'s rent step only uses points whose `use_category` is exactly
  * `'residential'` (see `scripts/src/derive/rent.ts`), so
  * `classifyLandUseCategory` below maps the handful of category spellings
@@ -24,9 +33,9 @@ import { pickProperty, pointGeometryToLonLat } from "./geojson.js";
 
 export const MIN_LAND_PRICES_ROWS = 1;
 
-const PRICE_KEYS = ["L01_006", "price_yen_per_sqm"];
-const YEAR_KEYS = ["L01_005", "year"];
-const USE_CATEGORY_KEYS = ["L01_022", "use_category"];
+const PRICE_KEYS = ["L01_008", "price_yen_per_sqm"];
+const YEAR_KEYS = ["L01_007", "year"];
+const USE_CATEGORY_KEYS = ["L01_028", "use_category"];
 
 const RESIDENTIAL_USE_TOKENS = new Set(["residential", "住宅", "住宅地", "1"]);
 
