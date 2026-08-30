@@ -5,6 +5,7 @@ dist
 .env.local
 data/*
 !data/.gitkeep
+!data/catalog.json
 coverage
 *.log
 .DS_Store

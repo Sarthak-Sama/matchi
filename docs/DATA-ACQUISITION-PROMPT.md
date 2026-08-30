@@ -43,7 +43,7 @@ downloads.
 
 ### 1. MLIT — 国土数値情報 (National Land Numerical Information) — TOP PRIORITY
 
-Six datasets. The repo expects GeoJSON; MLIT typically ships shapefiles,
+Five datasets. The repo expects GeoJSON; MLIT typically ships shapefiles,
 which need `ogr2ogr -f GeoJSON out.geojson in.shp`.
 
 | Dataset | MLIT code | Fields the code reads | Feeds |
@@ -52,12 +52,12 @@ which need `ogr2ogr -f GeoJSON out.geojson in.shp`.
 | Railway lines | **N02** | `N02_003`, `N02_004` | `rail_lines` |
 | Administrative boundaries | **N03** | `N03_004`, `N03_007` | `wards` |
 | Land prices | **L01** | `L01_005`, `L01_006`, `L01_022` | `land_prices` |
-| Urban planning / zoning | **A29** | `A29_001` | `zoning_areas` |
-| Flood hazard | **A31** | `A31_101` | `flood_zones` |
+| Urban planning / zoning | **A55 (2024)** | `YoutoName` | `zoning_areas` |
 
 Questions I need answered:
 - Is there a real MLIT download **API**, and does it need an API key? The
-  repo has an `MLIT_API_KEY` env var, but its auto-download path is
+  repo does not use an `MLIT_API_KEY`; archives are catalog-driven static ZIP
+  downloads, and the historical auto-download path is
   documented as always failing because no verified endpoint could be
   confirmed. Tell me whether such an endpoint actually exists today, or
   whether manual download is genuinely the only route.
@@ -75,8 +75,7 @@ pnpm import:mlit \
   --stations data/stations.geojson \
   --rail-lines data/rail-lines.geojson \
   --land-prices data/land-prices.geojson \
-  --zoning data/zoning.geojson \
-  --flood data/flood.geojson
+  --zoning data/zoning.geojson
 ```
 
 ### 2. e-Stat — 2023 Housing and Land Survey (住宅・土地統計調査)

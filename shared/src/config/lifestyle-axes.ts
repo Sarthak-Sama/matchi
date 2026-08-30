@@ -39,7 +39,6 @@ export interface LifestyleAxisDefinition {
  * UI menu order and the `factors` order for the lifestyle axes.
  */
 export const LIFESTYLE_AXIS_IDS = [
-  "floodSafety",
   "supermarkets",
   "restaurants",
   "quietness",
@@ -59,11 +58,6 @@ export type LifestyleAxisId = (typeof LIFESTYLE_AXIS_IDS)[number];
  * unknown entry are both compile errors) with zero casts.
  */
 export const LIFESTYLE_AXES = {
-  floodSafety: {
-    label: "Flood safety",
-    normColumn: "norm_flood_safety",
-    metricsKey: "normFloodSafety",
-  },
   supermarkets: {
     label: "Supermarkets",
     normColumn: "norm_amenity_supermarket",
@@ -106,7 +100,7 @@ export const LIFESTYLE_AXES = {
   },
 } as const satisfies Record<LifestyleAxisId, LifestyleAxisDefinition>;
 
-/** Union of every axis's `metricsKey` — e.g. `"normFloodSafety" | ...`. */
+/** Union of every axis's `metricsKey`. */
 export type LifestyleAxisMetricsKey = (typeof LIFESTYLE_AXES)[LifestyleAxisId]["metricsKey"];
 
 /**

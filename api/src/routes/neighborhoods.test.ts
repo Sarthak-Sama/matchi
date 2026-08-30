@@ -30,7 +30,6 @@ const FULL_ROW = {
   landPriceUsedFallback: false,
   rentSource: "reins",
   rentSourcePeriod: "2026Q1",
-  normFloodSafety: 70,
   normAmenitySupermarket: 60,
   normAmenityRestaurant: 90,
   normQuietness: 40,
@@ -83,7 +82,7 @@ describe("GET /v1/neighborhoods/:stationGroupId", () => {
   it("returns 404 NEIGHBORHOOD_NOT_FOUND when the station exists but has not been derived yet", async () => {
     const pool: DbPool = {
       query: vi.fn().mockResolvedValue({
-        rows: [{ ...FULL_ROW, normFloodSafety: null, derivedAt: null }],
+        rows: [{ ...FULL_ROW, normQuietness: null, derivedAt: null }],
       }),
     };
     const app = buildTestApp(pool);
@@ -119,7 +118,6 @@ describe("GET /v1/neighborhoods/:stationGroupId", () => {
     expect(body.rent?.label).toBe("modeled area rent");
     expect(body.factors.map((f) => f.key).sort()).toEqual(
       [
-        "floodSafety",
         "quietness",
         "restaurants",
         "supermarkets",

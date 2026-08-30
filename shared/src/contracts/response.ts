@@ -52,7 +52,10 @@ export type RentEstimate = z.infer<typeof rentEstimateSchema>;
 // ---------------------------------------------------------------------------
 
 export const commuteEstimateSchema = z.object({
+  mode: z.enum(["walk", "transit"]),
   totalMinutes: z.number(),
+  /** 25th–75th percentile of the nine locality sample totals. */
+  rangeMinutes: z.object({ min: z.number(), max: z.number() }),
   /** The origin-side walk: neighborhood to its own station. */
   accessWalkMinutes: z.number(),
   railMinutes: z.number(),
@@ -85,7 +88,9 @@ export type CommuteEstimate = z.infer<typeof commuteEstimateSchema>;
 
 export const neighborhoodResultSchema = z.object({
   rank: z.number(),
-  stationGroupId: z.string(),
+  localityId: z.string(),
+  /** Temporary compatibility field for clients that still key cards by station. */
+  stationGroupId: z.string().optional(),
   nameEn: z.string(),
   nameJa: z.string(),
   wardCode: z.string(),
@@ -95,6 +100,10 @@ export const neighborhoodResultSchema = z.object({
     lat: z.number(),
     lon: z.number(),
   }),
+  polygon: z.unknown().nullable(),
+  nearbyStations: z.array(z.object({
+    stationGroupId: z.string(), nameEn: z.string(), nameJa: z.string(), walkMinutes: z.number(),
+  })),
   overallScore: z.number().min(0).max(100),
   rent: rentEstimateSchema,
   commute: commuteEstimateSchema,
@@ -115,7 +124,7 @@ export const neighborhoodResultSchema = z.object({
    * access station), which the UI should mark as not directly comparable
    * to a rail commute.
    */
-  isDestinationAccessStation: z.boolean(),
+  isDestinationAccessStation: z.boolean().optional(),
 });
 export type NeighborhoodResult = z.infer<typeof neighborhoodResultSchema>;
 

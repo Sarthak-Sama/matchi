@@ -16,15 +16,18 @@ import { importanceSchema, layoutSchema } from "./common.js";
  * weighted down (see `scoreLifestyle`).
  *
  * Built from `LIFESTYLE_AXIS_IDS` rather than `z.record`: the object form
- * keeps per-field error paths (`preferences.floodSafety`, which
- * `routes/lib/validation.ts` exists to surface) and, with `.strict()`,
+ * keeps per-field error paths and, with `.strict()`,
  * rejects unknown axis keys instead of silently dropping them.
  *
  * `.strict()` must come before any `.refine` — refining returns a schema
  * that is no longer a `ZodObject`.
  */
 const preferencesSchema = z
-  .object(mapLifestyleAxes(() => importanceSchema.optional()))
+  .object({
+    ...mapLifestyleAxes(() => importanceSchema.optional()),
+    /** Deprecated compatibility input. Accepted but deliberately ignored. */
+    floodSafety: importanceSchema.optional(),
+  })
   .strict()
   .refine(
     (preferences) =>

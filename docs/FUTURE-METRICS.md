@@ -81,11 +81,8 @@ control to the API.
 **Proposed:** Surface seismic risk — earthquake shaking intensity and liquefaction
 potential — via the J-SHIS (Japan Seismic Hazard Information Station) database.
 
-**Why deferred:** These hazards are arguably more relevant to Tokyo living than
-flood risk (which the system already scores), and they are far more spatially
-variable within wards. However, J-SHIS data is large, detailed (mesh blocks), and
-requires careful interpretation. The decision to defer was made to stabilize the
-existing hazard integration (flood) before adding a second, more complex one.
+**Why deferred:** J-SHIS data is large, detailed (mesh blocks), and requires
+careful interpretation. Hazard scoring is currently outside the product scope.
 
 **Rough cost:** Access and license J-SHIS data; build import pipeline for hazard
 mesh; resample to station catchment areas; integrate into derive; validation

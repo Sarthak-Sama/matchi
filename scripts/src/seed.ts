@@ -15,7 +15,7 @@
  * counts are identical across runs.
  *
  * Usage:
- *   DATABASE_URL=postgresql://... pnpm db:seed
+ *   DATABASE_URL=postgresql://... pnpm db:seed --confirm-dev-seed
  */
 
 import { fileURLToPath } from "node:url";
@@ -32,7 +32,6 @@ import {
   RENT_STATS,
   LAND_PRICES,
   ZONING_AREAS,
-  FLOOD_ZONES,
   POIS,
   MAJOR_ROADS,
   GREEN_SPACES,
@@ -43,6 +42,14 @@ import {
 
 const SEED_SOURCE = "seed";
 
+export function assertSeedAllowed(argv: readonly string[], databaseUrl: string | undefined): void {
+  if (!databaseUrl) throw new Error("DATABASE_URL is required for db:seed");
+  if (/(production|prod)/i.test(databaseUrl)) throw new Error("db:seed refuses a production-named DATABASE_URL");
+  if (!/(test|_test|localhost|127\.0\.0\.1)/i.test(databaseUrl) && !argv.includes("--confirm-dev-seed")) {
+    throw new Error("db:seed requires --confirm-dev-seed for a non-test development database");
+  }
+}
+
 const OWNED_TABLES = [
   "wards",
   "station_groups",
@@ -52,7 +59,6 @@ const OWNED_TABLES = [
   "rent_stats",
   "land_prices",
   "zoning_areas",
-  "flood_zones",
   "pois",
   "major_roads",
   "green_spaces",
@@ -184,16 +190,6 @@ async function insertZoningAreas(client: PoolClient): Promise<void> {
   }
 }
 
-async function insertFloodZones(client: PoolClient): Promise<void> {
-  for (const fz of FLOOD_ZONES) {
-    await client.query(
-      `INSERT INTO flood_zones (depth_category, depth_rank, geom, source)
-       VALUES ($1, $2, ST_SetSRID(ST_GeomFromText($3), 4326), $4)`,
-      [fz.depth_category, fz.depth_rank, multiPolygonWKT([fz.ring]), SEED_SOURCE],
-    );
-  }
-}
-
 async function insertPois(client: PoolClient): Promise<void> {
   for (const poi of POIS) {
     await client.query(
@@ -237,7 +233,6 @@ export async function runSeed(): Promise<void> {
       await insertRentStats(client);
       await insertLandPrices(client);
       await insertZoningAreas(client);
-      await insertFloodZones(client);
       await insertPois(client);
       await insertMajorRoads(client);
       await insertGreenSpaces(client);
@@ -257,13 +252,8 @@ export async function runSeed(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (!process.env["DATABASE_URL"]) {
-    console.error(
-      "DATABASE_URL is not set. Set it to a PostgreSQL connection string, e.g.\n" +
-        "  DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo pnpm db:seed",
-    );
-    process.exit(1);
-  }
+  try { assertSeedAllowed(process.argv.slice(2), process.env["DATABASE_URL"]); }
+  catch (error) { console.error(error); process.exit(1); }
 
   await runSeed();
 }

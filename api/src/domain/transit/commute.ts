@@ -32,7 +32,9 @@ export interface CommutePathHop {
 }
 
 export interface CommuteEstimateResult {
+  readonly mode?: "walk" | "transit";
   readonly totalMinutes: number;
+  readonly rangeMinutes?: { readonly min: number; readonly max: number };
   /** The ORIGIN-side walk: neighbourhood to its own station. */
   readonly accessWalkMinutes: number;
   readonly railMinutes: number;
@@ -77,7 +79,9 @@ export function estimateCommute(
   }));
 
   return {
+    mode: "transit",
     totalMinutes: state.totalMinutes + ACCESS_WALK_MINUTES,
+    rangeMinutes: { min: state.totalMinutes + ACCESS_WALK_MINUTES, max: state.totalMinutes + ACCESS_WALK_MINUTES },
     accessWalkMinutes: ACCESS_WALK_MINUTES,
     railMinutes: state.railMinutes,
     waitMinutes: state.waitMinutes,

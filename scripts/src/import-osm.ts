@@ -54,7 +54,7 @@
  * present), then any `source = 'openstreetmap'` row whose `(osm_type,
  * osm_id)` wasn't seen this run is deleted. `major_roads` and `green_spaces`
  * both have no natural key in the schema (surrogate `id` only), so —
- * following `import:mlit`'s land_prices/zoning/flood precedent — every
+ * following `import:mlit`'s land_prices/zoning precedent — every
  * `source = 'openstreetmap'` row is deleted and this run's roads/green
  * spaces are freshly inserted, which is equivalent (delete-stale + upsert
  * reduces to delete-all + insert-all when there is no key to upsert

@@ -382,3 +382,5 @@ Use Next.js, Tailwind, custom components, and MapLibre. No general-purpose compo
 ## User directive (binding)
 
 - Do not put much effort toward the frontend. The frontend will be built after the backend is finished and ready. Deliver a functional, minimal frontend only.
+> Historical design document. Flood ingestion and scoring were removed by
+> migration `0009_remove_flood.sql`; flood references below are not active requirements.

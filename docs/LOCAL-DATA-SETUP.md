@@ -10,13 +10,11 @@ Downloaded on 2026-08-25. All source data lives under `data/`, which is intentio
 | N03 administrative boundaries, Tokyo, 2024 | `data/raw/mlit/N03-20240101_13_GML.zip` | Downloaded and converted |
 | L01 posted land prices, Tokyo, 2026 | `data/raw/mlit/L01-26_13_GML.zip` | Downloaded and inspected |
 | A29 zoning, Tokyo, 2019 | `data/raw/mlit/A29-19_13_GML.zip` | Downloaded; legacy ZIP filenames prevent normal macOS expansion |
-| A31 flood zones, Kanto, 2019/2020 | `data/raw/mlit/A31-19_83_GEOJSON.zip` | Downloaded; contains many river/layer GeoJSON files and is not Tokyo-only |
 
 SHA-256 values:
 
 ```text
 57fc822d580cf744e5596b7006363aa2a5685ceec0720b0053430760e12fc3c2  A29-19_13_GML.zip
-b12b4ff1b0700fa1a007d24ea253452f51816060a99a765f3534e234b356e1a0  A31-19_83_GEOJSON.zip
 4f3e251683a6affe7181236b60fda2a7eee1d5e83daffc9db82435a1542a7795  L01-26_13_GML.zip
 aaf76af133b2e771e538fabc4646d2e443dc1d5a67b221382a28d744e706cc9f  N02-25_GML.zip
 2c2cfd4413658c2e7cb919bb80638cc235a4e29555e72a282211613e7dc046ff  N03-20240101_13_GML.zip
@@ -43,15 +41,13 @@ No application parser was modified.
 | N03 wards | multiple polygons per ward | effectively one geometry per ward | `data/wards.geojson` is already dissolved |
 | L01 land prices | year `L01_007`, price `L01_008`, use `L01_028` | `L01_005`, `L01_006`, `L01_022` | Current importer would read incorrect values |
 | A29 zoning | classification `A29_004`; `A29_001` is administrative code | `A29_001` as category | Current importer would misclassify zoning |
-| A31 flood | fields vary by source version/layer | `A31_101` | Exact selected A31 layer must be inspected before import |
 
 ## What remains for a successful live import
 
 1. Decide and implement the N02 station-centroid policy and N02 line-mode mapping.
 2. Correct or preprocess the L01 and A29 field mappings.
-3. Choose the relevant A31 river/layer files for Tokyo and verify their depth field.
-4. Register for e-Stat, fetch `statsDataId=0004021492`, and provide `ESTAT_APP_ID` only if API retrieval is wanted.
-5. Optionally register for ODPT later for timetable/real-time transit data. It is not needed for topology mode.
+3. Register for e-Stat, fetch `statsDataId=0004021492`, and provide `ESTAT_APP_ID` only if API retrieval is wanted.
+4. Optionally register for ODPT later for timetable/real-time transit data. It is not needed for topology mode.
 
 Once items 1-3 are resolved, run:
 
@@ -61,8 +57,7 @@ pnpm import:mlit \\
   --stations data/stations.geojson \\
   --rail-lines data/rail-lines.geojson \\
   --land-prices data/land-prices.geojson \\
-  --zoning data/zoning.geojson \\
-  --flood data/flood.geojson
+  --zoning data/zoning.geojson
 
 pnpm import:transit --from-topology
 ```

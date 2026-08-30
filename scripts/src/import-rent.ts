@@ -64,54 +64,35 @@ import type { PoolClient } from "pg";
 import { createPool } from "./lib/db.js";
 import type { ImportResult } from "./lib/import-run.js";
 import { runImport } from "./lib/import-run.js";
-import { resolveSource } from "./lib/source-file.js";
 import { expectRowCount } from "./lib/validate.js";
 import type { ParsedRentStat } from "./import-rent/estat.js";
 import { decodeEstatCsv, ESTAT_SOURCE, mapEstatRows, parseEstatCsv } from "./import-rent/estat.js";
-import { mapReinsRows, parseReinsCsv, REINS_LICENCE_NOTICE, REINS_SOURCE } from "./import-rent/reins.js";
+import { ESTAT_SOURCE_UPDATED_AT, fetchLiveEstat } from "./import-rent/estat-api.js";
 import type { RentUnit } from "./import-rent/rent-unit.js";
 import { DEFAULT_RENT_UNIT } from "./import-rent/rent-unit.js";
+import { assertRentRanges } from "./import-rent/validate-ranges.js";
 import type { WardLookupEntry } from "./import-rent/ward-match.js";
 
 const RUN_SOURCE = "rent";
 
-const ESTAT_MANUAL_DOWNLOAD_URL =
-  "https://www.e-stat.go.jp/ — search for 住宅・土地統計調査 " +
-  "(Housing and Land Survey) 2023, drill down to Tokyo-to (東京都), municipality-level " +
-  "rent and management-fee figures for the 23 special wards, and pass the saved CSV's path via --file.";
-
-const REINS_MANUAL_DOWNLOAD_URL =
-  "REINS has no public download API — a member exports their own quarterly ward-level rent " +
-  "report from the REINS portal and passes its path via --reins.";
-
 export interface ImportRentArgs {
   readonly estatPath?: string;
   readonly estatSourceDate?: Date;
+  /** @deprecated REINS is intentionally ignored until a licensed source exists. */
   readonly reinsPath?: string;
+  /** @deprecated REINS is intentionally ignored until a licensed source exists. */
   readonly reinsSourceDate?: Date;
   /** Declares the unit BOTH files' rent column is in. Defaults to `"sqm"` when omitted. */
   readonly rentUnit?: RentUnit;
 }
 
 async function loadEstat(localPath: string | undefined): Promise<string> {
-  const raw = await resolveSource({
-    label: "e-Stat rent",
-    localPath,
-    requiredEnvVar: "ESTAT_APP_ID",
-    manualDownloadUrl: ESTAT_MANUAL_DOWNLOAD_URL,
-    encoding: "latin1",
-  });
+  if (!localPath) throw new Error("loadEstat requires a local file");
+  const { readFile } = await import("node:fs/promises");
+  const raw = (await readFile(localPath)).toString("latin1");
   // `raw` is a lossless byte-preserving string (see lib/source-file.ts);
   // recover the exact original bytes before choosing the real decoding.
   return decodeEstatCsv(Buffer.from(raw, "latin1"));
-}
-
-async function loadReins(localPath: string): Promise<string> {
-  return resolveSource({
-    label: "REINS rent",
-    localPath,
-    manualDownloadUrl: REINS_MANUAL_DOWNLOAD_URL,
-  });
 }
 
 async function loadWards(client: PoolClient): Promise<WardLookupEntry[]> {
@@ -164,7 +145,20 @@ async function upsertRentStats(
 
 export interface RentImportResult extends ImportResult {
   readonly estatRowsImported: number;
+  /** @deprecated always zero; retained temporarily for caller compatibility. */
   readonly reinsRowsImported: number;
+}
+
+function mergeLiveEstatRows(
+  rent: Awaited<ReturnType<typeof fetchLiveEstat>>["rent"],
+  fee: Awaited<ReturnType<typeof fetchLiveEstat>>["fee"],
+): ParsedRentStat[] {
+  const feeByWard = new Map(fee.values.map((value) => [value.area, value.value]));
+  return rent.values.map((value) => {
+    const managementFeeYen = feeByWard.get(value.area) ?? Number.NaN;
+    assertRentRanges(value.value, managementFeeYen, `e-Stat API ward ${value.area}`);
+    return { wardCode: value.area, period: "2023", source: ESTAT_SOURCE, rentPerSqmYen: value.value, managementFeeYen };
+  });
 }
 
 export async function runRentImport(client: PoolClient, args: ImportRentArgs): Promise<RentImportResult> {
@@ -175,10 +169,12 @@ export async function runRentImport(client: PoolClient, args: ImportRentArgs): P
   );
 
   const wards = await loadWards(client);
+  expectRowCount(wards.length, { min: 23, max: 23, label: "loaded Tokyo wards" });
 
-  const estatText = await loadEstat(args.estatPath);
-  const estatRawRows = parseEstatCsv(estatText);
-  const estatRows = mapEstatRows(estatRawRows, wards, rentUnit);
+  const live = args.estatPath === undefined ? await fetchLiveEstat(process.env["ESTAT_APP_ID"] ?? "") : undefined;
+  const estatRows = live
+    ? mergeLiveEstatRows(live.rent, live.fee)
+    : mapEstatRows(parseEstatCsv(await loadEstat(args.estatPath)), wards, rentUnit);
 
   // "Every one of the [known] ward codes present" — checked dynamically
   // against whatever `wards` currently holds, rather than a hardcoded 23,
@@ -192,29 +188,19 @@ export async function runRentImport(client: PoolClient, args: ImportRentArgs): P
     label: "distinct wards represented in the e-Stat rent file",
   });
 
-  const estatSourceUpdatedAt = args.estatSourceDate ?? null;
+  const estatSourceUpdatedAt = args.estatSourceDate ?? (live ? ESTAT_SOURCE_UPDATED_AT : null);
   const estatRowsImported = await upsertRentStats(client, ESTAT_SOURCE, estatRows, estatSourceUpdatedAt);
-
-  let reinsRowsImported = 0;
-  if (args.reinsPath !== undefined) {
-    console.log(REINS_LICENCE_NOTICE);
-    const reinsText = await loadReins(args.reinsPath);
-    const reinsRawRows = parseReinsCsv(reinsText);
-    const reinsRows = mapReinsRows(reinsRawRows, wards, rentUnit);
-    const reinsSourceUpdatedAt = args.reinsSourceDate ?? null;
-    reinsRowsImported = await upsertRentStats(client, REINS_SOURCE, reinsRows, reinsSourceUpdatedAt);
-  }
 
   console.log(
     `import:rent — estat=${String(estatRowsImported)} row(s) across ${String(matchedWardCodes.size)} ` +
-      `ward(s), reins=${String(reinsRowsImported)} row(s), rent unit: "${rentUnit}"`,
+      `ward(s), source=${live ? "e-Stat API" : "file"}, rent unit: "${rentUnit}"`,
   );
 
   return {
-    rowsImported: estatRowsImported + reinsRowsImported,
+    rowsImported: estatRowsImported,
     sourceUpdatedAt: estatSourceUpdatedAt ?? undefined,
     estatRowsImported,
-    reinsRowsImported,
+    reinsRowsImported: 0,
   };
 }
 
@@ -251,8 +237,6 @@ export function parseArgs(argv: readonly string[]): ImportRentArgs {
   return {
     estatPath: parseFlagValue(argv, "--file"),
     estatSourceDate: parseDateFlag(argv, "--source-date"),
-    reinsPath: parseFlagValue(argv, "--reins"),
-    reinsSourceDate: parseDateFlag(argv, "--reins-source-date"),
     rentUnit: parseRentUnitFlag(argv),
   };
 }

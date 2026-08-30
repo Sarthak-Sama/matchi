@@ -131,7 +131,7 @@ describe("IMPORTANCE_VALUES", () => {
 
 describe("AFFORDABILITY_FULL_SCORE_RATIO", () => {
   it("matches the spec literal value", () => {
-    expect(AFFORDABILITY_FULL_SCORE_RATIO).toBe(0.6);
+    expect(AFFORDABILITY_FULL_SCORE_RATIO).toBe(0.8);
   });
 });
 

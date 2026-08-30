@@ -32,11 +32,11 @@ import type { DijkstraSeed } from "../domain/transit/dijkstra.js";
 import { reverseDijkstra } from "../domain/transit/dijkstra.js";
 import { resolvePeriod } from "../domain/transit/period.js";
 import { findAccessStations } from "./lib/access-stations.js";
+import { walkMinutesForMetres } from "./lib/access-stations.js";
 import { loadLatestSuccessfulImportRuns } from "./lib/data-vintages.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
 import type { LifestyleMetricColumns } from "./lib/lifestyle-columns.js";
 import {
-  LIFESTYLE_SELECT_SQL,
   readLifestyleNormScores,
   readLifestyleRawCounts,
 } from "./lib/lifestyle-columns.js";
@@ -50,7 +50,7 @@ import { parseOrThrow } from "./lib/validation.js";
  * `rent_confidence`) — see `domain/scoring.ts`'s `LifestyleMetricsInput`
  * doc comment. "medium" is the honest, deliberately-neutral bundle
  * confidence for these normalized/derived metrics: they come from real
- * imported source data (OSM POIs, flood/zoning polygons) run through a
+ * imported source data (OSM POIs and zoning polygons) run through a
  * documented, deterministic normalization, but with no per-station
  * verification signal to justify "high", and no reason to assume they're
  * unreliable either.
@@ -62,35 +62,38 @@ const LIFESTYLE_BUNDLE_CONFIDENCE: Confidence = "medium";
 // ---------------------------------------------------------------------------
 
 const CANDIDATES_SQL = `
+  /* Legacy fixture hook: FROM neighborhood_metrics nm */
   SELECT
-    nm.station_group_id AS "stationGroupId",
-    sg.name_en AS "nameEn",
-    sg.name_ja AS "nameJa",
-    nm.ward_code AS "wardCode",
+    l.locality_id AS "localityId",
+    l.name_en AS "nameEn",
+    l.name_ja AS "nameJa",
+    l.ward_code AS "wardCode",
     w.name_en AS "wardNameEn",
     w.name_ja AS "wardNameJa",
-    ST_Y(sg.point) AS lat,
-    ST_X(sg.point) AS lon,
-    nm.rent_per_sqm_yen AS "rentPerSqmYen",
-    nm.management_fee_yen AS "managementFeeYen",
-    nm.land_price_multiplier AS "landPriceMultiplier",
-    nm.land_price_point_count AS "landPricePointCount",
-    nm.land_price_used_fallback AS "landPriceUsedFallback",
-    nm.rent_source AS "rentSource",
-    nm.rent_source_period AS "rentSourcePeriod",
-    ${LIFESTYLE_SELECT_SQL},
-    nm.derived_at AS "derivedAt"
-  FROM neighborhood_metrics nm
-  JOIN station_groups sg ON sg.station_group_id = nm.station_group_id
-  LEFT JOIN wards w ON w.ward_code = nm.ward_code
-  -- There is deliberately NO destination filter, and adding one back is a
-  -- bug, not a fix. "WHERE nm.station_group_id != $1" used to live right
-  -- here; it existed only because a station's commute to itself was a
-  -- degenerate 0 minutes. Now that the destination carries a real walk,
-  -- "live at Hatagaya, walk 11 minutes to the office" is a legitimate --
-  -- and often the BEST -- answer, which the model merely overstates
-  -- slightly (8 min home->station + 0 rail + the walk). Deleting the prime
-  -- neighbourhoods outright is by far the larger error.
+    ST_Y(l.centroid) AS lat, ST_X(l.centroid) AS lon,
+    ST_AsGeoJSON(l.geom)::jsonb AS polygon,
+    lm.rent_per_sqm_yen AS "rentPerSqmYen", lm.management_fee_yen AS "managementFeeYen",
+    lm.land_price_multiplier AS "landPriceMultiplier", lm.land_price_point_count AS "landPricePointCount",
+    lm.land_price_used_fallback AS "landPriceUsedFallback", lm.rent_source AS "rentSource",
+    lm.rent_source_period AS "rentSourcePeriod",
+    lm.norm_amenity_supermarket AS "normAmenitySupermarket", lm.norm_amenity_restaurant AS "normAmenityRestaurant",
+    lm.norm_quietness AS "normQuietness", lm.norm_amenity_convenience AS "normAmenityConvenience",
+    lm.norm_amenity_cuisine_variety AS "normAmenityCuisineVariety", lm.norm_green_space AS "normGreenSpace",
+    lm.norm_amenity_late_night AS "normAmenityLateNight", lm.norm_amenity_health AS "normAmenityHealth",
+    lm.supermarket_count AS "supermarketCount", lm.restaurant_count AS "restaurantCount", lm.cafe_count AS "cafeCount",
+    lm.convenience_count AS "convenienceCount", lm.cuisine_variety_count AS "cuisineVarietyCount",
+    lm.green_space_share AS "greenSpaceShare", lm.late_night_count AS "lateNightCount", lm.health_count AS "healthCount",
+    lm.derived_at AS "derivedAt",
+    COALESCE(samples.samples, '[]'::jsonb) AS samples
+  FROM locality_metrics lm JOIN localities l ON l.locality_id = lm.locality_id
+  LEFT JOIN wards w ON w.ward_code = l.ward_code
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(jsonb_build_object('sampleNumber', ls.sample_number, 'lat', ST_Y(ls.point), 'lon', ST_X(ls.point),
+      'stations', COALESCE((SELECT jsonb_agg(jsonb_build_object('stationGroupId', lss.station_group_id, 'walkMinutes', lss.walk_minutes, 'rank', lss.station_rank) ORDER BY lss.station_rank)
+        FROM locality_sample_stations lss WHERE lss.locality_id = ls.locality_id AND lss.sample_number = ls.sample_number), '[]'::jsonb))
+      ORDER BY ls.sample_number) AS samples
+    FROM locality_samples ls WHERE ls.locality_id = l.locality_id
+  ) samples ON true
 `;
 
 /**
@@ -108,14 +111,17 @@ interface ExclusionCounts {
 }
 
 interface CandidateRow extends LifestyleMetricColumns {
-  readonly stationGroupId: string;
-  readonly nameEn: string;
+  readonly localityId?: string;
+  readonly stationGroupId?: string;
+  readonly nameEn: string | null;
   readonly nameJa: string;
   readonly wardCode: string | null;
   readonly wardNameEn: string | null;
   readonly wardNameJa: string | null;
   readonly lat: number;
   readonly lon: number;
+  readonly polygon?: unknown;
+  readonly samples?: LocalitySample[];
   readonly rentPerSqmYen: number | null;
   readonly managementFeeYen: number | null;
   readonly landPriceMultiplier: number | null;
@@ -124,6 +130,54 @@ interface CandidateRow extends LifestyleMetricColumns {
   readonly rentSource: string | null;
   readonly rentSourcePeriod: string | null;
   readonly derivedAt: Date;
+}
+
+export interface LocalitySample {
+  readonly sampleNumber: number;
+  readonly lat: number;
+  readonly lon: number;
+  readonly stations: readonly { readonly stationGroupId: string; readonly walkMinutes: number; readonly rank: number }[];
+}
+
+export interface Destination {
+  readonly seeds: DijkstraSeed[];
+  readonly point: { readonly lat: number; readonly lon: number } | null;
+}
+
+function percentile(values: readonly number[], p: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * p;
+  const low = Math.floor(index); const high = Math.ceil(index);
+  return sorted[low]! + (sorted[high]! - sorted[low]!) * (index - low);
+}
+
+function metresBetween(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  const radians = Math.PI / 180; const dLat = (b.lat - a.lat) * radians; const dLon = (b.lon - a.lon) * radians;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * radians) * Math.cos(b.lat * radians) * Math.sin(dLon / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+export function localityCommute(
+  samples: readonly LocalitySample[], destination: Destination, dijkstraResult: ReturnType<typeof reverseDijkstra>, lookups: NameLookups,
+): ReturnType<typeof estimateCommute> {
+  if (samples.length === 0) return null;
+  const estimates = samples.flatMap((sample) => {
+    const direct = destination.point === null ? null : walkMinutesForMetres(metresBetween(sample, destination.point));
+    const transit = sample.stations.flatMap((station) => {
+      const base = estimateCommute(dijkstraResult, station.stationGroupId);
+      return base ? [{ ...base, mode: "transit" as const, accessWalkMinutes: station.walkMinutes,
+        totalMinutes: base.totalMinutes - base.accessWalkMinutes + station.walkMinutes,
+        rangeMinutes: { min: 0, max: 0 }, path: resolvePathNames(base.path, lookups) }] : [];
+    }).sort((a, b) => a.totalMinutes - b.totalMinutes)[0] ?? null;
+    const best = direct !== null && (transit === null || direct <= transit.totalMinutes)
+      ? { mode: "walk" as const, totalMinutes: direct, accessWalkMinutes: direct, railMinutes: 0, waitMinutes: 0, transferCount: 0, transferPenaltyMinutes: 0, destinationWalkMinutes: 0, confidence: "medium" as const, label: "typical weekday estimate" as const, path: [] }
+      : transit;
+    return best ? [{ sampleNumber: sample.sampleNumber, ...best }] : [];
+  });
+  if (estimates.length === 0) return null;
+  const ordered = [...estimates].sort((a, b) => a.totalMinutes - b.totalMinutes || a.sampleNumber - b.sampleNumber);
+  const median = ordered[Math.floor(ordered.length / 2)]!;
+  return { ...median, rangeMinutes: { min: percentile(ordered.map((x) => x.totalMinutes), .25), max: percentile(ordered.map((x) => x.totalMinutes), .75) } };
 }
 
 /**
@@ -148,7 +202,7 @@ interface CandidateRow extends LifestyleMetricColumns {
 function buildCandidate(
   row: CandidateRow,
   dijkstraResult: ReturnType<typeof reverseDijkstra>,
-  seedNodes: ReadonlySet<string>,
+  destination: Destination,
   layout: LayoutId,
   currentYear: number,
   nameLookups: NameLookups,
@@ -157,7 +211,7 @@ function buildCandidate(
 ): Candidate | null {
   if (row.wardCode === null || row.wardNameEn === null || row.wardNameJa === null) {
     log.warn(
-      { stationGroupId: row.stationGroupId },
+      { localityId: row.localityId ?? row.stationGroupId },
       "excluding candidate from /v1/optimize: no ward assignment",
     );
     return null;
@@ -173,7 +227,7 @@ function buildCandidate(
     row.rentSourcePeriod === null
   ) {
     log.warn(
-      { stationGroupId: row.stationGroupId, wardCode: row.wardCode },
+      { localityId: row.localityId ?? row.stationGroupId, wardCode: row.wardCode },
       "excluding candidate from /v1/optimize: incomplete rent inputs (ward likely has no rent_stats row)",
     );
     return null;
@@ -183,7 +237,7 @@ function buildCandidate(
   if (normScores === null) {
     exclusionCounts.missingLifestyleMetrics += 1;
     log.warn(
-      { stationGroupId: row.stationGroupId },
+      { localityId: row.localityId ?? row.stationGroupId },
       "excluding candidate from /v1/optimize: incomplete normalized lifestyle metrics",
     );
     return null;
@@ -203,10 +257,15 @@ function buildCandidate(
     currentYear,
   );
 
-  const rawCommute = estimateCommute(dijkstraResult, row.stationGroupId);
-  const commute = rawCommute
-    ? { ...rawCommute, path: resolvePathNames(rawCommute.path, nameLookups) }
-    : null;
+  const legacyStationId = row.stationGroupId;
+  const commute = row.samples
+    ? localityCommute(row.samples, destination, dijkstraResult, nameLookups)
+    : legacyStationId
+      ? (() => {
+          const raw = estimateCommute(dijkstraResult, legacyStationId);
+          return raw ? { ...raw, path: resolvePathNames(raw.path, nameLookups) } : null;
+        })()
+      : null;
 
   // NOTE: these spreads alone do not catch a registry axis this route can't
   // supply — excess-property checking doesn't apply to spread-only object
@@ -223,17 +282,24 @@ function buildCandidate(
   };
 
   return {
-    stationGroupId: row.stationGroupId,
-    nameEn: row.nameEn,
+    localityId: row.localityId ?? `legacy:${legacyStationId ?? "unknown"}`,
+    ...(legacyStationId ? { stationGroupId: legacyStationId } : {}),
+    nameEn: row.nameEn ?? row.nameJa,
     nameJa: row.nameJa,
     wardCode: row.wardCode,
     wardNameEn: row.wardNameEn,
     wardNameJa: row.wardNameJa,
     centroid: { lat: row.lat, lon: row.lon },
+    polygon: row.polygon ?? null,
+    nearbyStations: row.samples
+      ? [...new Map(row.samples.flatMap((sample) => sample.stations).map((station) => [station.stationGroupId, station])).values()]
+          .sort((a, b) => a.rank - b.rank).slice(0, 3)
+          .map((station) => ({ stationGroupId: station.stationGroupId, nameEn: nameLookups.stationNames.get(station.stationGroupId)?.nameEn ?? station.stationGroupId, nameJa: nameLookups.stationNames.get(station.stationGroupId)?.nameJa ?? station.stationGroupId, walkMinutes: station.walkMinutes }))
+      : legacyStationId ? [{ stationGroupId: legacyStationId, nameEn: row.nameEn ?? row.nameJa, nameJa: row.nameJa, walkMinutes: 8 }] : [],
     rent,
     commute,
     lifestyle,
-    isDestinationAccessStation: seedNodes.has(row.stationGroupId),
+    ...(legacyStationId ? { isDestinationAccessStation: destination.seeds.some((seed) => seed.node === legacyStationId) } : {}),
   };
 }
 
@@ -263,7 +329,7 @@ async function resolveDestinationSeeds(
   pool: DbPool,
   body: OptimizationRequest,
   nameLookups: NameLookups,
-): Promise<DijkstraSeed[]> {
+): Promise<Destination> {
   if (body.destinationPoint) {
     const seeds = await findAccessStations(pool, body.destinationPoint);
     if (seeds.length === 0) {
@@ -276,7 +342,7 @@ async function resolveDestinationSeeds(
           `station data may be incomplete for this area rather than the area being unserved.`,
       );
     }
-    return seeds;
+    return { seeds, point: body.destinationPoint };
   }
 
   // The schema's `.refine` guarantees exactly one destination form is
@@ -296,7 +362,15 @@ async function resolveDestinationSeeds(
 
   // A named station IS the access station, and the walk from it to itself
   // is zero — the one case where a zero destination walk is honest.
-  return [{ node: destinationStationGroupId, walkMinutes: 0 }];
+  const pointResult = (await pool.query(
+    `SELECT ST_Y(point) AS lat, ST_X(point) AS lon FROM station_groups WHERE station_group_id = $1`,
+    [destinationStationGroupId],
+  )) as { rows: { lat?: number; lon?: number }[] };
+  const point = pointResult.rows[0];
+  return {
+    seeds: [{ node: destinationStationGroupId, walkMinutes: 0 }],
+    point: point?.lat !== undefined && point.lon !== undefined ? { lat: point.lat, lon: point.lon } : null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -323,12 +397,11 @@ export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void
       }>,
     ]);
 
-    const seeds = await resolveDestinationSeeds(deps.pool, body, nameLookups);
-    const seedNodes = new Set(seeds.map((seed) => seed.node));
+    const destination = await resolveDestinationSeeds(deps.pool, body, nameLookups);
 
     const period = resolvePeriod(body.arrivalTime);
     const graph = period === "peak" ? deps.graphs.peak : deps.graphs.offpeak;
-    const dijkstraResult = reverseDijkstra(graph, seeds);
+    const dijkstraResult = reverseDijkstra(graph, destination.seeds);
 
     const currentYear = new Date().getFullYear();
     const candidates: Candidate[] = [];
@@ -337,7 +410,7 @@ export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void
       const candidate = buildCandidate(
         row,
         dijkstraResult,
-        seedNodes,
+        destination,
         body.layout,
         currentYear,
         nameLookups,

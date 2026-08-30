@@ -1132,3 +1132,5 @@ against the running API with the seeded+derived database.
   manual refresh cycles).
 - MapLibre, Playwright, visual design, and the methodology page — deferred by
   the user's frontend directive.
+> Historical design document. Flood ingestion and scoring were removed by
+> migration `0009_remove_flood.sql`; flood references below are not active requirements.

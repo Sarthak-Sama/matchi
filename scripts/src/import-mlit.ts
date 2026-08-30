@@ -1,6 +1,6 @@
 /**
  * `pnpm import:mlit` — imports wards, station groups (with merging),
- * rail lines, land-price points, zoning polygons, and flood polygons from
+ * rail lines, land-price points, and zoning polygons from
  * MLIT (Ministry of Land, Infrastructure, Transport and Tourism) data.
  *
  * Every dataset is passed in as its own GeoJSON file via a `--<dataset>`
@@ -13,7 +13,6 @@
  *     --rail-lines data/rail-lines.geojson \
  *     --land-prices data/land-prices.geojson \
  *     --zoning data/zoning.geojson \
- *     --flood data/flood.geojson \
  *     [--source-date 2026-01-01]
  *
  * When a dataset's flag is omitted, this script tries to download it —
@@ -28,7 +27,7 @@
  * an ASSUMPTION about MLIT's real export shape — documented per dataset in
  * `scripts/src/import-mlit/*.ts` and summarized in task-11-report.md.
  *
- * All six datasets are parsed and validated up front — before any DB
+ * All five datasets are parsed and validated up front — before any DB
  * write — then written inside the single transaction `runImport` (from
  * `scripts/src/lib/import-run.ts`) provides. A failure anywhere rolls back
  * every table this script touches; the `import_runs` bookkeeping row still
@@ -39,9 +38,9 @@
  * (synthesized deterministically from the merged group's name + rounded
  * centroid when the source has no id of its own), and
  * `rail_lines.rail_line_id` are upserted, then rows for this run's
- * `source` not seen this run are deleted. `land_prices`, `zoning_areas`,
- * and `flood_zones` have no natural key in the schema (surrogate `id`
- * only) — for those, every `source = 'mlit'` row is deleted and this
+ * `source` not seen this run are deleted. `land_prices` and `zoning_areas`
+ * have no natural key in the schema (surrogate `id` only) — for those,
+ * every `source = 'mlit'` row is deleted and this
  * run's rows are freshly inserted, which is equivalent (delete-stale +
  * upsert reduces to delete-all + insert-all when there is no key to
  * upsert against).
@@ -93,11 +92,9 @@ import type { PoolClient } from "pg";
 import { createPool } from "./lib/db.js";
 import type { ImportResult } from "./lib/import-run.js";
 import { runImport } from "./lib/import-run.js";
-import { resolveSource } from "./lib/source-file.js";
+import { inChunks } from "./lib/chunks.js";
 import { expectRowCount } from "./lib/validate.js";
 import { parseFeatureCollection, pointWKT } from "./import-mlit/geojson.js";
-import type { ParsedFloodZone } from "./import-mlit/flood.js";
-import { MIN_FLOOD_ROWS, parseFloodZones } from "./import-mlit/flood.js";
 import type { ParsedLandPrice } from "./import-mlit/land-prices.js";
 import { MIN_LAND_PRICES_ROWS, parseLandPrices } from "./import-mlit/land-prices.js";
 import type { ParsedRailLine } from "./import-mlit/rail-lines.js";
@@ -106,16 +103,11 @@ import type { MergedStationGroup } from "./import-mlit/station-merge.js";
 import { mergeStations } from "./import-mlit/station-merge.js";
 import { MIN_STATIONS_ROWS, parseStations } from "./import-mlit/stations.js";
 import type { ParsedWard } from "./import-mlit/wards.js";
-import { MIN_WARDS_ROWS, parseWards } from "./import-mlit/wards.js";
+import { assertTokyoWards, MIN_WARDS_ROWS, parseWards } from "./import-mlit/wards.js";
 import type { ParsedZoningArea } from "./import-mlit/zoning.js";
 import { MIN_ZONING_ROWS, parseZoningAreas } from "./import-mlit/zoning.js";
 
 const SOURCE = "mlit";
-
-const MANUAL_DOWNLOAD_URL =
-  "https://nlftp.mlit.go.jp/ksj/ (MLIT National Land Numerical Information download service — " +
-  "wards: dataset N03, stations/rail lines: dataset N02, land prices: dataset L01, zoning: " +
-  "dataset A29, flood: dataset A31)";
 
 export interface ImportMlitArgs {
   readonly wardsPath?: string;
@@ -123,17 +115,24 @@ export interface ImportMlitArgs {
   readonly railLinesPath?: string;
   readonly landPricesPath?: string;
   readonly zoningPath?: string;
-  readonly floodPath?: string;
+  /** Legacy override for all MLIT layers. Individual source dates are preferred. */
   readonly sourceDate?: Date;
+  readonly n03SourceDate?: Date;
+  readonly n02SourceDate?: Date;
+  readonly l01SourceDate?: Date;
+  readonly a55SourceDate?: Date;
 }
 
 async function loadDataset(label: string, localPath: string | undefined): Promise<string> {
-  return resolveSource({
-    label,
-    localPath,
-    requiredEnvVar: "MLIT_API_KEY",
-    manualDownloadUrl: MANUAL_DOWNLOAD_URL,
-  });
+  const { readFile } = await import("node:fs/promises");
+  const defaults: Record<string, string> = {
+    wards: "data/wards.geojson", stations: "data/stations.geojson", "rail-lines": "data/rail-lines.geojson",
+    "land-prices": "data/land-prices.geojson", zoning: "data/zoning.geojson",
+  };
+  const source = localPath ?? defaults[label];
+  if (!source) throw new Error(`import:mlit — no canonical path registered for ${label}`);
+  try { return await readFile(source, "utf8"); }
+  catch (error) { throw new Error(`import:mlit — ${label} file is missing at ${source}. Run pnpm data:prepare first.`, { cause: error }); }
 }
 
 /** A foreign key column somewhere in the schema that references `wards(ward_code)`. */
@@ -383,13 +382,14 @@ async function replaceLandPrices(
   sourceUpdatedAt: Date | null,
 ): Promise<number> {
   await client.query(`DELETE FROM land_prices WHERE source = $1`, [SOURCE]);
-  for (const r of rows) {
+  await inChunks(rows, 500, async (chunk) => {
     await client.query(
       `INSERT INTO land_prices (point, price_yen_per_sqm, year, use_category, source, source_updated_at)
-       VALUES (ST_SetSRID(ST_GeomFromText($1), 4326), $2, $3, $4, $5, $6)`,
-      [pointWKT([r.lon, r.lat]), r.priceYenPerSqm, r.year, r.useCategory ?? null, SOURCE, sourceUpdatedAt],
+       SELECT ST_SetSRID(ST_GeomFromText(wkt), 4326), price, year, use_category, $5, $6
+       FROM unnest($1::text[], $2::float8[], $3::int[], $4::text[]) AS x(wkt, price, year, use_category)`,
+      [chunk.map((r) => pointWKT([r.lon, r.lat])), chunk.map((r) => r.priceYenPerSqm), chunk.map((r) => r.year), chunk.map((r) => r.useCategory ?? null), SOURCE, sourceUpdatedAt],
     );
-  }
+  });
   return rows.length;
 }
 
@@ -399,29 +399,14 @@ async function replaceZoning(
   sourceUpdatedAt: Date | null,
 ): Promise<number> {
   await client.query(`DELETE FROM zoning_areas WHERE source = $1`, [SOURCE]);
-  for (const r of rows) {
+  await inChunks(rows, 250, async (chunk) => {
     await client.query(
       `INSERT INTO zoning_areas (category, is_residential, geom, source, source_updated_at)
-       VALUES ($1, $2, ST_SetSRID(ST_GeomFromText($3), 4326), $4, $5)`,
-      [r.category, r.isResidential, r.geomWKT, SOURCE, sourceUpdatedAt],
+       SELECT category, is_residential, ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromText(wkt), 4326)), 3)), $4, $5
+       FROM unnest($1::text[], $2::bool[], $3::text[]) AS x(category, is_residential, wkt)`,
+      [chunk.map((r) => r.category), chunk.map((r) => r.isResidential), chunk.map((r) => r.geomWKT), SOURCE, sourceUpdatedAt],
     );
-  }
-  return rows.length;
-}
-
-async function replaceFlood(
-  client: PoolClient,
-  rows: readonly ParsedFloodZone[],
-  sourceUpdatedAt: Date | null,
-): Promise<number> {
-  await client.query(`DELETE FROM flood_zones WHERE source = $1`, [SOURCE]);
-  for (const r of rows) {
-    await client.query(
-      `INSERT INTO flood_zones (depth_category, depth_rank, geom, source, source_updated_at)
-       VALUES ($1, $2, ST_SetSRID(ST_GeomFromText($3), 4326), $4, $5)`,
-      [r.depthCategory, r.depthRank, r.geomWKT, SOURCE, sourceUpdatedAt],
-    );
-  }
+  });
   return rows.length;
 }
 
@@ -477,12 +462,19 @@ export async function runMlitImport(
   client: PoolClient,
   args: ImportMlitArgs,
 ): Promise<MlitImportResult> {
-  const sourceUpdatedAt = args.sourceDate ?? null;
+  const allDate = args.sourceDate;
+  const n03Date = args.n03SourceDate ?? allDate ?? null;
+  const n02Date = args.n02SourceDate ?? allDate ?? null;
+  const l01Date = args.l01SourceDate ?? allDate ?? null;
+  const a55Date = args.a55SourceDate ?? allDate ?? null;
+  const sourceUpdatedAt = [n03Date, n02Date, l01Date, a55Date]
+    .filter((date): date is Date => date !== null).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
 
   const wardsRaw = await loadDataset("wards", args.wardsPath);
   const wardFeatures = parseFeatureCollection(wardsRaw, "wards");
   expectRowCount(wardFeatures.length, { min: MIN_WARDS_ROWS, label: "wards" });
   const wards = parseWards(wardFeatures);
+  assertTokyoWards(wards);
 
   const stationsRaw = await loadDataset("stations", args.stationsPath);
   const stationFeatures = parseFeatureCollection(stationsRaw, "stations");
@@ -505,31 +497,28 @@ export async function runMlitImport(
   expectRowCount(zoningFeatures.length, { min: MIN_ZONING_ROWS, label: "zoning" });
   const zoning = parseZoningAreas(zoningFeatures);
 
-  const floodRaw = await loadDataset("flood", args.floodPath);
-  const floodFeatures = parseFeatureCollection(floodRaw, "flood");
-  expectRowCount(floodFeatures.length, { min: MIN_FLOOD_ROWS, label: "flood" });
-  const flood = parseFloodZones(floodFeatures);
-
   // Every dataset is now parsed and validated — nothing has touched the
   // database yet. From here on, writes happen inside runImport's
   // transaction; any error still rolls everything below back.
   let rowsImported = 0;
-  const wardsResult = await upsertWards(client, wards, sourceUpdatedAt);
+  const wardsResult = await upsertWards(client, wards, n03Date);
   rowsImported += wardsResult.rowsWritten;
-  rowsImported += await upsertStations(client, stationGroups, sourceUpdatedAt);
-  rowsImported += await upsertRailLines(client, railLines, sourceUpdatedAt);
+  rowsImported += await upsertStations(client, stationGroups, n02Date);
+  rowsImported += await upsertRailLines(client, railLines, n02Date);
   const residentialLandPriceCount = landPrices.filter((r) => r.useCategory === "residential").length;
-  rowsImported += await replaceLandPrices(client, landPrices, sourceUpdatedAt);
-  rowsImported += await replaceZoning(client, zoning, sourceUpdatedAt);
-  rowsImported += await replaceFlood(client, flood, sourceUpdatedAt);
+  rowsImported += await replaceLandPrices(client, landPrices, l01Date);
+  rowsImported += await replaceZoning(client, zoning, a55Date);
 
   const stationWard = await assignWardCodes(client, "station_groups");
   await assignWardCodes(client, "land_prices");
+  if (stationWard.withoutWard > 0) {
+    throw new Error(`import:mlit — ${String(stationWard.withoutWard)} retained N02 station(s) have no ward assignment`);
+  }
 
   console.log(
     `import:mlit — wards=${wards.length} stations=${stationGroups.length} ` +
       `(from ${rawStations.length} raw feature(s)) rail_lines=${railLines.length} ` +
-      `land_prices=${landPrices.length} zoning=${zoning.length} flood=${flood.length}`,
+      `land_prices=${landPrices.length} zoning=${zoning.length}`,
   );
   console.log(
     `import:mlit — ${stationWard.withoutWard} of ${stationGroups.length} imported station(s) have ` +
@@ -575,15 +564,15 @@ function parseFlagValue(argv: readonly string[], flag: string): string | undefin
 }
 
 export function parseArgs(argv: readonly string[]): ImportMlitArgs {
-  const sourceDateRaw = parseFlagValue(argv, "--source-date");
-  let sourceDate: Date | undefined;
-  if (sourceDateRaw !== undefined) {
-    const parsed = new Date(sourceDateRaw);
+  const date = (flag: string): Date | undefined => {
+    const raw = parseFlagValue(argv, flag);
+    if (raw === undefined) return undefined;
+    const parsed = new Date(raw);
     if (Number.isNaN(parsed.getTime())) {
-      throw new Error(`--source-date "${sourceDateRaw}" is not a valid date`);
+      throw new Error(`${flag} "${raw}" is not a valid date`);
     }
-    sourceDate = parsed;
-  }
+    return parsed;
+  };
 
   return {
     wardsPath: parseFlagValue(argv, "--wards"),
@@ -591,8 +580,11 @@ export function parseArgs(argv: readonly string[]): ImportMlitArgs {
     railLinesPath: parseFlagValue(argv, "--rail-lines"),
     landPricesPath: parseFlagValue(argv, "--land-prices"),
     zoningPath: parseFlagValue(argv, "--zoning"),
-    floodPath: parseFlagValue(argv, "--flood"),
-    sourceDate,
+    sourceDate: date("--source-date"),
+    n03SourceDate: date("--n03-source-date"),
+    n02SourceDate: date("--n02-source-date"),
+    l01SourceDate: date("--l01-source-date"),
+    a55SourceDate: date("--a55-source-date"),
   };
 }
 
@@ -622,4 +614,3 @@ if (isMain) {
     process.exit(1);
   });
 }
-

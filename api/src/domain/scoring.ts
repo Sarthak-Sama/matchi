@@ -58,7 +58,6 @@ import type { CommuteEstimateResult } from "./transit/commute.js";
  * column).
  */
 export interface LifestyleMetricsInput {
-  readonly normFloodSafety: number;
   readonly normAmenitySupermarket: number;
   readonly normAmenityRestaurant: number;
   readonly normQuietness: number;
@@ -87,13 +86,22 @@ export interface LifestyleMetricsInput {
  * "disconnected" hard-filter case), and `LifestyleMetricsInput`.
  */
 export interface Candidate {
-  readonly stationGroupId: string;
+  readonly localityId?: string;
+  /** Retained only to make the legacy detail/API transition non-breaking. */
+  readonly stationGroupId?: string;
   readonly nameEn: string;
   readonly nameJa: string;
   readonly wardCode: string;
   readonly wardNameEn: string;
   readonly wardNameJa: string;
   readonly centroid: { readonly lat: number; readonly lon: number };
+  readonly polygon?: unknown | null;
+  readonly nearbyStations?: readonly {
+    readonly stationGroupId: string;
+    readonly nameEn: string;
+    readonly nameJa: string;
+    readonly walkMinutes: number;
+  }[];
   readonly rent: RentEstimateResult;
   readonly commute: CommuteEstimateResult | null;
   readonly lifestyle: LifestyleMetricsInput;
@@ -103,7 +111,7 @@ export interface Candidate {
    * is purely a label the response passes to the UI (see
    * `NeighborhoodResult.isDestinationAccessStation`).
    */
-  readonly isDestinationAccessStation: boolean;
+  readonly isDestinationAccessStation?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -419,9 +427,7 @@ export function scoreLifestyle(
       sourceDate: metrics.sourceDate,
       confidence: metrics.confidence,
       // Deliberately does NOT restate `componentScore` in the same "X/100"
-      // form `rawValueLabel` already uses for floodSafety/quietness (that
-      // would read as "80/100 flood safety score scores 80/100 on flood
-      // safety" — pure repetition). The effective weight is new
+      // form `rawValueLabel` already uses for quietness. The effective weight is new
       // information `rawValueLabel` never carries, for every axis.
       explanation: `${rawValueLabel}, weighted at ${(effectiveWeight * 100).toFixed(1)}% of your overall score.`,
       direction: classifyDirection(componentScore),
@@ -459,7 +465,12 @@ function classifyDirection(componentScore: number): FactorEvidence["direction"] 
 // scoreCandidate
 // ---------------------------------------------------------------------------
 
-export type ScoredCandidate = Omit<NeighborhoodResult, "rank">;
+export type ScoredCandidate = Omit<NeighborhoodResult, "rank" | "localityId" | "polygon" | "nearbyStations" | "commute"> & {
+  readonly localityId?: string;
+  readonly polygon?: unknown | null;
+  readonly nearbyStations?: NeighborhoodResult["nearbyStations"];
+  readonly commute: CommuteEstimateResult;
+};
 
 /**
  * Scores one candidate that has already passed `applyHardFilters` (so
@@ -483,7 +494,7 @@ export function scoreCandidate(
   const commute = candidate.commute;
   if (!commute) {
     throw new Error(
-      `scoreCandidate: candidate "${candidate.stationGroupId}" has no commute result — it ` +
+      `scoreCandidate: candidate "${candidate.localityId ?? candidate.stationGroupId ?? "unknown"}" has no commute result — it ` +
         `should have been excluded by applyHardFilters (the "disconnected" rule) before scoring.`,
     );
   }
@@ -544,13 +555,16 @@ export function scoreCandidate(
   const { reasonsFor, reasonsAgainst } = buildReasons(factors);
 
   return {
-    stationGroupId: candidate.stationGroupId,
+    localityId: candidate.localityId ?? `legacy:${candidate.stationGroupId ?? candidate.nameJa}`,
+    ...(candidate.stationGroupId ? { stationGroupId: candidate.stationGroupId } : {}),
     nameEn: candidate.nameEn,
     nameJa: candidate.nameJa,
     wardCode: candidate.wardCode,
     wardNameEn: candidate.wardNameEn,
     wardNameJa: candidate.wardNameJa,
     centroid: candidate.centroid,
+    polygon: candidate.polygon ?? null,
+    nearbyStations: (candidate.nearbyStations ?? []).map((station) => ({ ...station })),
     overallScore,
     rent: candidate.rent,
     // `CommuteEstimateResult.path` is `readonly CommutePathHop[]` (the
@@ -559,12 +573,14 @@ export function scoreCandidate(
     // plain mutable array. `.map()` always returns a fresh mutable array
     // regardless of the source's readonly-ness, so this is a type-shape
     // conversion only — no data is changed.
-    commute: { ...commute, path: commute.path.map((hop) => ({ ...hop })) },
+    commute: { ...commute, mode: commute.mode ?? "transit", rangeMinutes: commute.rangeMinutes ?? { min: commute.totalMinutes, max: commute.totalMinutes }, path: commute.path.map((hop) => ({ ...hop })) },
     factors,
     reasonsFor,
     reasonsAgainst,
     catchmentLabel: CATCHMENT_LABEL,
-    isDestinationAccessStation: candidate.isDestinationAccessStation,
+    ...(candidate.isDestinationAccessStation === undefined
+      ? {}
+      : { isDestinationAccessStation: candidate.isDestinationAccessStation }),
   };
 }
 
@@ -626,8 +642,16 @@ export function rankCandidates(scored: readonly ScoredCandidate[]): Neighborhood
     if (a.commute.totalMinutes !== b.commute.totalMinutes) {
       return a.commute.totalMinutes - b.commute.totalMinutes;
     }
-    return a.rent.medianYen - b.rent.medianYen;
+    if (a.rent.medianYen !== b.rent.medianYen) return a.rent.medianYen - b.rent.medianYen;
+    return (a.localityId ?? a.stationGroupId ?? a.nameJa).localeCompare(b.localityId ?? b.stationGroupId ?? b.nameJa);
   });
 
-  return sorted.map((candidate, index) => ({ ...candidate, rank: index + 1 }));
+  return sorted.map((candidate, index) => ({
+    ...candidate,
+    localityId: candidate.localityId ?? `legacy:${candidate.stationGroupId ?? candidate.nameJa}`,
+    polygon: candidate.polygon ?? null,
+    nearbyStations: candidate.nearbyStations ?? [],
+    commute: { ...candidate.commute, mode: candidate.commute.mode ?? "transit", rangeMinutes: candidate.commute.rangeMinutes ?? { min: candidate.commute.totalMinutes, max: candidate.commute.totalMinutes }, path: candidate.commute.path.map((hop) => ({ ...hop })) },
+    rank: index + 1,
+  }));
 }

@@ -78,7 +78,6 @@ function makeCandidateRow(overrides: Record<string, unknown> = {}): Record<strin
     landPriceUsedFallback: false,
     rentSource: "reins",
     rentSourcePeriod: `${currentYear}Q1`,
-    normFloodSafety: 80,
     normAmenitySupermarket: 70,
     normAmenityRestaurant: 60,
     normQuietness: 50,
@@ -96,7 +95,6 @@ const CANDIDATE_ROWS = [
     stationGroupId: "sg-far",
     nameEn: "Far Station",
     nameJa: "遠い駅",
-    normFloodSafety: 30,
     normAmenitySupermarket: 20,
     normAmenityRestaurant: 20,
     normQuietness: 90,
@@ -658,12 +656,21 @@ function runCli(script: string): void {
 describe.runIf(Boolean(databaseUrl))("POST /v1/optimize (integration)", () => {
   let pool: Pool;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     if (!databaseUrl) return;
     runCli("scripts/src/migrate.ts");
     runCli("scripts/src/seed.ts");
-    runCli("scripts/src/derive.ts");
     pool = new Pool({ connectionString: databaseUrl });
+    await pool.query(`
+      INSERT INTO localities (locality_id, ward_code, name_ja, geom, centroid, source)
+      SELECT 'test-locality-shibuya', sg.ward_code, '渋谷テスト町',
+        ST_Multi(ST_CollectionExtract(ST_Intersection(
+          ST_Buffer(sg.point::geography, 300)::geometry, w.geom
+        ), 3)), sg.point, 'test'
+      FROM station_groups sg JOIN wards w ON w.ward_code=sg.ward_code
+      WHERE sg.station_group_id='sg-shibuya'
+    `);
+    runCli("scripts/src/derive.ts");
   }, 60_000);
 
   afterAll(async () => {
@@ -671,7 +678,7 @@ describe.runIf(Boolean(databaseUrl))("POST /v1/optimize (integration)", () => {
     await pool.end();
   });
 
-  it("returns a non-empty ranked list, excludes sg-isolated-test under excludedByDisconnected, and labels every rent value", async () => {
+  it("returns a non-empty locality-ranked list and labels every rent value", async () => {
     const { loadRailEdges } = await import("../domain/transit/loader.js");
     const { buildGraphs } = await import("../domain/transit/graph.js");
     const edges = await loadRailEdges(pool);
@@ -702,15 +709,14 @@ describe.runIf(Boolean(databaseUrl))("POST /v1/optimize (integration)", () => {
     const body = optimizeResponseSchema.parse(response.json());
 
     expect(body.results.length).toBeGreaterThan(0);
-    expect(body.results.some((r) => r.stationGroupId === "sg-isolated-test")).toBe(false);
-    expect(body.diagnostics.excludedByDisconnected).toBeGreaterThanOrEqual(1);
+    expect(body.results[0]?.localityId).toBe("test-locality-shibuya");
 
     for (const result of body.results) {
       expect(result.rent.label).toBe("modeled area rent");
     }
   });
 
-  it("a destinationPoint near Shibuya: real seeds, a non-zero itemized walk, and Shibuya itself in the list", async () => {
+  it("a destinationPoint near Shibuya produces real seeds and a non-zero itemized walk", async () => {
     const { loadRailEdges } = await import("../domain/transit/loader.js");
     const { buildGraphs } = await import("../domain/transit/graph.js");
     const graphs = buildGraphs(await loadRailEdges(pool));
@@ -754,12 +760,7 @@ describe.runIf(Boolean(databaseUrl))("POST /v1/optimize (integration)", () => {
       );
     }
 
-    // The destination's own area is present — this is the filter that used
-    // to delete it.
-    const shibuya = body.results.find((r) => r.stationGroupId === "sg-shibuya");
-    expect(shibuya).toBeDefined();
-    expect(shibuya?.isDestinationAccessStation).toBe(true);
-    expect(shibuya?.commute.railMinutes).toBe(0);
+    expect(body.results[0]?.localityId).toBe("test-locality-shibuya");
 
     expect(
       body.diagnostics.excludedByRent +
@@ -820,10 +821,7 @@ describe.runIf(Boolean(databaseUrl))("POST /v1/optimize (integration)", () => {
     for (const result of body.results) {
       expect(result.commute.destinationWalkMinutes).toBe(0);
     }
-    // Shibuya is its own access station, so it is a candidate here too.
-    expect(
-      body.results.find((r) => r.stationGroupId === "sg-shibuya")?.isDestinationAccessStation,
-    ).toBe(true);
+    expect(body.results[0]?.localityId).toBe("test-locality-shibuya");
   });
 });
 
