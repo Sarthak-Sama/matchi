@@ -1,17 +1,50 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Archivo, IBM_Plex_Mono, Newsreader } from "next/font/google";
 
 import "./globals.css";
 
+/**
+ * The Field Guide's two-and-a-half type roles:
+ *  - Newsreader: a contemporary literary serif for neighborhood names,
+ *    headings, and descriptive introductions (with optical sizing).
+ *  - Archivo: a plain-spoken grotesque for navigation, forms, labels,
+ *    and data.
+ *  - IBM Plex Mono: restrained technical metadata — coordinates, ranks,
+ *    timestamps.
+ * Japanese text falls through to high-quality system Mincho/Gothic stacks
+ * (see globals.css) rather than shipping multi-megabyte CJK webfonts.
+ */
+const newsreader = Newsreader({
+  subsets: ["latin"],
+  variable: "--font-newsreader",
+  style: ["normal", "italic"],
+  axes: ["opsz"],
+  display: "swap",
+});
+
+const archivo = Archivo({
+  subsets: ["latin"],
+  variable: "--font-archivo",
+  display: "swap",
+});
+
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  variable: "--font-plex-mono",
+  weight: ["400", "500"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "Tokyo Neighborhood Optimizer",
+  title: "Matchi — Find the Tokyo neighborhood that fits your life",
   description:
-    "Ranks Tokyo neighborhoods by modeled affordability, commute time, and lifestyle fit for your destination station and budget.",
+    "Meet your Matchi. Compare Tokyo neighborhoods by commute, modeled rent, and everyday rhythm — quietness, groceries, dining, and more — not just listings.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${newsreader.variable} ${archivo.variable} ${plexMono.variable}`}>
       <body>{children}</body>
     </html>
   );

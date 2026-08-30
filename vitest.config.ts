@@ -1,9 +1,11 @@
 import { defineConfig } from "vitest/config";
 
 // Single root Vitest config with one project per workspace package that
-// carries tests. `web` carries exactly one file (`lib/api.test.ts`, Task
-// 15) by design — the frontend's test budget is deliberately limited to the
-// handwritten fetch wrapper; no component tests, no Playwright.
+// carries tests. `web` covers only `lib/` by design — the handwritten fetch
+// wrapper and the display/derivation helpers behind the results copy. Those
+// are pure functions with real edge cases (duplicated bilingual names, an
+// empty `reasonsAgainst`, rounding residuals in the commute legs). Rendering
+// stays deliberately untested: no component tests, no Playwright.
 export default defineConfig({
   test: {
     globals: false,
