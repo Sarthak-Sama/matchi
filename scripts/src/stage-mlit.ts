@@ -63,6 +63,7 @@ interface FeatureCollection {
 export interface StageMlitArgs {
   readonly stationsIn: string;
   readonly railIn: string;
+  readonly wardsIn: string;
   readonly stationsOut: string;
   readonly railOut: string;
 }
@@ -80,15 +81,16 @@ function flagValue(argv: readonly string[], flag: string): string | undefined {
 export function parseArgs(argv: readonly string[]): StageMlitArgs {
   const stationsIn = flagValue(argv, "--stations-in");
   const railIn = flagValue(argv, "--rail-in");
+  const wardsIn = flagValue(argv, "--wards");
   const stationsOut = flagValue(argv, "--stations-out");
   const railOut = flagValue(argv, "--rail-out");
-  if (!stationsIn || !railIn || !stationsOut || !railOut) {
+  if (!stationsIn || !railIn || !wardsIn || !stationsOut || !railOut) {
     throw new Error(
-      "stage:mlit requires --stations-in, --rail-in, --stations-out and --rail-out. See this " +
+      "stage:mlit requires --stations-in, --rail-in, --wards, --stations-out and --rail-out. See this " +
         "file's doc comment for a worked example.",
     );
   }
-  return { stationsIn, railIn, stationsOut, railOut };
+  return { stationsIn, railIn, wardsIn, stationsOut, railOut };
 }
 
 /** First coordinate pair of any geometry, used for the bounding-box test. */
@@ -111,6 +113,74 @@ export function withinTokyo(coordinates: unknown): boolean {
     lat >= TOKYO_23_WARDS_BBOX.south &&
     lat <= TOKYO_23_WARDS_BBOX.north
   );
+}
+
+type Point = readonly [number, number];
+
+function ringContains(point: Point, ring: unknown): boolean {
+  if (!Array.isArray(ring)) return false;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i]; const b = ring[j];
+    if (!Array.isArray(a) || !Array.isArray(b)) continue;
+    const [xi, yi] = a as unknown as Point; const [xj, yj] = b as unknown as Point;
+    if ((yi > point[1]) !== (yj > point[1]) && point[0] < ((xj - xi) * (point[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+export function pointInWardUnion(point: Point, wards: FeatureCollection): boolean {
+  return createWardContains(wards)(point);
+}
+
+interface WardPolygon { readonly outer: unknown; readonly holes: readonly unknown[]; readonly west: number; readonly south: number; readonly east: number; readonly north: number; }
+
+function ringBounds(ring: unknown): { west: number; south: number; east: number; north: number } | null {
+  if (!Array.isArray(ring)) return null;
+  let west = Infinity; let south = Infinity; let east = -Infinity; let north = -Infinity;
+  for (const position of ring) {
+    if (!Array.isArray(position) || typeof position[0] !== "number" || typeof position[1] !== "number") continue;
+    west = Math.min(west, position[0]); south = Math.min(south, position[1]); east = Math.max(east, position[0]); north = Math.max(north, position[1]);
+  }
+  return Number.isFinite(west) ? { west, south, east, north } : null;
+}
+
+/** Precomputes polygon envelopes once. N03 has thousands of components, so
+ * repeatedly walking every ring for every nationwide N02 station is not
+ * acceptable in a manual refresh. */
+function createWardContains(wards: FeatureCollection): (point: Point) => boolean {
+  const polygons: WardPolygon[] = [];
+  for (const feature of wards.features) {
+    const geometry = feature.geometry;
+    const source = geometry?.type === "Polygon" ? [geometry.coordinates] : geometry?.type === "MultiPolygon" ? geometry.coordinates : [];
+    if (!Array.isArray(source)) continue;
+    for (const polygon of source) {
+      if (!Array.isArray(polygon) || !polygon[0]) continue;
+      const bounds = ringBounds(polygon[0]);
+      if (bounds) polygons.push({ outer: polygon[0], holes: polygon.slice(1), ...bounds });
+    }
+  }
+  return (point) => polygons.some((polygon) =>
+    point[0] >= polygon.west && point[0] <= polygon.east && point[1] >= polygon.south && point[1] <= polygon.north &&
+    ringContains(point, polygon.outer) && !polygon.holes.some((hole) => ringContains(point, hole)),
+  );
+}
+
+export function centroidOfLineGeometry(geometry: Feature["geometry"]): Point | null {
+  if (!geometry || (geometry.type !== "LineString" && geometry.type !== "MultiLineString")) return null;
+  const lines = geometry.type === "LineString" ? [geometry.coordinates] : geometry.coordinates;
+  let lon = 0; let lat = 0; let total = 0;
+  for (const line of Array.isArray(lines) ? lines : []) {
+    if (!Array.isArray(line)) continue;
+    for (let i = 1; i < line.length; i += 1) {
+      const a = line[i - 1]; const b = line[i];
+      if (!Array.isArray(a) || !Array.isArray(b)) continue;
+      const [ax, ay] = a as unknown as Point; const [bx, by] = b as unknown as Point;
+      const length = Math.hypot(bx - ax, by - ay);
+      lon += ((ax + bx) / 2) * length; lat += ((ay + by) / 2) * length; total += length;
+    }
+  }
+  return total > 0 ? [lon / total, lat / total] : null;
 }
 
 function readCollection(path: string): FeatureCollection {
@@ -141,19 +211,16 @@ export interface StageResult {
   readonly unclassified: readonly string[];
 }
 
-export function stageStations(collection: FeatureCollection): Feature[] {
+export function stageStations(collection: FeatureCollection, wards: FeatureCollection): Feature[] {
   const staged: Feature[] = [];
+  const wardContains = createWardContains(wards);
   for (const feature of collection.features) {
     const geometry = feature.geometry;
     if (geometry === null) continue;
-    if (geometry.type !== "Point") {
-      throw new Error(
-        `stage:mlit — station geometry is "${geometry.type}", expected "Point". MLIT ships ` +
-          `stations as LineStrings; convert them to centroids before running this script.`,
-      );
-    }
-    if (!withinTokyo(geometry.coordinates)) continue;
-    staged.push(feature);
+    const point = geometry.type === "Point" ? firstLonLat(geometry.coordinates) : centroidOfLineGeometry(geometry);
+    if (!point) throw new Error(`stage:mlit — station geometry is "${geometry.type}", expected Point or LineString`);
+    if (!wardContains(point)) continue;
+    staged.push({ ...feature, geometry: { type: "Point", coordinates: point } });
   }
   return staged;
 }
@@ -167,7 +234,7 @@ interface LineGroup {
   sections: number;
 }
 
-export function stageRailLines(collection: FeatureCollection): {
+export function stageRailLines(collection: FeatureCollection, wards: FeatureCollection): {
   readonly features: Feature[];
   readonly unclassified: string[];
   readonly sectionsDissolved: number;
@@ -176,11 +243,14 @@ export function stageRailLines(collection: FeatureCollection): {
   // Keyed by operator + line name, the same pair
   // `import-mlit/rail-lines.ts` builds its natural key from.
   const groups = new Map<string, LineGroup>();
+  const wardContains = createWardContains(wards);
   let sectionsDissolved = 0;
 
   for (const feature of collection.features) {
     const geometry = feature.geometry;
-    if (geometry === null || !withinTokyo(geometry.coordinates)) continue;
+    if (geometry === null) continue;
+    const probe = firstLonLat(geometry.coordinates);
+    if (probe === null || (!wardContains(probe) && !withinTokyo(geometry.coordinates))) continue;
 
     const properties = feature.properties;
     const operator = stringProp(properties, "N02_004");
@@ -225,10 +295,11 @@ export function stageRailLines(collection: FeatureCollection): {
 }
 
 export function runStageMlit(args: StageMlitArgs): StageResult {
-  const stations = stageStations(readCollection(args.stationsIn));
+  const wards = readCollection(args.wardsIn);
+  const stations = stageStations(readCollection(args.stationsIn), wards);
   writeCollection(args.stationsOut, stations);
 
-  const rail = stageRailLines(readCollection(args.railIn));
+  const rail = stageRailLines(readCollection(args.railIn), wards);
   writeCollection(args.railOut, rail.features);
 
   return {

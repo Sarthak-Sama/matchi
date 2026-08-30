@@ -12,10 +12,11 @@ them before trusting any output.**
 
 | Script | Source | Assumptions documented in |
 |---|---|---|
-| `pnpm import:mlit` | MLIT (wards, stations, rail, land prices, zoning, flood) | `scripts/src/import-mlit.ts` and `scripts/src/import-mlit/*.ts` |
+| `pnpm import:mlit` | MLIT (wards, stations, rail, land prices, zoning) | `scripts/src/import-mlit.ts` and `scripts/src/import-mlit/*.ts` |
 | `pnpm import:rent` | e-Stat 2023 Housing & Land Survey; optional REINS | `scripts/src/import-rent/estat.ts`, `scripts/src/import-rent/reins.ts` |
 | `pnpm import:osm` | OpenStreetMap via Overpass | `scripts/src/import-osm/parse.ts` |
 | `pnpm import:transit` | GTFS / ODPT, or MLIT topology fallback | `scripts/src/import-transit.ts` |
+| `pnpm import:localities` | [e-Stat 2020 町丁・字等 boundaries](https://www.e-stat.go.jp/gis/statmap-search?aggregateUnitForBoundary=A&datum=2000&page=1&serveyId=A002005212020&toukeiCode=00200521&toukeiYear=2020&type=2) | `scripts/src/import-localities.ts` |
 
 ## The three assumptions most worth checking first
 
@@ -49,6 +50,7 @@ These were flagged in review as the ones that would do the most damage if wrong.
 ```bash
 pnpm db:migrate
 pnpm import:mlit    # wards and stations first — other imports reference them
+pnpm import:localities data/localities.geojson
 pnpm import:rent
 pnpm import:osm
 pnpm import:transit --gtfs <dir>   # or --from-topology

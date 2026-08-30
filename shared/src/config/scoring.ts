@@ -213,6 +213,26 @@ export const WALK_DETOUR_FACTOR = 1.3;
 export const MAX_DESTINATION_WALK_M = 1500;
 
 // ---------------------------------------------------------------------------
+// Locality sampling and sufficiency targets
+// ---------------------------------------------------------------------------
+
+export const LOCALITY_SAMPLE_COUNT = 9;
+export const LOCALITY_STATION_LIMIT = 3;
+export const LOCALITY_STATION_RADIUS_M = 1500;
+
+/** Practical sufficiency levels; values at or above these score 100. */
+export const LIFESTYLE_SUFFICIENCY_TARGETS = {
+  supermarketEquivalent: 4,
+  restaurantsAndCafes: 40,
+  convenience: 10,
+  cuisineTypes: 12,
+  lateNight: 6,
+  health: 8,
+  greenSpaceShare: 0.15,
+  nightlifeForQuietness: 6,
+} as const;
+
+// ---------------------------------------------------------------------------
 // Scoring weights
 // ---------------------------------------------------------------------------
 
@@ -246,7 +266,7 @@ export const IMPORTANCE_OPTIONS = Object.keys(IMPORTANCE_VALUES) as ReadonlyArra
  * at or below this fraction of the monthly budget, 0 when it meets or
  * exceeds the budget, linear in between. Added in Task 9.
  */
-export const AFFORDABILITY_FULL_SCORE_RATIO = 0.6;
+export const AFFORDABILITY_FULL_SCORE_RATIO = 0.8;
 
 /**
  * `scoreCommute` awards the full 100 at or below this many minutes, 0 at

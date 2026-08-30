@@ -4,10 +4,6 @@
  * Min-max normalizes across ALL station areas to 0-100:
  *   - `norm_amenity_supermarket` from `amenity_supermarket_equiv`
  *   - `norm_amenity_restaurant` from `restaurant_count + cafe_count`
- *   - `norm_flood_safety` from `flood_exposure_score`, INVERTED so a higher
- *     score means safer (min-max-normalizing then inverting, or inverting
- *     then min-max-normalizing, are algebraically identical here — this
- *     does the former: `100 - normalize(flood_exposure_score)`).
  *   - `norm_quietness` from `quietness_raw`
  *   - `norm_amenity_convenience` from `convenience_count` (raw column
  *     already populated by amenities.ts; this step's only new work for
@@ -24,7 +20,7 @@
  *
  * All five new axes are plain min-max (higher raw -> higher score), the
  * same shape as `norm_amenity_supermarket`/`norm_amenity_restaurant` — none
- * of them invert the way `norm_flood_safety` does.
+ * of them are inverted.
  *
  * Tension a future reader will meet here, surfaced rather than hidden:
  * `norm_quietness` (just above) is computed from `quietness_raw`, which
@@ -45,7 +41,7 @@
  *
  * `source_dates` records, per contributing source table, the freshest
  * `source_updated_at` among rows that plausibly fed that station's metrics
- * (POIs/land prices within the catchment radius, flood/zoning polygons
+ * (POIs/land prices within the catchment radius, zoning polygons
  * intersecting the catchment, roads/rail lines within the road/rail buffer
  * of the catchment, the station's own row, and the exact `rent_stats` row
  * `pickRentStat` chose in step 6). Keys with no known date are omitted
@@ -55,9 +51,8 @@
  * out of this task's scope (task-3-brief.md only asks for the five new
  * `norm_*` CASE blocks, the SET list, and assertColumnsPopulated).
  *
- * Depends on every earlier step: amenities (2), flood (3), zoning (4),
- * quietness (5), rent (6, for the `source_dates` rent lookup), and
- * green-space (7).
+ * Depends on every earlier step: amenities, zoning, quietness, rent (for
+ * the `source_dates` rent lookup), and green-space.
  */
 
 import type { Pool } from "pg";
@@ -76,7 +71,6 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
       "amenity_supermarket_equiv",
       "restaurant_count",
       "cafe_count",
-      "flood_exposure_score",
       "quietness_raw",
       "convenience_count",
       "cuisine_variety_count",
@@ -104,7 +98,6 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
           station_group_id,
           amenity_supermarket_equiv,
           (restaurant_count + cafe_count)::double precision AS restaurant_cafe_total,
-          flood_exposure_score,
           quietness_raw,
           convenience_count::double precision AS convenience_count,
           cuisine_variety_count::double precision AS cuisine_variety_count,
@@ -117,7 +110,6 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
         SELECT
           MIN(amenity_supermarket_equiv) AS min_amenity, MAX(amenity_supermarket_equiv) AS max_amenity,
           MIN(restaurant_cafe_total) AS min_rest, MAX(restaurant_cafe_total) AS max_rest,
-          MIN(flood_exposure_score) AS min_flood, MAX(flood_exposure_score) AS max_flood,
           MIN(quietness_raw) AS min_quiet, MAX(quietness_raw) AS max_quiet,
           MIN(convenience_count) AS min_convenience, MAX(convenience_count) AS max_convenience,
           MIN(cuisine_variety_count) AS min_cuisine, MAX(cuisine_variety_count) AS max_cuisine,
@@ -137,10 +129,6 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
             ELSE LEAST(100, GREATEST(0,
               (b.restaurant_cafe_total - bd.min_rest) / (bd.max_rest - bd.min_rest) * 100))
           END AS norm_amenity_restaurant,
-          CASE WHEN bd.max_flood = bd.min_flood THEN 50
-            ELSE LEAST(100, GREATEST(0,
-              100 - (b.flood_exposure_score - bd.min_flood) / (bd.max_flood - bd.min_flood) * 100))
-          END AS norm_flood_safety,
           CASE WHEN bd.max_quiet = bd.min_quiet THEN 50
             ELSE LEAST(100, GREATEST(0,
               (b.quietness_raw - bd.min_quiet) / (bd.max_quiet - bd.min_quiet) * 100))
@@ -171,7 +159,6 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
       SET
         norm_amenity_supermarket = n.norm_amenity_supermarket,
         norm_amenity_restaurant = n.norm_amenity_restaurant,
-        norm_flood_safety = n.norm_flood_safety,
         norm_quietness = n.norm_quietness,
         norm_amenity_convenience = n.norm_amenity_convenience,
         norm_amenity_cuisine_variety = n.norm_amenity_cuisine_variety,
@@ -190,8 +177,6 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
           sg.source_updated_at AS sg_date,
           (SELECT MAX(p.source_updated_at) FROM pois p
              WHERE ST_DWithin(p.point::geography, sg.point::geography, $1)) AS pois_date,
-          (SELECT MAX(fz.source_updated_at) FROM flood_zones fz
-             WHERE ST_Intersects(fz.geom, sa.geom)) AS flood_date,
           (SELECT MAX(za.source_updated_at) FROM zoning_areas za
              WHERE ST_Intersects(za.geom, sa.geom)) AS zoning_date,
           (SELECT MAX(mr.source_updated_at) FROM major_roads mr
@@ -215,7 +200,6 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
       SET source_dates = jsonb_strip_nulls(jsonb_build_object(
         'station_groups', src.sg_date,
         'pois', src.pois_date,
-        'flood_zones', src.flood_date,
         'zoning_areas', src.zoning_date,
         'major_roads', src.road_date,
         'rail_lines', src.rail_date,

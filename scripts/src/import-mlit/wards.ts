@@ -90,5 +90,23 @@ export function parseWardFeature(feature: GeoJSONFeature, index: number): Parsed
 }
 
 export function parseWards(features: readonly GeoJSONFeature[]): ParsedWard[] {
-  return features.map((feature, index) => parseWardFeature(feature, index));
+  const grouped = new Map<string, ParsedWard[]>();
+  for (const [index, feature] of features.entries()) {
+    const ward = parseWardFeature(feature, index);
+    const list = grouped.get(ward.wardCode) ?? [];
+    list.push(ward); grouped.set(ward.wardCode, list);
+  }
+  return [...grouped.values()].map((parts) => {
+    const first = parts[0];
+    if (!first) throw new Error("wards: empty component group");
+    const geometry = parts.map((part) => part.geomWKT.slice("MULTIPOLYGON(".length, -1)).join(",");
+    return { ...first, geomWKT: `MULTIPOLYGON(${geometry})` };
+  });
+}
+
+export function assertTokyoWards(wards: readonly ParsedWard[]): void {
+  const expected = new Set(Object.keys(TOKYO_WARD_NAME_EN));
+  if (wards.length !== expected.size || wards.some((ward) => !expected.has(ward.wardCode))) {
+    throw new Error(`wards: require exactly Tokyo codes 13101–13123; received ${wards.map((w) => w.wardCode).sort().join(", ")}`);
+  }
 }

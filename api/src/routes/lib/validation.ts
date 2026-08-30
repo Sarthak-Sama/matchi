@@ -4,10 +4,10 @@
  * The global error handler (`app.ts`) already maps an escaping `ZodError`
  * to `400 VALIDATION_ERROR` via `err.flatten()` — but `flatten()`'s
  * `fieldErrors` is keyed only by each error's TOP-LEVEL field name, so a
- * nested path like `preferences.floodSafety` collapses to the key
+ * nested path like `preferences.quietness` collapses to the key
  * `"preferences"` and loses which nested field actually failed. The task
  * brief requires a `details` array that NAMES the offending path (e.g.
- * `"preferences.floodSafety"` for an unknown importance, `"arrivalTime"`
+ * `"preferences.quietness"` for an unknown importance, `"arrivalTime"`
  * for a bad time string) — so route handlers call `parseOrThrow` instead of
  * letting a raw `ZodError` bubble up, giving each issue its own
  * `{ path, message }` entry with the full dotted path.

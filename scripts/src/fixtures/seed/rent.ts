@@ -1,8 +1,7 @@
 /**
  * rent_stats: one e-Stat row per ward for 2023 (Shibuya highest, Setagaya
- * lowest, as required), plus one more-recent REINS row for Shibuya only so
- * Task 6's source-preference logic (`pickRentStat`) has a fixture where a
- * recent REINS row should be preferred over the older e-Stat one.
+ * lowest, as required). REINS is deliberately absent until a licensed
+ * production dataset is supplied.
  *
  * NOTE on `source` semantics for this table specifically: unlike every
  * other seeded table, `rent_stats.source` is NOT "where this row came
@@ -53,15 +52,5 @@ export const RENT_STATS: readonly RentStatFixture[] = [
     rent_per_sqm_yen: 2600,
     management_fee_yen: 5000,
     sample_count: 501,
-  },
-  // More recent than every e-Stat row above; Task 7 exercises the
-  // preference for this row over Shibuya's 2023 e-Stat row.
-  {
-    ward_code: "13113",
-    period: "2026Q2",
-    source: "reins",
-    rent_per_sqm_yen: 4450,
-    management_fee_yen: 8500,
-    sample_count: 96,
   },
 ];

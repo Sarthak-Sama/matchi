@@ -43,9 +43,9 @@ const CHECKSUM_QUERY = `
       land_price_multiplier, land_price_point_count, land_price_used_fallback, supermarket_count, grocery_count,
       convenience_count, amenity_supermarket_equiv, restaurant_count, cafe_count, nightlife_count,
       health_count, cuisine_variety_count, late_night_count, green_space_share,
-      flood_share_by_category, flood_exposure_score, residential_zoning_share,
+      residential_zoning_share,
       road_rail_exposure_share, quietness_raw, norm_amenity_supermarket, norm_amenity_restaurant,
-      norm_flood_safety, norm_quietness, norm_amenity_convenience, norm_amenity_cuisine_variety,
+      norm_quietness, norm_amenity_convenience, norm_amenity_cuisine_variety,
       norm_green_space, norm_amenity_late_night, norm_amenity_health, source_dates
     FROM neighborhood_metrics
     ORDER BY station_group_id
@@ -60,6 +60,11 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
     await runMigrations({ dryRun: false });
     await runSeed();
     pool = new Pool({ connectionString: databaseUrl });
+    await pool.query(`
+      INSERT INTO localities (locality_id, ward_code, name_ja, geom, centroid, source)
+      SELECT 'test-locality-shibuya', ward_code, 'テスト町', geom, ST_PointOnSurface(geom), 'test'
+      FROM wards WHERE ward_code = '13113'
+    `);
     await runDerive(pool);
   }, 60_000);
 
@@ -68,20 +73,20 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
     await pool.end();
   });
 
-  it("prints a StepResult for every one of the eight steps, each covering all 21 stations", async () => {
+  it("prints a StepResult for every step and covers every station plus the locality fixture", async () => {
     const results = await runDerive(pool);
     expect(results.map((r) => r.name)).toEqual([
       "catchments",
       "amenities",
-      "flood",
       "zoning",
       "quietness",
       "rent",
       "green-space",
       "normalization",
+      "localities",
     ]);
     for (const r of results) {
-      expect(r.rowsWritten, `rowsWritten for step "${r.name}"`).toBe(21);
+      expect(r.rowsWritten, `rowsWritten for step "${r.name}"`).toBe(r.name === "localities" ? 1 : 21);
       expect(r.durationMs, `durationMs for step "${r.name}"`).toBeGreaterThanOrEqual(0);
     }
   });
@@ -181,29 +186,6 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
 
     expect(byId.get("sg-nakano"), "sg-nakano green_space_share").toBeGreaterThan(0.9);
     expect(byId.get("sg-shibuya"), "sg-shibuya green_space_share").toBe(0);
-  });
-
-  it("flood_share_by_category values are within [0,1]; sg-shibuya overlaps two categories", async () => {
-    const { rows } = await pool.query<{
-      station_group_id: string;
-      flood_share_by_category: Record<string, number>;
-    }>("SELECT station_group_id, flood_share_by_category FROM neighborhood_metrics");
-    expect(rows).toHaveLength(21);
-
-    for (const row of rows) {
-      for (const [category, share] of Object.entries(row.flood_share_by_category)) {
-        expect(share, `${row.station_group_id} share of ${category}`).toBeGreaterThanOrEqual(0);
-        expect(share, `${row.station_group_id} share of ${category}`).toBeLessThanOrEqual(1);
-      }
-    }
-
-    const shibuya = rows.find((r) => r.station_group_id === "sg-shibuya");
-    expect(shibuya, "sg-shibuya row").toBeDefined();
-    const shibuyaCategories = Object.keys(shibuya?.flood_share_by_category ?? {});
-    expect(shibuyaCategories.length, "sg-shibuya distinct flood categories").toBe(2);
-    for (const category of shibuyaCategories) {
-      expect(shibuya?.flood_share_by_category[category]).toBeGreaterThan(0);
-    }
   });
 
   it("residential_zoning_share differs between sg-shibuya (~0) and sg-yoga (~1); all values in [0,1]", async () => {

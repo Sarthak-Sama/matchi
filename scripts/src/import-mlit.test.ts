@@ -20,7 +20,6 @@ import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { parseFeatureCollection } from "./import-mlit/geojson.js";
-import { classifyFloodDepth, parseFloodZones } from "./import-mlit/flood.js";
 import { classifyLandUseCategory, parseLandPrices } from "./import-mlit/land-prices.js";
 import { parseRailLineFeature, parseRailLines } from "./import-mlit/rail-lines.js";
 import { mergeStations, normalizeStationName } from "./import-mlit/station-merge.js";
@@ -176,21 +175,6 @@ describe("zoning parsing", () => {
   });
 });
 
-describe("flood parsing", () => {
-  it("classifies known depth categories into severity ranks", () => {
-    const features = parseFeatureCollection(fixture("flood.geojson"), "flood");
-    const rows = parseFloodZones(features);
-
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ depthCategory: "0.5m未満", depthRank: 1 });
-    expect(rows[1]).toMatchObject({ depthCategory: "3.0m以上5.0m未満", depthRank: 3 });
-  });
-
-  it("classifyFloodDepth throws for an unrecognized category with no override", () => {
-    expect(() => classifyFloodDepth("unrecognized depth range")).toThrowError(/cannot classify/);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // DB-guarded integration tests.
 // ---------------------------------------------------------------------------
@@ -203,7 +187,6 @@ const GOOD_ARGS: ImportMlitArgs = {
   railLinesPath: fixturePath("rail-lines.geojson"),
   landPricesPath: fixturePath("land-prices.geojson"),
   zoningPath: fixturePath("zoning.geojson"),
-  floodPath: fixturePath("flood.geojson"),
 };
 
 const CORRUPT_ARGS: ImportMlitArgs = {
@@ -211,8 +194,8 @@ const CORRUPT_ARGS: ImportMlitArgs = {
   landPricesPath: fixturePath("land-prices.corrupt.geojson"),
 };
 
-// wards(3) + stationGroups(2) + railLines(2) + landPrices(3) + zoning(3) + flood(2)
-const EXPECTED_ROWS_IMPORTED = 15;
+// wards(3) + stationGroups(2) + railLines(2) + landPrices(3) + zoning(3)
+const EXPECTED_ROWS_IMPORTED = 13;
 
 const MLIT_SOURCED_TABLES = [
   "wards",
@@ -221,7 +204,6 @@ const MLIT_SOURCED_TABLES = [
   "rail_lines",
   "land_prices",
   "zoning_areas",
-  "flood_zones",
 ] as const;
 
 async function snapshotCounts(pool: Pool): Promise<Record<string, number>> {
@@ -282,7 +264,6 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
       rail_lines: 2,
       land_prices: 3,
       zoning_areas: 3,
-      flood_zones: 2,
     });
 
     // land-prices.geojson: 2 of 3 rows classify as 'residential' ("住宅" +

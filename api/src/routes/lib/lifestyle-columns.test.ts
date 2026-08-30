@@ -11,7 +11,6 @@ import {
 
 function makeRow(overrides: Partial<Record<string, number | null>> = {}): LifestyleMetricColumns {
   return {
-    normFloodSafety: 80,
     normAmenitySupermarket: 70,
     normAmenityRestaurant: 60,
     normQuietness: 50,
@@ -56,7 +55,6 @@ describe("LIFESTYLE_SELECT_SQL", () => {
 describe("readLifestyleNormScores", () => {
   it("returns every axis's score keyed by metricsKey", () => {
     expect(readLifestyleNormScores(makeRow())).toEqual({
-      normFloodSafety: 80,
       normAmenitySupermarket: 70,
       normAmenityRestaurant: 60,
       normQuietness: 50,

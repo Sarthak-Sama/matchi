@@ -40,8 +40,8 @@ export interface LifestyleAxisDescriber {
  * restaurants, konbini, cuisineVariety, lateNight, health) it's the plain
  * count within the catchment radius (matching the spec's own example, `"12
  * supermarkets within 800 m"`); greenSpace is a share/ratio rather than a
- * count, restated as a percentage of the catchment; and for flood safety
- * and quietness — which have no equally intuitive count — it's the
+ * count, restated as a percentage of the catchment; and for quietness —
+ * which has no equally intuitive count — it's the
  * normalized score itself, restated in a `X/100` label (quietness reusing
  * the existing `QUIETNESS_LABEL` constant).
  *
@@ -50,14 +50,6 @@ export interface LifestyleAxisDescriber {
  * error) while letting the axis set be extended in one place.
  */
 export const LIFESTYLE_AXIS_DESCRIBERS = {
-  floodSafety: {
-    rawColumns: [],
-    describe: (metrics: LifestyleMetricsInput) => ({
-      componentScore: metrics.normFloodSafety,
-      rawValue: metrics.normFloodSafety,
-      rawValueLabel: `${Math.round(metrics.normFloodSafety)}/100 flood safety score`,
-    }),
-  },
   supermarkets: {
     rawColumns: ["supermarket_count"],
     describe: (metrics: LifestyleMetricsInput) => ({

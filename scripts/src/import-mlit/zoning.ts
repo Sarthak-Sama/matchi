@@ -46,7 +46,8 @@ import { pickProperty, polygonGeometryToMultiPolygonWKT } from "./geojson.js";
 
 export const MIN_ZONING_ROWS = 1;
 
-const CATEGORY_KEYS = ["A29_005", "A29_004", "category"];
+const CATEGORY_KEYS = ["YoutoName", "A55_YoutoName", "A29_005", "category", "YoutoCode", "A55_YoutoCode", "A29_004"];
+const CITY_CODE_KEYS = ["Citycode", "CityCode", "citycode"];
 const IS_RESIDENTIAL_KEYS = ["is_residential"];
 
 interface ZoneClassification {
@@ -171,5 +172,10 @@ export function parseZoningFeature(feature: GeoJSONFeature, index: number): Pars
 }
 
 export function parseZoningAreas(features: readonly GeoJSONFeature[]): ParsedZoningArea[] {
-  return features.map((feature, index) => parseZoningFeature(feature, index));
+  return features
+    .filter((feature) => {
+      const cityCode = pickProperty(feature.properties ?? {}, CITY_CODE_KEYS);
+      return cityCode === undefined || /^131(?:0[1-9]|1[0-9]|2[0-3])$/.test(String(cityCode));
+    })
+    .map((feature, index) => parseZoningFeature(feature, index));
 }

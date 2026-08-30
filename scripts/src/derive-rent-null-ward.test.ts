@@ -49,11 +49,16 @@ describe.runIf(Boolean(databaseUrl))(
       await runMigrations({ dryRun: false });
       await runSeed();
       pool = new Pool({ connectionString: databaseUrl });
+      await pool.query(`
+        INSERT INTO localities (locality_id, ward_code, name_ja, geom, centroid, source)
+        SELECT 'test-locality-shibuya', ward_code, 'テスト町', geom, ST_PointOnSurface(geom), 'test'
+        FROM wards WHERE ward_code = '13113'
+      `);
 
       // Simulate exactly what import-mlit.ts's assignWardCodes produces
       // for a real station outside every imported ward's polygon: a
       // station_groups row with ward_code = NULL. Placed near Shibuya so
-      // it still gets real amenity/flood/zoning data computed against its
+      // it still gets real amenity/zoning data computed against its
       // catchment (this test is about ward_code being null, not about an
       // empty catchment — that's covered elsewhere).
       await pool.query(
@@ -77,12 +82,12 @@ describe.runIf(Boolean(databaseUrl))(
       expect(results.map((r) => r.name)).toEqual([
         "catchments",
         "amenities",
-        "flood",
         "zoning",
         "quietness",
         "rent",
         "green-space",
         "normalization",
+        "localities",
       ]);
     });
 
@@ -92,11 +97,10 @@ describe.runIf(Boolean(databaseUrl))(
         rent_source: string | null;
         rent_median_yen: string | null;
         norm_amenity_supermarket: number | null;
-        norm_flood_safety: number | null;
         norm_quietness: number | null;
       }>(
         `SELECT ward_code, rent_source, rent_median_yen::text, norm_amenity_supermarket,
-                norm_flood_safety, norm_quietness
+                norm_quietness
          FROM neighborhood_metrics WHERE station_group_id = $1`,
         [NULL_WARD_STATION_ID],
       );
@@ -106,10 +110,9 @@ describe.runIf(Boolean(databaseUrl))(
       expect(row.rent_source).toBeNull();
       expect(row.rent_median_yen).toBeNull();
       // norm_* is derived purely from the catchment geometry (amenities,
-      // flood, zoning, quietness) — none of which depend on ward_code — so
+      // zoning and quietness) — none of which depend on ward_code — so
       // these must still be populated even though rent could not be.
       expect(row.norm_amenity_supermarket).not.toBeNull();
-      expect(row.norm_flood_safety).not.toBeNull();
       expect(row.norm_quietness).not.toBeNull();
     });
 

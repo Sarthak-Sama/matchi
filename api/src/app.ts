@@ -17,6 +17,7 @@ import type { TransitGraphs } from "./domain/transit/graph.js";
 import { registerDataStatusRoute } from "./routes/data-status.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerNeighborhoodRoute } from "./routes/neighborhoods.js";
+import { registerLocalityRoute } from "./routes/localities.js";
 import { registerOptimizeRoute } from "./routes/optimize.js";
 import { registerPlacesRoute } from "./routes/places.js";
 import { registerStationsRoute } from "./routes/stations.js";
@@ -108,6 +109,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   registerPlacesRoute(app, deps);
   registerOptimizeRoute(app, deps);
   registerNeighborhoodRoute(app, deps);
+  registerLocalityRoute(app, deps);
   registerDataStatusRoute(app, deps);
 
   return app;

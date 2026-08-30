@@ -58,7 +58,6 @@ function makeCommute(overrides: Partial<CommuteEstimateResult> = {}): CommuteEst
 
 function makeLifestyle(overrides: Partial<LifestyleMetricsInput> = {}): LifestyleMetricsInput {
   return {
-    normFloodSafety: 50,
     normAmenitySupermarket: 50,
     normAmenityRestaurant: 50,
     normQuietness: 50,
@@ -106,7 +105,7 @@ function makeRequest(overrides: Partial<OptimizationRequest> = {}): Optimization
     layout: "1K",
     maxCommuteMinutes: 60,
     preferences: {
-      floodSafety: "low",
+      konbini: "low",
       supermarkets: "low",
       restaurants: "low",
       quietness: "low",
@@ -176,18 +175,16 @@ function makeFactor(
 describe("scoreAffordability", () => {
   const budget = 200_000;
 
-  it("scores exactly 100 at 60% of budget (the full-score threshold)", () => {
-    expect(scoreAffordability(120_000, budget)).toBe(100);
+  it("scores exactly 100 at 80% of budget (the full-score threshold)", () => {
+    expect(scoreAffordability(160_000, budget)).toBe(100);
   });
 
   it("scores exactly 0 at the budget", () => {
     expect(scoreAffordability(200_000, budget)).toBe(0);
   });
 
-  it("scores exactly 50 at 80% of budget (midpoint of the linear region)", () => {
-    // By hand: threshold = 0.6*200000 = 120000. At 160000 (80% of budget):
-    // 100*(200000-160000)/(200000-120000) = 100*40000/80000 = 50.
-    expect(scoreAffordability(160_000, budget)).toBe(50);
+  it("scores exactly 50 at 90% of budget (midpoint of the linear region)", () => {
+    expect(scoreAffordability(180_000, budget)).toBe(50);
   });
 
   it("scores exactly 0 above budget", () => {
@@ -236,7 +233,7 @@ describe("scoreLifestyle weight normalization", () => {
 
   it("one 'essential' + three 'low' -> shares are exactly 8/11, 1/11, 1/11, 1/11", () => {
     const preferences = {
-      floodSafety: "essential",
+      konbini: "essential",
       supermarkets: "low",
       restaurants: "low",
       quietness: "low",
@@ -245,15 +242,15 @@ describe("scoreLifestyle weight normalization", () => {
     const byKey = Object.fromEntries(factors.map((f) => [f.key, f]));
 
     // By hand: total importance = 8 + 1 + 1 + 1 = 11.
-    //   floodSafety share = 8/11 = 0.7272727272727273; effectiveWeight = 0.4 * 8/11 = 0.290909...
+    //   konbini share = 8/11 = 0.7272727272727273; effectiveWeight = 0.4 * 8/11 = 0.290909...
     //   the other three shares = 1/11 = 0.09090909090909091; effectiveWeight = 0.4 * 1/11 = 0.036363...
     // Verified two independent ways: a literal hand-computed decimal, and
     // cross-multiplication (effectiveWeight * 11 === 0.4 * importance),
     // which uses a different arithmetic path than the implementation
     // (division then multiplication) so it isn't just re-deriving the
     // same expression.
-    expect(byKey["floodSafety"]!.effectiveWeight).toBeCloseTo(0.290909090909, 10);
-    expect(byKey["floodSafety"]!.effectiveWeight * 11).toBeCloseTo(0.4 * 8, 10);
+    expect(byKey["konbini"]!.effectiveWeight).toBeCloseTo(0.290909090909, 10);
+    expect(byKey["konbini"]!.effectiveWeight * 11).toBeCloseTo(0.4 * 8, 10);
 
     for (const key of ["supermarkets", "restaurants", "quietness"] as const) {
       expect(byKey[key]!.effectiveWeight).toBeCloseTo(0.036363636364, 10);
@@ -269,11 +266,11 @@ describe("scoreLifestyle weight normalization", () => {
 describe("scoreLifestyle axis selection", () => {
   it("omits an unrated axis entirely rather than weighting it zero", () => {
     const { factors } = scoreLifestyle(makeLifestyle(), {
-      floodSafety: "low",
+      konbini: "low",
       quietness: "essential",
     });
 
-    expect(factors.map((f) => f.key)).toEqual(["floodSafety", "quietness"]);
+    expect(factors.map((f) => f.key)).toEqual(["quietness", "konbini"]);
   });
 
   it("keeps lifestyle at the full 40% when only one axis is rated", () => {
@@ -340,12 +337,12 @@ describe("scoreCandidate — fully worked example", () => {
   //     componentScore = 100*(45-30)/(45-15) = 100*15/30 = 50
   //     effectiveWeight = 0.3 -> contribution = 50*0.3 = 15
   //
-  //   preferences: floodSafety=medium(2), supermarkets=high(4), restaurants=low(1), quietness=low(1)
+  //   preferences: konbini=medium(2), supermarkets=high(4), restaurants=low(1), quietness=low(1)
   //     total importance = 2+4+1+1 = 8
-  //     shares: floodSafety=2/8=0.25, supermarkets=4/8=0.5, restaurants=1/8=0.125, quietness=1/8=0.125
-  //     effectiveWeights (0.4*share): floodSafety=0.1, supermarkets=0.2, restaurants=0.05, quietness=0.05
+  //     shares: konbini=2/8=0.25, supermarkets=4/8=0.5, restaurants=1/8=0.125, quietness=1/8=0.125
+  //     effectiveWeights (0.4*share): konbini=0.1, supermarkets=0.2, restaurants=0.05, quietness=0.05
   //
-  //   floodSafety: norm=80 -> contribution = 80*0.1 = 8
+  //   konbini: norm=80 -> contribution = 80*0.1 = 8
   //   supermarkets: norm=90 -> contribution = 90*0.2 = 18
   //   restaurants: norm=40 -> contribution = 40*0.05 = 2
   //   quietness: norm=60 -> contribution = 60*0.05 = 3
@@ -356,7 +353,7 @@ describe("scoreCandidate — fully worked example", () => {
     monthlyBudgetYen: 200_000,
     maxCommuteMinutes: 45,
     preferences: {
-      floodSafety: "medium",
+      konbini: "medium",
       supermarkets: "high",
       restaurants: "low",
       quietness: "low",
@@ -367,7 +364,7 @@ describe("scoreCandidate — fully worked example", () => {
     rent: makeRent({ medianYen: 140_000 }),
     commute: makeCommute({ totalMinutes: 30 }),
     lifestyle: makeLifestyle({
-      normFloodSafety: 80,
+      normAmenityConvenience: 80,
       normAmenitySupermarket: 90,
       normAmenityRestaurant: 40,
       normQuietness: 60,
@@ -381,9 +378,9 @@ describe("scoreCandidate — fully worked example", () => {
   const byKey = Object.fromEntries(result.factors.map((f) => [f.key, f]));
 
   it("computes each factor's componentScore, effectiveWeight, and pointContribution exactly", () => {
-    expect(byKey["affordability"]!.componentScore).toBe(75);
+    expect(byKey["affordability"]!.componentScore).toBe(100);
     expect(byKey["affordability"]!.effectiveWeight).toBe(0.3);
-    expect(byKey["affordability"]!.pointContribution).toBe(22.5);
+    expect(byKey["affordability"]!.pointContribution).toBe(30);
     expect(byKey["affordability"]!.rawValueLabel).toBe("¥140,000 modeled area rent");
 
     expect(byKey["commute"]!.componentScore).toBe(50);
@@ -391,8 +388,8 @@ describe("scoreCandidate — fully worked example", () => {
     expect(byKey["commute"]!.pointContribution).toBe(15);
     expect(byKey["commute"]!.rawValueLabel).toBe("30 min typical weekday estimate");
 
-    expect(byKey["floodSafety"]!.effectiveWeight).toBe(0.1);
-    expect(byKey["floodSafety"]!.pointContribution).toBe(8);
+    expect(byKey["konbini"]!.effectiveWeight).toBe(0.1);
+    expect(byKey["konbini"]!.pointContribution).toBe(8);
 
     expect(byKey["supermarkets"]!.effectiveWeight).toBe(0.2);
     expect(byKey["supermarkets"]!.pointContribution).toBe(18);
@@ -406,19 +403,19 @@ describe("scoreCandidate — fully worked example", () => {
     expect(byKey["quietness"]!.pointContribution).toBe(3);
   });
 
-  it("sums the six point contributions to exactly the overall score (68.5)", () => {
+  it("sums the six point contributions to exactly the overall score (76)", () => {
     const sum = result.factors.reduce((s, f) => s + f.pointContribution, 0);
-    expect(sum).toBe(68.5);
-    expect(result.overallScore).toBe(68.5);
+    expect(sum).toBe(76);
+    expect(result.overallScore).toBe(76);
   });
 
-  it("wires buildReasons(factors) end-to-end: affordability/supermarkets/floodSafety are the reasonsFor, sorted by effective weight", () => {
+  it("wires buildReasons(factors) end-to-end with weighted lifestyle reasons", () => {
     // Directions (componentScore vs the 66/34 thresholds): affordability
-    // (75), supermarkets (90), and floodSafety (80) are all > 66 ->
+    // (75), supermarkets (90), and konbini (80) are all > 66 ->
     // positive. commute (50), restaurants (40), and quietness (60) all
     // fall in [34, 66] -> neutral. Nothing is < 34, so reasonsAgainst is
     // empty. The three positives, sorted by effectiveWeight descending
-    // (0.3, 0.2, 0.1), are affordability, supermarkets, then floodSafety —
+    // (0.3, 0.2, 0.1), are affordability, supermarkets, then konbini —
     // this is `scoreCandidate`'s REAL output, not a synthetic factors
     // array handed straight to `buildReasons`, so it proves the wiring
     // (not just `buildReasons`'s own selection logic, already covered by
@@ -426,7 +423,7 @@ describe("scoreCandidate — fully worked example", () => {
     expect(result.reasonsFor).toEqual([
       "Affordability is a strength: ¥140,000 modeled area rent.",
       "Supermarkets is a strength: 12 supermarkets within 800 m.",
-      "Flood safety is a strength: 80/100 flood safety score.",
+      "Konbini is a strength: 3 convenience stores within 800 m.",
     ]);
     expect(result.reasonsAgainst).toEqual([]);
   });
@@ -454,7 +451,7 @@ describe("scoreCandidate — point contributions sum to overallScore across seve
     monthlyBudgetYen: 300_000,
     maxCommuteMinutes: 90,
     preferences: {
-      floodSafety: "medium",
+      konbini: "medium",
       supermarkets: "medium",
       restaurants: "medium",
       quietness: "low",
@@ -467,7 +464,7 @@ describe("scoreCandidate — point contributions sum to overallScore across seve
       rent: makeRent({ medianYen: 100_000 }),
       commute: makeCommute({ totalMinutes: 10 }),
       lifestyle: makeLifestyle({
-        normFloodSafety: 20,
+        normAmenityConvenience: 20,
         normAmenitySupermarket: 30,
         normAmenityRestaurant: 40,
         normQuietness: 90,
@@ -478,7 +475,7 @@ describe("scoreCandidate — point contributions sum to overallScore across seve
       rent: makeRent({ medianYen: 290_000 }),
       commute: makeCommute({ totalMinutes: 85 }),
       lifestyle: makeLifestyle({
-        normFloodSafety: 5,
+        normAmenityConvenience: 5,
         normAmenitySupermarket: 5,
         normAmenityRestaurant: 5,
         normQuietness: 5,
@@ -489,7 +486,7 @@ describe("scoreCandidate — point contributions sum to overallScore across seve
       rent: makeRent({ medianYen: 200_000 }),
       commute: makeCommute({ totalMinutes: 45 }),
       lifestyle: makeLifestyle({
-        normFloodSafety: 100,
+        normAmenityConvenience: 100,
         normAmenitySupermarket: 0,
         normAmenityRestaurant: 100,
         normQuietness: 0,
@@ -538,13 +535,13 @@ describe("scoreCandidate — reconciliation on a non-boundary score", () => {
   //                     = 65.71428571428571
   //     raw contribution = (460/7)*0.3 = 138/7 = 19.714285714285714 -> rounds to 19.7
   //
-  //   preferences: floodSafety=high(4), supermarkets=medium(2),
+  //   preferences: konbini=high(4), supermarkets=medium(2),
   //                restaurants=medium(2), quietness=low(1); total = 9
-  //     shares: floodSafety=4/9, supermarkets=2/9, restaurants=2/9, quietness=1/9
-  //     effectiveWeights (0.4*share): floodSafety=8/45, supermarkets=4/45,
+  //     shares: konbini=4/9, supermarkets=2/9, restaurants=2/9, quietness=1/9
+  //     effectiveWeights (0.4*share): konbini=8/45, supermarkets=4/45,
   //                                   restaurants=4/45, quietness=2/45
   //
-  //   floodSafety: norm=55 -> raw = 55*8/45 = 440/45 = 9.777... -> rounds to 9.8
+  //   konbini: norm=55 -> raw = 55*8/45 = 440/45 = 9.777... -> rounds to 9.8
   //   supermarkets: norm=77 -> raw = 77*4/45 = 308/45 = 6.844... -> rounds to 6.8
   //   restaurants: norm=32 -> raw = 32*4/45 = 128/45 = 2.844... -> rounds to 2.8
   //   quietness: norm=61 -> raw = 61*2/45 = 122/45 = 2.711... -> rounds to 2.7
@@ -557,7 +554,7 @@ describe("scoreCandidate — reconciliation on a non-boundary score", () => {
     monthlyBudgetYen: 300_000,
     maxCommuteMinutes: 50,
     preferences: {
-      floodSafety: "high",
+      konbini: "high",
       supermarkets: "medium",
       restaurants: "medium",
       quietness: "low",
@@ -568,7 +565,7 @@ describe("scoreCandidate — reconciliation on a non-boundary score", () => {
     rent: makeRent({ medianYen: 205_000 }),
     commute: makeCommute({ totalMinutes: 27 }),
     lifestyle: makeLifestyle({
-      normFloodSafety: 55,
+      normAmenityConvenience: 55,
       normAmenitySupermarket: 77,
       normAmenityRestaurant: 32,
       normQuietness: 61,
@@ -579,16 +576,16 @@ describe("scoreCandidate — reconciliation on a non-boundary score", () => {
   const byKey = Object.fromEntries(result.factors.map((f) => [f.key, f]));
 
   it("rounds each pointContribution to one decimal at construction", () => {
-    expect(byKey["affordability"]!.pointContribution).toBeCloseTo(23.8, 10);
+    expect(byKey["affordability"]!.pointContribution).toBeCloseTo(30, 10);
     expect(byKey["commute"]!.pointContribution).toBeCloseTo(19.7, 10);
-    expect(byKey["floodSafety"]!.pointContribution).toBeCloseTo(9.8, 10);
+    expect(byKey["konbini"]!.pointContribution).toBeCloseTo(9.8, 10);
     expect(byKey["supermarkets"]!.pointContribution).toBeCloseTo(6.8, 10);
     expect(byKey["restaurants"]!.pointContribution).toBeCloseTo(2.8, 10);
     expect(byKey["quietness"]!.pointContribution).toBeCloseTo(2.7, 10);
   });
 
-  it("overallScore is exactly the sum of the rounded contributions (65.6), not a round of the raw total", () => {
-    expect(result.overallScore).toBe(65.6);
+  it("overallScore is exactly the sum of the rounded contributions (71.8), not a round of the raw total", () => {
+    expect(result.overallScore).toBe(71.8);
 
     const sum = result.factors.reduce((s, f) => s + f.pointContribution, 0);
     // Exact equality (not toBeCloseTo): overallScore is LITERALLY
@@ -613,7 +610,7 @@ describe("scoreCandidate — reconciliation on a non-boundary score", () => {
 });
 
 describe("scoreCandidate — overallScore never exceeds 100 despite per-factor rounding drift", () => {
-  // preferences (floodSafety=low, supermarkets=low, restaurants=high,
+  // preferences (konbini=low, supermarkets=low, restaurants=high,
   // quietness=essential) => importance total = 1+1+4+8 = 14, shares
   // 1/14, 1/14, 4/14, 8/14 — none terminate in decimal. With every
   // componentScore (affordability, commute, and all four lifestyle axes)
@@ -621,7 +618,7 @@ describe("scoreCandidate — overallScore never exceeds 100 despite per-factor r
   // rounding drift:
   //   affordability: 100*0.3 = 30 (exact)
   //   commute: 100*0.3 = 30 (exact)
-  //   floodSafety: 100*(0.4/14) = 2.857142... -> rounds to 2.9
+  //   konbini: 100*(0.4/14) = 2.857142... -> rounds to 2.9
   //   supermarkets: 100*(0.4/14) = 2.857142... -> rounds to 2.9
   //   restaurants: 100*(1.6/14) = 11.428571... -> rounds to 11.4
   //   quietness: 100*(3.2/14) = 22.857142... -> rounds to 22.9
@@ -632,7 +629,7 @@ describe("scoreCandidate — overallScore never exceeds 100 despite per-factor r
     monthlyBudgetYen: 200_000,
     maxCommuteMinutes: 60,
     preferences: {
-      floodSafety: "low",
+      konbini: "low",
       supermarkets: "low",
       restaurants: "high",
       quietness: "essential",
@@ -643,7 +640,7 @@ describe("scoreCandidate — overallScore never exceeds 100 despite per-factor r
     rent: makeRent({ medianYen: 100_000 }), // <= 0.6*200,000 -> affordability = 100
     commute: makeCommute({ totalMinutes: 10 }), // <= 15 -> commute = 100
     lifestyle: makeLifestyle({
-      normFloodSafety: 100,
+      normAmenityConvenience: 100,
       normAmenitySupermarket: 100,
       normAmenityRestaurant: 100,
       normQuietness: 100,
@@ -677,17 +674,17 @@ describe("scoreCandidate — overallScore stays within [0, 100] generally", () =
       100,
     ] as const,
     ["mixed", "medium", "high", "essential", "low", 73, 12, 88, 40] as const,
-  ])("%s", (_label, floodSafety, supermarkets, restaurants, quietness, nf, ns, nr, nq) => {
+  ])("%s", (_label, konbini, supermarkets, restaurants, quietness, nk, ns, nr, nq) => {
     const request = makeRequest({
       monthlyBudgetYen: 200_000,
       maxCommuteMinutes: 60,
-      preferences: { floodSafety, supermarkets, restaurants, quietness },
+      preferences: { konbini, supermarkets, restaurants, quietness },
     });
     const candidate = makeCandidate({
       rent: makeRent({ medianYen: 100_000 }),
       commute: makeCommute({ totalMinutes: 10 }),
       lifestyle: makeLifestyle({
-        normFloodSafety: nf,
+        normAmenityConvenience: nk,
         normAmenitySupermarket: ns,
         normAmenityRestaurant: nr,
         normQuietness: nq,
@@ -795,7 +792,7 @@ describe("applyHardFilters", () => {
       monthlyBudgetYen: 200_000,
       maxCommuteMinutes: 60,
       preferences: {
-        floodSafety: "essential",
+        konbini: "essential",
         supermarkets: "essential",
         restaurants: "essential",
         quietness: "essential",
@@ -807,7 +804,7 @@ describe("applyHardFilters", () => {
       rent: makeRent({ medianYen: 100_000 }),
       commute: makeCommute({ totalMinutes: 30 }),
       lifestyle: makeLifestyle({
-        normFloodSafety: 0,
+        normAmenityConvenience: 0,
         normAmenitySupermarket: 0,
         normAmenityRestaurant: 0,
         normQuietness: 0,
@@ -943,31 +940,31 @@ describe("factor direction thresholds", () => {
   it("is neutral exactly at the 66 boundary, positive just above it", () => {
     const preferences = makeRequest().preferences;
     const { factors: atBoundary } = scoreLifestyle(
-      makeLifestyle({ normFloodSafety: 66 }),
+      makeLifestyle({ normAmenityConvenience: 66 }),
       preferences,
     );
     const { factors: justAbove } = scoreLifestyle(
-      makeLifestyle({ normFloodSafety: 67 }),
+      makeLifestyle({ normAmenityConvenience: 67 }),
       preferences,
     );
 
-    expect(atBoundary.find((f) => f.key === "floodSafety")!.direction).toBe("neutral");
-    expect(justAbove.find((f) => f.key === "floodSafety")!.direction).toBe("positive");
+    expect(atBoundary.find((f) => f.key === "konbini")!.direction).toBe("neutral");
+    expect(justAbove.find((f) => f.key === "konbini")!.direction).toBe("positive");
   });
 
   it("is neutral exactly at the 34 boundary, negative just below it", () => {
     const preferences = makeRequest().preferences;
     const { factors: atBoundary } = scoreLifestyle(
-      makeLifestyle({ normFloodSafety: 34 }),
+      makeLifestyle({ normAmenityConvenience: 34 }),
       preferences,
     );
     const { factors: justBelow } = scoreLifestyle(
-      makeLifestyle({ normFloodSafety: 33 }),
+      makeLifestyle({ normAmenityConvenience: 33 }),
       preferences,
     );
 
-    expect(atBoundary.find((f) => f.key === "floodSafety")!.direction).toBe("neutral");
-    expect(justBelow.find((f) => f.key === "floodSafety")!.direction).toBe("negative");
+    expect(atBoundary.find((f) => f.key === "konbini")!.direction).toBe("neutral");
+    expect(justBelow.find((f) => f.key === "konbini")!.direction).toBe("negative");
   });
 });
 

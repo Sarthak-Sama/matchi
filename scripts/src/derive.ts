@@ -10,16 +10,16 @@
  *
  *   1. catchments    — station_areas (800m buffers)
  *   2. amenities     — POI counts + amenity_supermarket_equiv
- *   3. flood         — flood_share_by_category + flood_exposure_score
- *   4. zoning        — residential_zoning_share + road_rail_exposure_share
- *   5. quietness     — quietness_raw
- *   6. rent          — rent_* / land_price_* via @tokyo/shared's rent.ts
- *   7. green-space   — green_space_share
- *   8. normalization — norm_* (0-100) + source_dates
+ *   3. zoning        — residential_zoning_share + road_rail_exposure_share
+ *   4. quietness     — quietness_raw
+ *   5. rent          — rent_* / land_price_* via @tokyo/shared's rent.ts
+ *   6. green-space   — green_space_share
+ *   7. normalization — norm_* (0-100) + source_dates
+ *   8. localities    — locality samples and aggregate metrics
  *
  * Steps 2-8 depend on step 1 having run at least once (a neighborhood_metrics
  * row must exist to UPDATE); quietness depends on amenities + zoning;
- * normalization depends on amenities + flood + zoning + quietness + rent +
+ * normalization depends on amenities + zoning + quietness + rent +
  * green-space. Each step asserts its own prerequisites and fails with a
  * clear message naming the step to run first, rather than silently writing
  * nulls.
@@ -36,23 +36,23 @@ import type { Pool } from "pg";
 import { createPool } from "./lib/db.js";
 import { runAmenitiesStep } from "./derive/amenities.js";
 import { runCatchmentsStep } from "./derive/catchments.js";
-import { runFloodStep } from "./derive/flood.js";
 import { runGreenSpaceStep } from "./derive/green-space.js";
 import { runNormalizationStep } from "./derive/normalization.js";
 import { runQuietnessStep } from "./derive/quietness.js";
 import { runRentStep } from "./derive/rent.js";
 import { runZoningStep } from "./derive/zoning.js";
+import { runLocalitiesStep } from "./derive/localities.js";
 import type { StepResult, StepRunner } from "./derive/types.js";
 
 const STEPS: readonly { readonly key: string; readonly run: StepRunner }[] = [
   { key: "catchments", run: runCatchmentsStep },
   { key: "amenities", run: runAmenitiesStep },
-  { key: "flood", run: runFloodStep },
   { key: "zoning", run: runZoningStep },
   { key: "quietness", run: runQuietnessStep },
   { key: "rent", run: runRentStep },
   { key: "green-space", run: runGreenSpaceStep },
   { key: "normalization", run: runNormalizationStep },
+  { key: "localities", run: runLocalitiesStep },
 ] as const;
 
 const STEP_KEYS = STEPS.map((s) => s.key);
