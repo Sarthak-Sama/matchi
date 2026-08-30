@@ -1,1 +1,174 @@
 @import "tailwindcss";
+
+/*
+ * THE FIELD GUIDE — design tokens
+ * A warm editorial system: paper canvas, ink text, moss actions,
+ * vermilion accents, hairline rules instead of card shadows.
+ */
+@theme {
+  /* Palette */
+  --color-paper: #f5f0e6;
+  --color-paper-soft: #fbf8f1;
+  --color-ink: #28241f;
+  --color-ink-muted: #5f574b;
+  --color-moss: #2e3f34;
+  --color-moss-deep: #223026;
+  --color-vermilion: #b7472a;
+  --color-vermilion-deep: #9a3a22;
+  --color-stone: #a89e90;
+  --color-sage: #dde2d8;
+  --color-sage-deep: #c3ccbd;
+  --color-warning: #f3e2cf;
+  --color-brick: #8c2b1d;
+  --color-line: #d9d1c1;
+  --color-line-strong: #b9ae9a;
+
+  /* Type roles */
+  --font-serif:
+    var(--font-newsreader), "Hiragino Mincho ProN", "Hiragino Mincho Pro", "Yu Mincho", "YuMincho",
+    "Noto Serif JP", serif;
+  --font-sans:
+    var(--font-archivo), "Hiragino Sans", "Yu Gothic", "YuGothic", "Noto Sans JP", system-ui,
+    sans-serif;
+  --font-mono:
+    var(--font-plex-mono), "SF Mono", ui-monospace, "Menlo", monospace;
+
+  /* Tracking presets used across the editorial system */
+  --tracking-utility: 0.16em;
+  --tracking-editorial: -0.028em;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    @apply bg-paper font-sans text-ink antialiased;
+    /* Warmer, slightly darker than pure white canvas; text renders in ink. */
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Unmistakable keyboard focus that fits the visual system. */
+  :focus-visible {
+    outline: 2px solid var(--color-vermilion-deep);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-vermilion);
+    color: #fff;
+  }
+
+  /* Native number-input spinners fight the editorial field styling. */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+}
+
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility text-balance {
+  text-wrap: balance;
+}
+
+/* Compact uppercase utility label — the workhorse of the editorial system. */
+@utility label-utility {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: var(--tracking-utility);
+  text-transform: uppercase;
+}
+
+/* Staged loading shimmer — quiet, analytical, off by default for reduced motion. */
+@keyframes guide-shimmer {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@utility skeleton {
+  background: var(--color-sage);
+  animation: guide-shimmer 1.1s ease-in-out infinite alternate;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+/* Score ring fill transition */
+@utility transition-ring {
+  transition: stroke-dashoffset 180ms ease-out;
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+}
+
+/*
+ * The index band's drift.
+ *
+ * A CSS keyframe loop rather than a JS one: an infinite linear marquee is
+ * exactly what `animation-play-state` was made for, and pausing it on
+ * hover or focus — so a reader can actually stop and read a name — is one
+ * declaration here versus a pile of imperative playback control. The
+ * page's other motion is JS-driven, where interruption and sequencing
+ * genuinely need it.
+ *
+ * The list is rendered twice end to end and travels exactly half its own
+ * width, so the loop closes on itself with no visible jump.
+ */
+@keyframes index-drift-left {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes index-drift-right {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@layer components {
+  .index-drift {
+    animation: index-drift-left linear infinite;
+  }
+
+  .index-drift-reverse {
+    animation-name: index-drift-right;
+  }
+
+  .index-row:hover .index-drift,
+  .index-row:focus-within .index-drift {
+    animation-play-state: paused;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .index-drift {
+      animation: none;
+    }
+  }
+}

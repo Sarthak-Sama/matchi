@@ -26,7 +26,8 @@
     "data:prepare": "tsx --env-file-if-exists=.env scripts/src/data-prepare.ts",
     "data:refresh": "tsx --env-file-if-exists=.env scripts/src/data-refresh.ts",
     "data:validate": "tsx --env-file-if-exists=.env scripts/src/data-validate.ts",
-    "data:reset-real": "tsx --env-file-if-exists=.env scripts/src/data-reset-real.ts"
+    "data:reset-real": "tsx --env-file-if-exists=.env scripts/src/data-reset-real.ts",
+    "build:ward-plate": "tsx --env-file-if-exists=.env scripts/src/build-ward-plate.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

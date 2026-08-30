@@ -1,5 +1,5 @@
 /**
- * Small handwritten `fetch` wrapper for the Tokyo Neighborhood Optimizer
+ * Small handwritten `fetch` wrapper for the Matchi API.
  * API. No generated client, no data-fetching library (no React Query, no
  * SWR, no axios) — just `getJson`/`postJson` against
  * `NEXT_PUBLIC_API_BASE_URL`, throwing a typed `ApiClientError` that carries
