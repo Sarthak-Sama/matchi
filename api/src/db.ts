@@ -8,6 +8,8 @@
 import { Pool } from "pg";
 import type { QueryResult, QueryResultRow } from "pg";
 
+import { databaseSslFor } from "@tokyo/shared/server";
+
 const SLOW_QUERY_THRESHOLD_MS = 500;
 const POOL_MAX_CONNECTIONS = 10;
 const IDLE_TIMEOUT_MS = 30_000;
@@ -32,6 +34,10 @@ export interface QueryLogger {
 export function createPool(databaseUrl: string): Pool {
   return new Pool({
     connectionString: databaseUrl,
+    // Verification is pinned here rather than left to `sslmode` — see
+    // `databaseSslFor` for why the connection string is the wrong place
+    // to express it.
+    ssl: databaseSslFor(databaseUrl),
     max: POOL_MAX_CONNECTIONS,
     idleTimeoutMillis: IDLE_TIMEOUT_MS,
     connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,

@@ -8,6 +8,8 @@
 import { Pool } from "pg";
 import type { PoolClient } from "pg";
 
+import { databaseSslFor } from "@tokyo/shared/server";
+
 /**
  * Creates a `pg.Pool` connected to `DATABASE_URL`. Throws if the
  * environment variable is unset — callers decide how to surface that
@@ -18,7 +20,10 @@ export function createPool(): Pool {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set");
   }
-  return new Pool({ connectionString });
+  // Verification is pinned here rather than left to `sslmode` — see
+  // `databaseSslFor` for why the connection string is the wrong place to
+  // express it.
+  return new Pool({ connectionString, ssl: databaseSslFor(connectionString) });
 }
 
 /**
