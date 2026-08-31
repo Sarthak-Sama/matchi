@@ -26,7 +26,6 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
 
   return (
     <form role="search" aria-label="Neighborhood search" onSubmit={search.handleSubmit}>
-      {}
       <fieldset id="search">
         <legend className="flex items-baseline gap-3">
           <span className="font-mono text-[11px] text-vermilion-deep">01</span>
@@ -91,7 +90,6 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
         </div>
       </fieldset>
 
-      {}
       <fieldset className="mt-8">
         <legend className="flex items-baseline gap-3">
           <span className="font-mono text-[11px] text-vermilion-deep">02</span>
@@ -140,7 +138,6 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
         </div>
       </fieldset>
 
-      {}
       <section className="mt-8" aria-labelledby="priorities-heading">
         <h3 id="priorities-heading">
           <button

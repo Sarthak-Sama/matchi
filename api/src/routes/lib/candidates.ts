@@ -9,7 +9,8 @@ import type { Confidence, LayoutId } from "@tokyo/shared";
 import { walkMinutesForMetres } from "./access-stations.js";
 import type { LifestyleMetricColumns } from "./lifestyle-columns.js";
 import { readLifestyleNormScores, readLifestyleRawCounts } from "./lifestyle-columns.js";
-import { recomputeRentForLayout } from "./rent.js";
+import { readStoredRentInputs, recomputeRentForLayout } from "./rent.js";
+import type { StoredRentInputRow } from "./rent.js";
 import type { NameLookups } from "./station-names.js";
 import { resolvePathNames } from "./station-names.js";
 
@@ -53,7 +54,7 @@ export interface ExclusionCounts {
   missingLifestyleMetrics: number;
 }
 
-export interface CandidateRow extends LifestyleMetricColumns {
+export interface CandidateRow extends LifestyleMetricColumns, StoredRentInputRow {
   readonly localityId: string;
   readonly nameEn: string | null;
   readonly nameJa: string;
@@ -64,13 +65,6 @@ export interface CandidateRow extends LifestyleMetricColumns {
   readonly lon: number;
   readonly polygon?: unknown;
   readonly samples: readonly LocalitySample[];
-  readonly rentPerSqmYen: number | null;
-  readonly managementFeeYen: number | null;
-  readonly landPriceMultiplier: number | null;
-  readonly landPricePointCount: number | null;
-  readonly landPriceUsedFallback: boolean | null;
-  readonly rentSource: string | null;
-  readonly rentSourcePeriod: string | null;
   readonly derivedAt: Date;
 }
 
@@ -218,15 +212,8 @@ export function buildCandidate(
     return null;
   }
 
-  if (
-    row.rentPerSqmYen === null ||
-    row.managementFeeYen === null ||
-    row.landPriceMultiplier === null ||
-    row.landPricePointCount === null ||
-    row.landPriceUsedFallback === null ||
-    row.rentSource === null ||
-    row.rentSourcePeriod === null
-  ) {
+  const rentInputs = readStoredRentInputs(row);
+  if (rentInputs === null) {
     log.warn(
       { localityId: row.localityId, wardCode: row.wardCode },
       "excluding candidate from /v1/optimize: incomplete rent inputs (ward likely has no rent_stats row)",
@@ -244,19 +231,7 @@ export function buildCandidate(
     return null;
   }
 
-  const rent = recomputeRentForLayout(
-    {
-      rentPerSqmYen: row.rentPerSqmYen,
-      managementFeeYen: row.managementFeeYen,
-      landPriceMultiplier: row.landPriceMultiplier,
-      landPricePointCount: row.landPricePointCount,
-      landPriceUsedFallback: row.landPriceUsedFallback,
-      rentSource: row.rentSource,
-      rentSourcePeriod: row.rentSourcePeriod,
-    },
-    layout,
-    currentYear,
-  );
+  const rent = recomputeRentForLayout(rentInputs, layout, currentYear);
 
   const commute = localityCommute(row.samples, destination, dijkstraResult, nameLookups);
 

@@ -64,7 +64,6 @@ export function NarrowingPlate() {
           className="block h-full w-full"
         >
           <defs>
-            {}
             <clipPath id="plate-sweep">
               <motion.circle
                 cx={EXAMPLE_SEARCH.destination.x}
@@ -76,7 +75,6 @@ export function NarrowingPlate() {
             </clipPath>
           </defs>
 
-          {}
           <g className="fill-paper-soft stroke-line-strong" strokeWidth="1.1">
             {WARD_SHAPES.map((ward, index) => (
               <motion.path
@@ -94,7 +92,6 @@ export function NarrowingPlate() {
             ))}
           </g>
 
-          {}
           <motion.g
             clipPath="url(#plate-sweep)"
             className="fill-moss"
@@ -108,7 +105,6 @@ export function NarrowingPlate() {
             })}
           </motion.g>
 
-          {}
           {showSweep && (
             <motion.circle
               cx={EXAMPLE_SEARCH.destination.x}
@@ -123,7 +119,6 @@ export function NarrowingPlate() {
             />
           )}
 
-          {}
           {showMatches &&
             EXAMPLE_SEARCH.matchedIndices.map((localityIndex, order) => {
               const { x, y } = localityPoint(localityIndex);
@@ -144,7 +139,6 @@ export function NarrowingPlate() {
               );
             })}
 
-          {}
           {showSweep && (
             <motion.g
               initial={{ opacity: reducedMotion ? 1 : 0 }}

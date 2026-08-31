@@ -155,6 +155,28 @@ function buildTestApp(pool: DbPool, graphs = FIXTURE_GRAPHS) {
 }
 
 describe("POST /v1/optimize", () => {
+  it("excludes a locality when any rent_stats-backed input is missing", async () => {
+    const app = buildTestApp(
+      fakeOptimizePool({
+        candidates: [
+          makeCandidateRow({ stationGroupId: "sg-near" }),
+          makeCandidateRow({ stationGroupId: "sg-far", rentSourcePeriod: null }),
+        ],
+      }),
+    );
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/optimize",
+      payload: baseRequest(),
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    const body = optimizeResponseSchema.parse(response.json());
+    expect(body.results.map((result) => result.localityId)).toEqual(["locality-sg-near"]);
+    expect(body.diagnostics.candidatesConsidered).toBe(1);
+  });
+
   it("happy path: 200, results sorted by overallScore desc, every result validates against optimizeResponseSchema", async () => {
     const app = buildTestApp(fakeOptimizePool());
     const response = await app.inject({

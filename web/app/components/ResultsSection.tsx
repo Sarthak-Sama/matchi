@@ -57,7 +57,6 @@ export function ResultsSection({
 
   return (
     <section aria-labelledby="results-heading" className="mt-14">
-      {}
       <div className="border-t-2 border-ink pt-5">
         <p className="label-utility text-vermilion-deep">The shortlist</p>
         <h2
@@ -87,7 +86,6 @@ export function ResultsSection({
         />
       )}
 
-      {}
       <div className="mt-6 lg:hidden">
         <div className="border border-line-strong">
           <div className={`relative overflow-hidden ${mapExpanded ? "h-[68vh]" : "h-64"}`}>
