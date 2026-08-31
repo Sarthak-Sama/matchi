@@ -98,9 +98,9 @@ Create the monorepo skeleton. No application logic in this task.
   - `"import:rent": "tsx scripts/src/import-rent.ts"`
   - `"import:osm": "tsx scripts/src/import-osm.ts"`
   - `"import:transit": "tsx scripts/src/import-transit.ts"`
-  For this task only, the five `tsx` targets may be one-line stub files that
-  `console.log("not implemented")` and `process.exit(1)`. `migrate`/`seed`/
-  `derive` stubs likewise.
+    For this task only, the five `tsx` targets may be one-line stub files that
+    `console.log("not implemented")` and `process.exit(1)`. `migrate`/`seed`/
+    `derive` stubs likewise.
 - `pnpm-workspace.yaml` listing `web`, `api`, `shared`, `scripts`.
 - `tsconfig.base.json` with `strict: true`, `target: "ES2022"`,
   `lib: ["ES2022"]`, `moduleDetection: "force"`, `noUncheckedIndexedAccess: true`,
@@ -177,20 +177,21 @@ Export these as `const` objects with `as const` where useful, all typed:
 
 **Layouts** — id, label, min m², max m², midpoint m². Exact table:
 
-| id | label | min | max | mid |
-|---|---|---:|---:|---:|
-| `1R` | `1R` | 18 | 25 | 21 |
-| `1K` | `1K` | 20 | 28 | 24 |
-| `1DK` | `1DK` | 25 | 35 | 30 |
-| `1LDK` | `1LDK` | 32 | 45 | 38 |
-| `2K_2DK` | `2K/2DK` | 35 | 50 | 43 |
-| `2LDK` | `2LDK` | 45 | 65 | 55 |
-| `3LDK` | `3LDK` | 60 | 80 | 70 |
+| id       | label    | min | max | mid |
+| -------- | -------- | --: | --: | --: |
+| `1R`     | `1R`     |  18 |  25 |  21 |
+| `1K`     | `1K`     |  20 |  28 |  24 |
+| `1DK`    | `1DK`    |  25 |  35 |  30 |
+| `1LDK`   | `1LDK`   |  32 |  45 |  38 |
+| `2K_2DK` | `2K/2DK` |  35 |  50 |  43 |
+| `2LDK`   | `2LDK`   |  45 |  65 |  55 |
+| `3LDK`   | `3LDK`   |  60 |  80 |  70 |
 
 Export `LAYOUTS` as a record keyed by id and `LAYOUT_IDS` as a readonly tuple
 in the order above.
 
 **Rent estimator constants**
+
 - `LOW_ESTIMATE_FACTOR = 0.90` (applied to layout min m²)
 - `HIGH_ESTIMATE_FACTOR = 1.10` (applied to layout max m²)
 - `LAND_PRICE_MULTIPLIER_EXPONENT = 0.25`
@@ -200,10 +201,12 @@ in the order above.
   confidence drops)
 
 **Catchment**
+
 - `CATCHMENT_RADIUS_M = 800`
 - `CATCHMENT_LABEL = "approximate 10-minute station area"`
 
 **Commute constants**
+
 - `ACCESS_WALK_MINUTES = 8` (fixed neighborhood-to-station walk)
 - `TRANSFER_PENALTY_MINUTES = 5`
 - `PEAK_WAIT_MINUTES = 4`
@@ -214,18 +217,22 @@ in the order above.
 - `DWELL_SECONDS_PER_INTERMEDIATE_STATION = 45`
 
 **Scoring weights**
+
 - `OVERALL_WEIGHTS = { affordability: 0.30, commute: 0.30, lifestyle: 0.40 }`
   (must sum to 1; assert this in a test)
 - `IMPORTANCE_VALUES = { low: 1, medium: 2, high: 4, essential: 8 }`
 
 **Quietness proxy weights**
+
 - `QUIETNESS_WEIGHTS = { residentialZoningShare: 0.50, inverseRoadRailExposure: 0.30, inverseNightlifeDensity: 0.20 }`
   (must sum to 1; assert this in a test)
 
 **Amenity weights** (supermarket-equivalent weighting)
+
 - `AMENITY_WEIGHTS = { supermarket: 1.0, grocery: 0.5, convenience: 0.25 }`
 
 **Labels**
+
 - `RENT_LABEL = "modeled area rent"`
 - `COMMUTE_LABEL = "typical weekday estimate"`
 - `QUIETNESS_LABEL = "quietness proxy"`
@@ -253,32 +260,32 @@ Use Zod v4. Define and export both the schema and the inferred type for each.
     assignable to the interface written in the spec §4.
 - Response schemas (define these; they are the API's public shape):
   - `factorEvidenceSchema`: `{ key: string, label: string, rawValue: number,
-    rawValueLabel: string, componentScore: number (0-100),
-    effectiveWeight: number, pointContribution: number,
-    sourceDate: string | null, confidence: Confidence,
-    explanation: string, direction: "positive" | "negative" | "neutral" }`
+rawValueLabel: string, componentScore: number (0-100),
+effectiveWeight: number, pointContribution: number,
+sourceDate: string | null, confidence: Confidence,
+explanation: string, direction: "positive" | "negative" | "neutral" }`
   - `rentEstimateSchema`: `{ lowYen, medianYen, highYen, layout,
-    assumedSizeSqmMin, assumedSizeSqmMax, assumedSizeSqmMid,
-    managementFeeYen, wardRentPerSqmYen, landPriceMultiplier,
-    landPricePointCount, source: string, sourcePeriod: string,
-    confidence, label: string }` — `label` is `RENT_LABEL`.
+assumedSizeSqmMin, assumedSizeSqmMax, assumedSizeSqmMid,
+managementFeeYen, wardRentPerSqmYen, landPriceMultiplier,
+landPricePointCount, source: string, sourcePeriod: string,
+confidence, label: string }` — `label` is `RENT_LABEL`.
   - `commuteEstimateSchema`: `{ totalMinutes, accessWalkMinutes, railMinutes,
-    waitMinutes, transferCount, transferPenaltyMinutes, confidence,
-    label: string, path: Array<{ stationGroupId, nameEn, nameJa, lineName: string | null }> }`
+waitMinutes, transferCount, transferPenaltyMinutes, confidence,
+label: string, path: Array<{ stationGroupId, nameEn, nameJa, lineName: string | null }> }`
   - `neighborhoodResultSchema`: `{ rank, stationGroupId, nameEn, nameJa,
-    wardCode, wardNameEn, wardNameJa, centroid: { lat, lon },
-    overallScore (0-100), rent: rentEstimateSchema,
-    commute: commuteEstimateSchema, factors: factorEvidenceSchema[],
-    reasonsFor: string[], reasonsAgainst: string[],
-    catchmentLabel: string }`
+wardCode, wardNameEn, wardNameJa, centroid: { lat, lon },
+overallScore (0-100), rent: rentEstimateSchema,
+commute: commuteEstimateSchema, factors: factorEvidenceSchema[],
+reasonsFor: string[], reasonsAgainst: string[],
+catchmentLabel: string }`
   - `optimizeResponseSchema`: `{ results: neighborhoodResultSchema[],
-    diagnostics: { candidatesConsidered, excludedByRent, excludedByCommute,
-      excludedByDisconnected, feasibleCount, suggestion: string | null },
-    request: optimizationRequestSchema, dataVintages: Array<{ source, sourceUpdatedAt: string | null, importedAt: string | null }> }`
+diagnostics: { candidatesConsidered, excludedByRent, excludedByCommute,
+excludedByDisconnected, feasibleCount, suggestion: string | null },
+request: optimizationRequestSchema, dataVintages: Array<{ source, sourceUpdatedAt: string | null, importedAt: string | null }> }`
   - `stationSuggestionSchema`: `{ stationGroupId, nameEn, nameJa,
-    aliases: string[], lines: string[], lat, lon }`
+aliases: string[], lines: string[], lat, lon }`
   - `dataStatusSchema`: `{ sources: Array<{ source, status, sourceUpdatedAt: string | null,
-    importedAt: string | null, rowsImported: number | null, error: string | null }> }`
+importedAt: string | null, rowsImported: number | null, error: string | null }> }`
 - `shared/src/index.ts` re-exports everything from `config/scoring.ts` and
   `contracts/`.
 
@@ -326,78 +333,78 @@ columns are SRID 4326. Use `timestamptz` for all timestamps. Use
 `generated always as identity` or `bigserial` for surrogate keys.
 
 - `import_runs(id, source text not null, source_updated_at timestamptz,
-  started_at timestamptz not null default now(), finished_at timestamptz,
-  status text not null check (status in ('running','success','failed')),
-  rows_imported integer, error text)`
+started_at timestamptz not null default now(), finished_at timestamptz,
+status text not null check (status in ('running','success','failed')),
+rows_imported integer, error text)`
 - `wards(ward_code text primary key, name_ja text not null, name_en text not null,
-  geom geometry(MultiPolygon,4326) not null, source text, source_updated_at timestamptz,
-  imported_at timestamptz not null default now())`
+geom geometry(MultiPolygon,4326) not null, source text, source_updated_at timestamptz,
+imported_at timestamptz not null default now())`
 - `station_groups(station_group_id text primary key, name_ja text not null,
-  name_en text not null, aliases text[] not null default '{}',
-  point geometry(Point,4326) not null, ward_code text references wards(ward_code),
-  source text, source_updated_at timestamptz, imported_at timestamptz not null default now())`
+name_en text not null, aliases text[] not null default '{}',
+point geometry(Point,4326) not null, ward_code text references wards(ward_code),
+source text, source_updated_at timestamptz, imported_at timestamptz not null default now())`
 - `station_source_refs(id, station_group_id text not null references station_groups
-  on delete cascade, source text not null, source_id text not null,
-  source_name text, unique (source, source_id))`
+on delete cascade, source text not null, source_id text not null,
+source_name text, unique (source, source_id))`
 - `rail_lines(rail_line_id text primary key, operator text not null, name_ja text not null,
-  name_en text, mode text not null check (mode in ('subway','local_rail','commuter_rail','monorail')),
-  geom geometry(MultiLineString,4326), source text, source_updated_at timestamptz,
-  imported_at timestamptz not null default now())`
+name_en text, mode text not null check (mode in ('subway','local_rail','commuter_rail','monorail')),
+geom geometry(MultiLineString,4326), source text, source_updated_at timestamptz,
+imported_at timestamptz not null default now())`
 - `rail_edges(id, from_station_group_id text not null references station_groups,
-  to_station_group_id text not null references station_groups,
-  rail_line_id text references rail_lines, edge_type text not null
-  check (edge_type in ('ride','transfer')),
-  peak_travel_minutes double precision not null check (peak_travel_minutes >= 0),
-  offpeak_travel_minutes double precision not null check (offpeak_travel_minutes >= 0),
-  peak_wait_minutes double precision not null default 0,
-  offpeak_wait_minutes double precision not null default 0,
-  confidence text not null check (confidence in ('high','medium','low')),
-  source text, source_updated_at timestamptz, imported_at timestamptz not null default now(),
-  unique (from_station_group_id, to_station_group_id, rail_line_id, edge_type))`
+to_station_group_id text not null references station_groups,
+rail_line_id text references rail_lines, edge_type text not null
+check (edge_type in ('ride','transfer')),
+peak_travel_minutes double precision not null check (peak_travel_minutes >= 0),
+offpeak_travel_minutes double precision not null check (offpeak_travel_minutes >= 0),
+peak_wait_minutes double precision not null default 0,
+offpeak_wait_minutes double precision not null default 0,
+confidence text not null check (confidence in ('high','medium','low')),
+source text, source_updated_at timestamptz, imported_at timestamptz not null default now(),
+unique (from_station_group_id, to_station_group_id, rail_line_id, edge_type))`
   Note: `rail_line_id` is nullable and participates in the unique constraint;
   add a partial unique index for transfer edges where `rail_line_id is null`
   so duplicates are still prevented.
 - `station_areas(station_group_id text primary key references station_groups on delete cascade,
-  radius_m integer not null, geom geometry(Polygon,4326) not null,
-  area_sqm double precision not null, derived_at timestamptz not null default now())`
+radius_m integer not null, geom geometry(Polygon,4326) not null,
+area_sqm double precision not null, derived_at timestamptz not null default now())`
 - `rent_stats(id, ward_code text not null references wards(ward_code),
-  period text not null, source text not null,
-  rent_per_sqm_yen double precision not null check (rent_per_sqm_yen > 0),
-  management_fee_yen double precision not null default 0,
-  sample_count integer, source_updated_at timestamptz,
-  imported_at timestamptz not null default now(),
-  unique (ward_code, period, source))`
+period text not null, source text not null,
+rent_per_sqm_yen double precision not null check (rent_per_sqm_yen > 0),
+management_fee_yen double precision not null default 0,
+sample_count integer, source_updated_at timestamptz,
+imported_at timestamptz not null default now(),
+unique (ward_code, period, source))`
 - `land_prices(id, point geometry(Point,4326) not null, price_yen_per_sqm double precision not null,
-  year integer not null, use_category text, ward_code text references wards(ward_code),
-  source text, source_updated_at timestamptz, imported_at timestamptz not null default now())`
+year integer not null, use_category text, ward_code text references wards(ward_code),
+source text, source_updated_at timestamptz, imported_at timestamptz not null default now())`
 - `zoning_areas(id, category text not null, is_residential boolean not null,
-  geom geometry(MultiPolygon,4326) not null, source text, source_updated_at timestamptz,
-  imported_at timestamptz not null default now())`
+geom geometry(MultiPolygon,4326) not null, source text, source_updated_at timestamptz,
+imported_at timestamptz not null default now())`
 - `flood_zones(id, depth_category text not null, depth_rank integer not null,
-  geom geometry(MultiPolygon,4326) not null, source text, source_updated_at timestamptz,
-  imported_at timestamptz not null default now())`
+geom geometry(MultiPolygon,4326) not null, source text, source_updated_at timestamptz,
+imported_at timestamptz not null default now())`
 - `pois(id, category text not null, name text, osm_type text, osm_id bigint,
-  point geometry(Point,4326) not null, source text, source_updated_at timestamptz,
-  imported_at timestamptz not null default now(), unique (osm_type, osm_id))`
+point geometry(Point,4326) not null, source text, source_updated_at timestamptz,
+imported_at timestamptz not null default now(), unique (osm_type, osm_id))`
 - `major_roads(id, name text, road_class text not null, geom geometry(MultiLineString,4326) not null,
-  source text, source_updated_at timestamptz, imported_at timestamptz not null default now())`
+source text, source_updated_at timestamptz, imported_at timestamptz not null default now())`
 - `neighborhood_metrics(station_group_id text primary key references station_groups on delete cascade,
-  ward_code text references wards(ward_code),
-  rent_low_yen double precision, rent_median_yen double precision, rent_high_yen double precision,
-  rent_confidence text, rent_source text, rent_source_period text,
-  rent_per_sqm_yen double precision, management_fee_yen double precision,
-  land_price_multiplier double precision, land_price_point_count integer,
-  supermarket_count integer not null default 0, grocery_count integer not null default 0,
-  convenience_count integer not null default 0, amenity_supermarket_equiv double precision not null default 0,
-  restaurant_count integer not null default 0, cafe_count integer not null default 0,
-  nightlife_count integer not null default 0,
-  flood_share_by_category jsonb not null default '{}'::jsonb,
-  flood_exposure_score double precision, residential_zoning_share double precision,
-  road_rail_exposure_share double precision, quietness_raw double precision,
-  norm_amenity_supermarket double precision, norm_amenity_restaurant double precision,
-  norm_flood_safety double precision, norm_quietness double precision,
-  source_dates jsonb not null default '{}'::jsonb,
-  derived_at timestamptz not null default now())`
+ward_code text references wards(ward_code),
+rent_low_yen double precision, rent_median_yen double precision, rent_high_yen double precision,
+rent_confidence text, rent_source text, rent_source_period text,
+rent_per_sqm_yen double precision, management_fee_yen double precision,
+land_price_multiplier double precision, land_price_point_count integer,
+supermarket_count integer not null default 0, grocery_count integer not null default 0,
+convenience_count integer not null default 0, amenity_supermarket_equiv double precision not null default 0,
+restaurant_count integer not null default 0, cafe_count integer not null default 0,
+nightlife_count integer not null default 0,
+flood_share_by_category jsonb not null default '{}'::jsonb,
+flood_exposure_score double precision, residential_zoning_share double precision,
+road_rail_exposure_share double precision, quietness_raw double precision,
+norm_amenity_supermarket double precision, norm_amenity_restaurant double precision,
+norm_flood_safety double precision, norm_quietness double precision,
+source_dates jsonb not null default '{}'::jsonb,
+derived_at timestamptz not null default now())`
   The `norm_*` columns hold 0–100 normalized scores computed in `pnpm derive`.
 
 **Indexes.** GiST on every geometry column
@@ -553,7 +560,7 @@ ward rent/m2 x assumed layout size x station land-price multiplier + ward manage
 - `computeLandPriceMultiplier({ catchmentMedianLandPrice, wardMedianLandPrice, pointCount })`
   returns `{ multiplier, usedFallback }`. When `pointCount < MIN_LAND_PRICE_POINTS`
   or either median is missing/non-positive, return `{ multiplier: 1.0,
-  usedFallback: true }`. Otherwise
+usedFallback: true }`. Otherwise
   `clamp((catchment / ward) ** 0.25, 0.85, 1.15)`.
 - `estimateRent(input)` where input carries `layout`, `wardRentPerSqmYen`,
   `managementFeeYen`, `landPriceMultiplier`, `landPricePointCount`,
@@ -625,6 +632,7 @@ in `flood_share_by_category` (`{ "<category>": <share 0..1> }`). Compute
 same category must be unioned before measuring so shares cannot exceed 1.
 
 **Step 4 — zoning and road/rail exposure.**
+
 - `residential_zoning_share` = catchment area intersecting
   `zoning_areas WHERE is_residential` divided by catchment area (union first).
 - `road_rail_exposure_share` = share of the catchment within 100 m of a
@@ -695,13 +703,13 @@ running migrate + seed + derive:
 - `dijkstra.ts`
   - `reverseDijkstra(graph, destinationId)` runs ONE search from the
     destination over reversed edges, returning a `Map<stationGroupId,
-    { totalMinutes, railMinutes, waitMinutes, transferCount, transferPenaltyMinutes, confidence, previous }>`
+{ totalMinutes, railMinutes, waitMinutes, transferCount, transferPenaltyMinutes, confidence, previous }>`
     covering every reachable node. Unreachable nodes are absent from the map.
   - Cost model, applied per traversed edge:
     - `ride` edge cost = `travelMinutes + waitMinutes` where `waitMinutes`
       comes from the edge if set, else `PEAK_WAIT_MINUTES` /
       `OFFPEAK_WAIT_MINUTES` per period. The boarding wait is charged once per
-      *boarding*, i.e. on the first ride edge of the journey and on the first
+      _boarding_, i.e. on the first ride edge of the journey and on the first
       ride edge after each transfer — not on every ride edge of the same line.
       Track the current line in the search state to implement this.
     - `transfer` edge cost = `travelMinutes + TRANSFER_PENALTY_MINUTES` and
@@ -758,11 +766,11 @@ commute result. All weights from `@tokyo/shared`.
   1. disconnected — no commute result for the station
   2. commute — `commute.totalMinutes > request.maxCommuteMinutes`
   3. rent — `rent.medianYen > request.monthlyBudgetYen`
-  `suggestion` is `null` when `feasibleCount > 0`. When zero, it names the
-  dominant exclusion reason and the relaxation that would help most, e.g.
-  `"No areas fit. Rent excluded 41 of 52 areas — try raising the budget to about ¥140,000."`
-  Derive the suggested number from the data (e.g. the 25th percentile of
-  excluded medians / commute minutes), not a hard-coded guess.
+     `suggestion` is `null` when `feasibleCount > 0`. When zero, it names the
+     dominant exclusion reason and the relaxation that would help most, e.g.
+     `"No areas fit. Rent excluded 41 of 52 areas — try raising the budget to about ¥140,000."`
+     Derive the suggested number from the data (e.g. the 25th percentile of
+     excluded medians / commute minutes), not a hard-coded guess.
 - `scoreAffordability(rentMedianYen, budgetYen)` → 0–100. Score 100 when the
   median is at or below 60% of budget, 0 when it exceeds budget, linear
   between. Add `AFFORDABILITY_FULL_SCORE_RATIO = 0.6` to the shared config in
@@ -774,7 +782,7 @@ commute result. All weights from `@tokyo/shared`.
   lifestyle axes map to the precomputed normalized columns:
   `floodSafety → norm_flood_safety`, `supermarkets → norm_amenity_supermarket`,
   `restaurants → norm_amenity_restaurant`, `quietness → norm_quietness`.
-  Effective weight for axis *i* is
+  Effective weight for axis _i_ is
   `IMPORTANCE_VALUES[pref_i] / sum(IMPORTANCE_VALUES[pref_j] for all j)`.
   Lifestyle score is the weighted sum of the four normalized scores.
   "Essential" is a weight only — it must NOT filter anything out.
@@ -785,7 +793,7 @@ commute result. All weights from `@tokyo/shared`.
   — each with its raw metric, a human-readable `rawValueLabel`
   (e.g. `"¥128,000 modeled area rent"`, `"34 min typical weekday estimate"`,
   `"12 supermarkets within 800 m"`), the 0–100 component score, the effective
-  weight *within the overall score* (affordability 0.30, commute 0.30, each
+  weight _within the overall score_ (affordability 0.30, commute 0.30, each
   lifestyle axis `0.40 * itsNormalizedShare`), the point contribution
   (`componentScore * effectiveWeight`, so contributions sum to
   `overallScore`), the source date, the confidence, a one-sentence
@@ -1097,7 +1105,7 @@ only. No map, no Playwright, no design work.
   2. monthly all-in budget, layout (`<select>` from `LAYOUT_IDS`, showing the
      assumed m² range next to each)
   3. the four lifestyle importance selects
-  Submitting calls `POST /v1/optimize`.
+     Submitting calls `POST /v1/optimize`.
 - Results: a ranked `<ol>`. Per result show rank, station name (en + ja),
   ward, overall score, the modeled rent range with its label and confidence,
   the commute breakdown (access walk / rail / wait / transfers) with the
@@ -1132,5 +1140,6 @@ against the running API with the seeded+derived database.
   manual refresh cycles).
 - MapLibre, Playwright, visual design, and the methodology page — deferred by
   the user's frontend directive.
+
 > Historical design document. Flood ingestion and scoring were removed by
 > migration `0009_remove_flood.sql`; flood references below are not active requirements.

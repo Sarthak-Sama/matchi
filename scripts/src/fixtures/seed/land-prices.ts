@@ -17,7 +17,7 @@
  *    neighbor's spillover) points.
  *
  * (Actual per-station counts were verified for real post-seed with an
- * ST_DWithin query — see task-5-report.md.)
+ * ST_DWithin query.)
  */
 
 import { createRng, jitterPoint, randChoice, randRange } from "./geo.js";

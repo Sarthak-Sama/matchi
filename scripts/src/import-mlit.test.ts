@@ -68,9 +68,9 @@ describe("wards parsing", () => {
   it("a row count below the configured minimum aborts the import", () => {
     const features = parseFeatureCollection(fixture("wards.empty.geojson"), "wards");
     expect(features).toHaveLength(0);
-    expect(() => expectRowCount(features.length, { min: MIN_WARDS_ROWS, label: "wards" })).toThrowError(
-      /wards: expected at least 1 row\(s\), got 0/,
-    );
+    expect(() =>
+      expectRowCount(features.length, { min: MIN_WARDS_ROWS, label: "wards" }),
+    ).toThrowError(/wards: expected at least 1 row\(s\), got 0/);
   });
 });
 
@@ -80,8 +80,16 @@ describe("stations parsing + merging", () => {
     const stations = parseStations(features);
 
     expect(stations).toHaveLength(3);
-    expect(stations[0]).toMatchObject({ sourceId: "mlit-st-1", nameJa: "渋谷駅", nameEn: "渋谷駅" });
-    expect(stations[2]).toMatchObject({ sourceId: "mlit-st-3", nameJa: "新宿", nameEn: "Shinjuku" });
+    expect(stations[0]).toMatchObject({
+      sourceId: "mlit-st-1",
+      nameJa: "渋谷駅",
+      nameEn: "渋谷駅",
+    });
+    expect(stations[2]).toMatchObject({
+      sourceId: "mlit-st-3",
+      nameJa: "新宿",
+      nameEn: "Shinjuku",
+    });
   });
 
   it("merges the two near-identical stations into one group; the third stays separate", () => {
@@ -126,9 +134,17 @@ describe("rail-lines parsing", () => {
     const feature = {
       type: "Feature" as const,
       properties: { operator: "Test Rail", name_ja: "テスト線", mode: "bullet_train" },
-      geometry: { type: "LineString", coordinates: [[139.7, 35.6], [139.71, 35.61]] },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [139.7, 35.6],
+          [139.71, 35.61],
+        ],
+      },
     };
-    expect(() => parseRailLineFeature(feature, 0)).toThrowError(/mode "bullet_train" is not one of/);
+    expect(() => parseRailLineFeature(feature, 0)).toThrowError(
+      /mode "bullet_train" is not one of/,
+    );
   });
 });
 
@@ -138,7 +154,11 @@ describe("land-prices parsing", () => {
     const rows = parseLandPrices(features);
 
     expect(rows).toHaveLength(3);
-    expect(rows[0]).toMatchObject({ priceYenPerSqm: 850000, year: 2025, useCategory: "residential" });
+    expect(rows[0]).toMatchObject({
+      priceYenPerSqm: 850000,
+      year: 2025,
+      useCategory: "residential",
+    });
     expect(rows[1]).toMatchObject({ priceYenPerSqm: 920000, useCategory: "residential" });
     expect(rows[2]).toMatchObject({ priceYenPerSqm: 1500000, useCategory: "commercial" });
   });
@@ -165,7 +185,10 @@ describe("zoning parsing", () => {
     const rows = parseZoningAreas(features);
 
     expect(rows).toHaveLength(3);
-    expect(rows[0]).toMatchObject({ category: "category1_low_rise_residential", isResidential: true });
+    expect(rows[0]).toMatchObject({
+      category: "category1_low_rise_residential",
+      isResidential: true,
+    });
     expect(rows[1]).toMatchObject({ category: "commercial", isResidential: false });
     expect(rows[2]).toMatchObject({ category: "mixed_use_special_district", isResidential: true });
   });
@@ -246,7 +269,9 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
   });
 
   it("a full run records one success import_runs row with the right rows_imported and populates the tables", async () => {
-    const result = await runImport({ source: "mlit", pool }, (client) => runMlitImport(client, GOOD_ARGS));
+    const result = await runImport({ source: "mlit", pool }, (client) =>
+      runMlitImport(client, GOOD_ARGS),
+    );
 
     expect(result.rowsImported).toBe(EXPECTED_ROWS_IMPORTED);
 
@@ -313,9 +338,8 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
     // this test's own console output above). `MlitImportResult` surfaces
     // the exact same computed list `upsertWards` also logs a warning
     // about, so this is testing the real mechanism, not a substitute.
-    const result = (await runImport(
-      { source: "mlit", pool },
-      (client) => runMlitImport(client, GOOD_ARGS),
+    const result = (await runImport({ source: "mlit", pool }, (client) =>
+      runMlitImport(client, GOOD_ARGS),
     )) as MlitImportResult;
 
     expect(result.overwrittenDifferentSourceWardCodes).toEqual(["13113"]);
@@ -332,9 +356,8 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
       landPricesPath: fixturePath("land-prices-all-commercial.geojson"),
     };
 
-    const result = (await runImport(
-      { source: "mlit", pool },
-      (client) => runMlitImport(client, allCommercialArgs),
+    const result = (await runImport({ source: "mlit", pool }, (client) =>
+      runMlitImport(client, allCommercialArgs),
     )) as MlitImportResult;
 
     // Asserted on the structured result rather than captured console
@@ -353,9 +376,9 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
       await runImport({ source: "mlit", pool }, (client) => runMlitImport(client, GOOD_ARGS));
 
       // rent_stats.ward_code is NOT NULL REFERENCES wards(ward_code) — this
-      // table already exists from Task 3's schema, so a real dependent row
-      // can be simulated directly without needing Task 12's import:rent to
-      // exist yet. (If this ever needs adjusting once import:rent lands,
+      // table already exists in the schema, so a real dependent row can be
+      // simulated directly without needing import:rent.
+      // (If this ever needs adjusting once import:rent lands,
       // replace this raw INSERT with a real `pnpm import:rent` fixture run.)
       // A distinct period/source that seed's own rent_stats fixture never
       // uses (seed only writes 'estat'/2023 and 'reins'/2026Q2 for ward

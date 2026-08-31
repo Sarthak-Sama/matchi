@@ -3,7 +3,7 @@
  * beyond `@tokyo/shared`'s own config module (`config/scoring.ts`).
  *
  * Placement note: the original spec placed this under `api/`. It lives here
- * instead because Task 7's `derive` script (package `@tokyo/scripts`) must
+ * instead because the `derive` script (package `@tokyo/scripts`) must
  * call the exact same functions, and having `@tokyo/scripts` depend on
  * `@tokyo/api` would invert the dependency graph. Both `api` and `scripts`
  * import these functions from `@tokyo/shared`. Do not duplicate the formula
@@ -215,7 +215,7 @@ export function estimateRent(input: RentEstimateInput): RentEstimateResult {
  * for both its reins and estat branches below.
  *
  * Exported so a caller that already knows which stat backs a stored
- * estimate (e.g. Task 10's `/v1/optimize` and `/v1/neighborhoods/:id`,
+ * estimate (e.g. `/v1/optimize` and `/v1/neighborhoods/:id`,
  * recomputing `estimateRent` for a user-chosen layout from a
  * `neighborhood_metrics` row's `rent_source` / `rent_source_period`) can
  * reconstruct the correct `baseConfidence` INPUT to `estimateRent`, rather
@@ -302,7 +302,11 @@ export function pickRentStat<T extends RentStatRow>(
   const estatRows = stats.filter((row) => row.source === "estat");
   const newestEstat = mostRecentByPeriod(estatRows);
   if (newestEstat) {
-    const baseConfidence = rentStatBaseConfidence(newestEstat.source, newestEstat.period, currentYear);
+    const baseConfidence = rentStatBaseConfidence(
+      newestEstat.source,
+      newestEstat.period,
+      currentYear,
+    );
     return { stat: newestEstat, baseConfidence };
   }
 

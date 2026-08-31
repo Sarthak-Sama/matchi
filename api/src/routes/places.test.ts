@@ -210,9 +210,9 @@ describe.runIf(Boolean(databaseUrl))("GET /v1/places (integration)", () => {
     const byAlias = await app.inject({ method: "GET", url: "/v1/places?query=しぶや" });
     await app.close();
 
-    expect(
-      placesResponseSchema.parse(byJa.json()).results.some((r) => r.id === "sg-shibuya"),
-    ).toBe(true);
+    expect(placesResponseSchema.parse(byJa.json()).results.some((r) => r.id === "sg-shibuya")).toBe(
+      true,
+    );
     expect(
       placesResponseSchema.parse(byAlias.json()).results.some((r) => r.id === "sg-shibuya"),
     ).toBe(true);
@@ -252,7 +252,9 @@ describe("GET /v1/places (integration)", () => {
   it.skipIf(Boolean(databaseUrl))(
     "SKIPPED integration tests above: DATABASE_URL is not set — set it to a PostGIS connection string to run them, e.g. DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test",
     () => {
-      console.warn("places.test.ts: DATABASE_URL is not set; skipping the /v1/places integration tests.");
+      console.warn(
+        "places.test.ts: DATABASE_URL is not set; skipping the /v1/places integration tests.",
+      );
     },
   );
 });

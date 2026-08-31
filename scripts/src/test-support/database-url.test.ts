@@ -51,9 +51,9 @@ describe("destructiveTestDatabaseUrl", () => {
   });
 
   it("honours the explicit ALLOW_DESTRUCTIVE_TESTS=1 escape hatch", () => {
-    expect(
-      destructiveTestDatabaseUrl({ DATABASE_URL: DEV_DB, ALLOW_DESTRUCTIVE_TESTS: "1" }),
-    ).toBe(DEV_DB);
+    expect(destructiveTestDatabaseUrl({ DATABASE_URL: DEV_DB, ALLOW_DESTRUCTIVE_TESTS: "1" })).toBe(
+      DEV_DB,
+    );
   });
 
   it("does not treat any other ALLOW_DESTRUCTIVE_TESTS value as consent", () => {

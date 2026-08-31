@@ -3,7 +3,7 @@
  * (see `dijkstra.ts`) and no database access here (see `loader.ts`).
  *
  * A `TransitGraph` is built once per period at startup (`buildGraphs`,
- * called by Task 10 with the rows from `loadRailEdges`) and handed to
+ * called with the rows from `loadRailEdges`) and handed to
  * `reverseDijkstra` on every request. It carries BOTH a forward adjacency
  * (node -> edges leaving it) and a reverse adjacency (node -> edges
  * arriving at it), so the reverse search never has to re-derive the

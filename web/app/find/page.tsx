@@ -67,16 +67,14 @@ export default function Home() {
         <div className="mx-auto max-w-[1360px] px-5 pt-10 pb-14 sm:px-8 lg:pt-16">
           <div className="grid gap-10 lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)] lg:gap-14">
             <div>
-              <p className="label-utility text-vermilion-deep">
-                Meet your Matchi.
-              </p>
+              <p className="label-utility text-vermilion-deep">Meet your Matchi.</p>
               <h1 className="mt-4 max-w-xl font-serif text-[2.6rem] leading-[1.02] font-medium tracking-editorial text-balance sm:text-6xl">
                 Find the Tokyo neighborhood that fits your life.
               </h1>
               <p className="mt-5 max-w-md text-[16px] leading-relaxed text-ink-muted">
-                Compare commute, rent, and everyday rhythm — quiet streets, groceries, late
-                nights — not just listings. Tell the guide where you need to be; it will show
-                you where you could live.
+                Compare commute, rent, and everyday rhythm — quiet streets, groceries, late nights —
+                not just listings. Tell the guide where you need to be; it will show you where you
+                could live.
               </p>
 
               {/* The plate. A figure, captioned like one: it shows the

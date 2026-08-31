@@ -163,8 +163,7 @@ describe("reverseDijkstra + reconstructPath — main fixture", () => {
   });
 
   it("peak and off-peak produce different totals for the same origin/destination", () => {
-    // Full sg-a -> sg-dest journey. See the worked trace in
-    // task-8-report.md for the complete hand computation.
+    // Full sg-a -> sg-dest journey.
     // Offpeak: railMinutes=19, waitMinutes=18, transferPenaltyMinutes=10 -> totalMinutes=47.
     // Peak:    railMinutes=21, waitMinutes=12, transferPenaltyMinutes=10 -> totalMinutes=43.
     const offpeakGraph = buildGraph(MAIN_EDGES, "offpeak");

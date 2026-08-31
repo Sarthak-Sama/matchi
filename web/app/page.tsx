@@ -81,9 +81,7 @@ export default async function Landing({
           <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,9fr)_minmax(0,11fr)] lg:gap-16">
             <div>
               <Reveal mode="mount">
-                <p className="label-utility text-vermilion-deep">
-                  Meet your Matchi.
-                </p>
+                <p className="label-utility text-vermilion-deep">Meet your Matchi.</p>
               </Reveal>
 
               <Reveal mode="mount" delay={0.06}>
@@ -95,16 +93,14 @@ export default async function Landing({
               <Reveal mode="mount" delay={0.12}>
                 <p className="mt-6 max-w-md text-[17px] leading-relaxed text-ink-muted">
                   It is {LOCALITY_COUNT} of them, each with its own rhythm, its own rent, and its
-                  own quiet hour. Tell the guide where your life has to happen, and it will tell
-                  you which of them fit — and what each one costs you.
+                  own quiet hour. Tell the guide where your life has to happen, and it will tell you
+                  which of them fit — and what each one costs you.
                 </p>
               </Reveal>
 
               <Reveal mode="mount" delay={0.18}>
                 <div className="mt-9 flex flex-col gap-4 sm:flex-row sm:items-center">
-                  <StartButton className="w-full sm:w-auto sm:min-w-72">
-                    Find my Matchi
-                  </StartButton>
+                  <StartButton className="w-full sm:w-auto sm:min-w-72">Find my Matchi</StartButton>
                   <a
                     href="#method"
                     className="label-utility min-h-14 content-center text-ink-muted underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink hover:decoration-ink"
@@ -133,11 +129,7 @@ export default async function Landing({
         <IndexBand />
 
         {/* ── The method ───────────────────────────────────────── */}
-        <section
-          id="method"
-          aria-labelledby="method-heading"
-          className="scroll-mt-6 bg-paper-soft"
-        >
+        <section id="method" aria-labelledby="method-heading" className="scroll-mt-6 bg-paper-soft">
           <div className="mx-auto max-w-[1360px] px-5 py-16 sm:px-8 lg:py-20">
             <Reveal>
               <p className="label-utility text-vermilion-deep">The method</p>
@@ -175,9 +167,9 @@ export default async function Landing({
                 </h2>
                 <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-ink-muted">
                   Pick up to five things your week actually depends on and weigh each one — low,
-                  medium, high, or essential. The guide scores every area against them from open
-                  map data, counted within walking distance of the station. The figures on the
-                  right are what it has to count across the 23 wards.
+                  medium, high, or essential. The guide scores every area against them from open map
+                  data, counted within walking distance of the station. The figures on the right are
+                  what it has to count across the 23 wards.
                 </p>
               </Reveal>
 
@@ -256,9 +248,9 @@ export default async function Landing({
                 Where does your Tokyo have to be?
               </h2>
               <p className="mt-5 text-[16px] leading-relaxed text-ink-muted">
-                One station, one budget, one honest look at the trade-offs. In the example above,
-                {" "}{EXAMPLE_SEARCH.funnel.qualified} of {LOCALITY_COUNT} areas cleared every
-                limit — and the guide ranked the best {matched} of them.
+                One station, one budget, one honest look at the trade-offs. In the example above,{" "}
+                {EXAMPLE_SEARCH.funnel.qualified} of {LOCALITY_COUNT} areas cleared every limit —
+                and the guide ranked the best {matched} of them.
               </p>
               <StartButton className="mt-9">Find my Matchi</StartButton>
             </Reveal>

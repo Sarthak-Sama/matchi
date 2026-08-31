@@ -79,7 +79,8 @@ export function parseLandPriceFeature(feature: GeoJSONFeature, index: number): P
   }
 
   const useCategoryRaw = pickProperty(properties, USE_CATEGORY_KEYS);
-  const useCategory = useCategoryRaw !== undefined ? classifyLandUseCategory(String(useCategoryRaw)) : undefined;
+  const useCategory =
+    useCategoryRaw !== undefined ? classifyLandUseCategory(String(useCategoryRaw)) : undefined;
 
   const [lon, lat] = pointGeometryToLonLat(feature.geometry, context);
 

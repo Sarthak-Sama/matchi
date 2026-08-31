@@ -88,7 +88,10 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
                 required
                 className="min-h-12 w-full border border-line-strong bg-paper-soft px-3 py-2.5 pr-14 text-[15px] tnum focus:border-ink focus:outline-none"
               />
-              <span aria-hidden="true" className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[12px] text-ink-muted">
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-[12px] text-ink-muted"
+              >
                 min
               </span>
             </div>
@@ -107,7 +110,10 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
             Monthly budget, all-in
           </label>
           <div className="relative mt-2">
-            <span aria-hidden="true" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[15px] text-ink-muted">
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[15px] text-ink-muted"
+            >
               ¥
             </span>
             <input
@@ -221,8 +227,7 @@ function describeApiError(error: ApiClientError): {
     case "NETWORK_ERROR":
       return {
         message: "The recommendation service could not be reached.",
-        recovery:
-          "Your answers are unchanged. Check your connection, then try again.",
+        recovery: "Your answers are unchanged. Check your connection, then try again.",
       };
     case "NO_ACCESS_STATIONS":
       return {
@@ -239,8 +244,7 @@ function describeApiError(error: ApiClientError): {
     case "VALIDATION_ERROR":
       return {
         message: "One of the answers is out of range.",
-        recovery:
-          "Check the arrival time, budget, and maximum commute, then search again.",
+        recovery: "Check the arrival time, budget, and maximum commute, then search again.",
       };
     default:
       return {

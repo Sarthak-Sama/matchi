@@ -1,7 +1,6 @@
 /**
  * Derive script — turns raw imported/seeded geodata into the precomputed
- * `neighborhood_metrics` rows Task 9's scoring engine and Task 10's API
- * read directly.
+ * `neighborhood_metrics` rows the scoring engine and API read directly.
  *
  * Eight steps, each in its own transaction, each idempotent
  * (delete-and-rebuild for `station_areas`; deterministic UPDATE for

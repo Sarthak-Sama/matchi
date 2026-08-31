@@ -129,7 +129,7 @@ describe("optimizationRequestSchema preferences", () => {
 
   it("rejects selecting every registered axis when that exceeds the maximum allowed", () => {
     // With nine registered axes and a max of five, submitting all of them
-    // (the app's own untouched default state before Task 4's frontend fix)
+    // (the app's own untouched default state before the frontend fix)
     // must 400 rather than silently accept — this is exactly the guard
     // MAX_SELECTED_LIFESTYLE_AXES exists to enforce as the axis set grows.
     expect(LIFESTYLE_AXIS_IDS.length).toBeGreaterThan(MAX_SELECTED_LIFESTYLE_AXES);

@@ -10,8 +10,8 @@
  * and 504 (gateway timeout / overloaded) — rather than letting either
  * surface as an unlabeled thrown response.
  *
- * No test exercises this module's actual `fetch` call (see task-13-report.md
- * and this repo's no-network-at-test-time constraint) — `downloadOverpass`
+ * No test exercises this module's actual `fetch` call (this repo has a
+ * no-network-at-test-time constraint) — `downloadOverpass`
  * accepts an injectable `fetchImpl` specifically so its status-code error
  * handling (the part that matters most to get right, since it can never be
  * exercised against the real API in CI) can still be unit-tested with a
@@ -27,7 +27,10 @@ export const OVERPASS_USER_AGENT =
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 /** Sends exactly one POST request to Overpass and returns the raw response text. */
-export async function downloadOverpass(query: string, fetchImpl: FetchLike = fetch): Promise<string> {
+export async function downloadOverpass(
+  query: string,
+  fetchImpl: FetchLike = fetch,
+): Promise<string> {
   let response: Response;
   try {
     response = await fetchImpl(OVERPASS_API_URL, {

@@ -450,7 +450,7 @@ describe("pickRentStat", () => {
 // rentStatBaseConfidence
 //
 // Extracted from `pickRentStat`'s two branches specifically so a caller that
-// already knows which (source, period) backs a STORED estimate (Task 10's
+// already knows which (source, period) backs a STORED estimate (the
 // `/v1/optimize` and `/v1/neighborhoods/:id`, recomputing `estimateRent` for
 // a user-chosen layout) can reconstruct the correct `baseConfidence` INPUT,
 // rather than feeding a row's own already fallback/staleness-ADJUSTED

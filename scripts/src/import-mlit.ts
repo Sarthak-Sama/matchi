@@ -18,14 +18,14 @@
  * When a dataset's flag is omitted, this script tries to download it —
  * which currently always fails, naming `MLIT_API_KEY` and a manual
  * download URL, because no verified MLIT download endpoint could be
- * confirmed without live network access while building this script (see
- * task-11-report.md's "MLIT format assumptions" section). Passing `--file`
- * equivalents for every dataset is the only supported path today.
+ * confirmed without live network access while building this script.
+ * Passing `--file` equivalents for every dataset is the only supported
+ * path today.
  *
  * Every property name this script reads from the source GeoJSON
  * (`N03_007`, `N02_005`, `A29_001`, etc., alongside friendlier aliases) is
  * an ASSUMPTION about MLIT's real export shape — documented per dataset in
- * `scripts/src/import-mlit/*.ts` and summarized in task-11-report.md.
+ * `scripts/src/import-mlit/*.ts`.
  *
  * All five datasets are parsed and validated up front — before any DB
  * write — then written inside the single transaction `runImport` (from
@@ -85,13 +85,10 @@
  * ended up without one.
  */
 
-import { fileURLToPath } from "node:url";
-
 import type { PoolClient } from "pg";
 
-import { createPool } from "./lib/db.js";
 import type { ImportResult } from "./lib/import-run.js";
-import { runImport } from "./lib/import-run.js";
+import { parseFlagValue, runImportCliIfMain } from "./lib/cli.js";
 import { inChunks } from "./lib/chunks.js";
 import { expectRowCount } from "./lib/validate.js";
 import { parseFeatureCollection, pointWKT } from "./import-mlit/geojson.js";
@@ -126,13 +123,22 @@ export interface ImportMlitArgs {
 async function loadDataset(label: string, localPath: string | undefined): Promise<string> {
   const { readFile } = await import("node:fs/promises");
   const defaults: Record<string, string> = {
-    wards: "data/wards.geojson", stations: "data/stations.geojson", "rail-lines": "data/rail-lines.geojson",
-    "land-prices": "data/land-prices.geojson", zoning: "data/zoning.geojson",
+    wards: "data/wards.geojson",
+    stations: "data/stations.geojson",
+    "rail-lines": "data/rail-lines.geojson",
+    "land-prices": "data/land-prices.geojson",
+    zoning: "data/zoning.geojson",
   };
   const source = localPath ?? defaults[label];
   if (!source) throw new Error(`import:mlit — no canonical path registered for ${label}`);
-  try { return await readFile(source, "utf8"); }
-  catch (error) { throw new Error(`import:mlit — ${label} file is missing at ${source}. Run pnpm data:prepare first.`, { cause: error }); }
+  try {
+    return await readFile(source, "utf8");
+  } catch (error) {
+    throw new Error(
+      `import:mlit — ${label} file is missing at ${source}. Run pnpm data:prepare first.`,
+      { cause: error },
+    );
+  }
 }
 
 /** A foreign key column somewhere in the schema that references `wards(ward_code)`. */
@@ -176,7 +182,10 @@ async function findWardForeignKeyRefs(client: PoolClient): Promise<WardForeignKe
  * referencing row. The spatial join later in this script recomputes
  * correct `ward_code` values for every mlit-sourced row anyway.
  */
-async function nullWardReferences(client: PoolClient, staleWardCodes: readonly string[]): Promise<void> {
+async function nullWardReferences(
+  client: PoolClient,
+  staleWardCodes: readonly string[],
+): Promise<void> {
   const refs = await findWardForeignKeyRefs(client);
   for (const ref of refs.filter((r) => r.nullable)) {
     await client.query(
@@ -334,9 +343,8 @@ async function upsertStations(
 
   const seenGroupIds = groups.map((g) => g.stationGroupId);
   // NOTE: a stale station_group referenced by a rail_edges row (no CASCADE
-  // on that FK) would make this DELETE fail. That can only happen once
-  // Task 14's transit import has written edges against mlit-sourced
-  // station_group_ids — out of scope here, flagged for that task.
+  // on that FK) would make this DELETE fail. That can only happen once the
+  // transit import has written edges against mlit-sourced station_group_ids.
   await client.query(
     `DELETE FROM station_groups WHERE source = $2 AND station_group_id <> ALL($1::text[])`,
     [seenGroupIds, SOURCE],
@@ -363,15 +371,24 @@ async function upsertRailLines(
          source = EXCLUDED.source,
          source_updated_at = EXCLUDED.source_updated_at,
          imported_at = now()`,
-      [l.railLineId, l.operator, l.nameJa, l.nameEn ?? null, l.mode, l.geomWKT, SOURCE, sourceUpdatedAt],
+      [
+        l.railLineId,
+        l.operator,
+        l.nameJa,
+        l.nameEn ?? null,
+        l.mode,
+        l.geomWKT,
+        SOURCE,
+        sourceUpdatedAt,
+      ],
     );
   }
 
   const seenIds = lines.map((l) => l.railLineId);
-  await client.query(`DELETE FROM rail_lines WHERE source = $2 AND rail_line_id <> ALL($1::text[])`, [
-    seenIds,
-    SOURCE,
-  ]);
+  await client.query(
+    `DELETE FROM rail_lines WHERE source = $2 AND rail_line_id <> ALL($1::text[])`,
+    [seenIds, SOURCE],
+  );
 
   return lines.length;
 }
@@ -387,7 +404,14 @@ async function replaceLandPrices(
       `INSERT INTO land_prices (point, price_yen_per_sqm, year, use_category, source, source_updated_at)
        SELECT ST_SetSRID(ST_GeomFromText(wkt), 4326), price, year, use_category, $5, $6
        FROM unnest($1::text[], $2::float8[], $3::int[], $4::text[]) AS x(wkt, price, year, use_category)`,
-      [chunk.map((r) => pointWKT([r.lon, r.lat])), chunk.map((r) => r.priceYenPerSqm), chunk.map((r) => r.year), chunk.map((r) => r.useCategory ?? null), SOURCE, sourceUpdatedAt],
+      [
+        chunk.map((r) => pointWKT([r.lon, r.lat])),
+        chunk.map((r) => r.priceYenPerSqm),
+        chunk.map((r) => r.year),
+        chunk.map((r) => r.useCategory ?? null),
+        SOURCE,
+        sourceUpdatedAt,
+      ],
     );
   });
   return rows.length;
@@ -404,7 +428,13 @@ async function replaceZoning(
       `INSERT INTO zoning_areas (category, is_residential, geom, source, source_updated_at)
        SELECT category, is_residential, ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromText(wkt), 4326)), 3)), $4, $5
        FROM unnest($1::text[], $2::bool[], $3::text[]) AS x(category, is_residential, wkt)`,
-      [chunk.map((r) => r.category), chunk.map((r) => r.isResidential), chunk.map((r) => r.geomWKT), SOURCE, sourceUpdatedAt],
+      [
+        chunk.map((r) => r.category),
+        chunk.map((r) => r.isResidential),
+        chunk.map((r) => r.geomWKT),
+        SOURCE,
+        sourceUpdatedAt,
+      ],
     );
   });
   return rows.length;
@@ -467,8 +497,10 @@ export async function runMlitImport(
   const n02Date = args.n02SourceDate ?? allDate ?? null;
   const l01Date = args.l01SourceDate ?? allDate ?? null;
   const a55Date = args.a55SourceDate ?? allDate ?? null;
-  const sourceUpdatedAt = [n03Date, n02Date, l01Date, a55Date]
-    .filter((date): date is Date => date !== null).sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
+  const sourceUpdatedAt =
+    [n03Date, n02Date, l01Date, a55Date]
+      .filter((date): date is Date => date !== null)
+      .sort((a, b) => a.getTime() - b.getTime())[0] ?? null;
 
   const wardsRaw = await loadDataset("wards", args.wardsPath);
   const wardFeatures = parseFeatureCollection(wardsRaw, "wards");
@@ -505,14 +537,18 @@ export async function runMlitImport(
   rowsImported += wardsResult.rowsWritten;
   rowsImported += await upsertStations(client, stationGroups, n02Date);
   rowsImported += await upsertRailLines(client, railLines, n02Date);
-  const residentialLandPriceCount = landPrices.filter((r) => r.useCategory === "residential").length;
+  const residentialLandPriceCount = landPrices.filter(
+    (r) => r.useCategory === "residential",
+  ).length;
   rowsImported += await replaceLandPrices(client, landPrices, l01Date);
   rowsImported += await replaceZoning(client, zoning, a55Date);
 
   const stationWard = await assignWardCodes(client, "station_groups");
   await assignWardCodes(client, "land_prices");
   if (stationWard.withoutWard > 0) {
-    throw new Error(`import:mlit — ${String(stationWard.withoutWard)} retained N02 station(s) have no ward assignment`);
+    throw new Error(
+      `import:mlit — ${String(stationWard.withoutWard)} retained N02 station(s) have no ward assignment`,
+    );
   }
 
   console.log(
@@ -553,16 +589,6 @@ export async function runMlitImport(
   };
 }
 
-function parseFlagValue(argv: readonly string[], flag: string): string | undefined {
-  const index = argv.indexOf(flag);
-  if (index === -1) return undefined;
-  const value = argv[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value`);
-  }
-  return value;
-}
-
 export function parseArgs(argv: readonly string[]): ImportMlitArgs {
   const date = (flag: string): Date | undefined => {
     const raw = parseFlagValue(argv, flag);
@@ -588,29 +614,10 @@ export function parseArgs(argv: readonly string[]): ImportMlitArgs {
   };
 }
 
-async function main(): Promise<void> {
-  if (!process.env["DATABASE_URL"]) {
-    console.error(
-      "DATABASE_URL is not set. Set it to a PostgreSQL connection string, e.g.\n" +
-        "  DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo pnpm import:mlit --wards ... ",
-    );
-    process.exit(1);
-  }
-
-  const args = parseArgs(process.argv.slice(2));
-  const pool = createPool();
-  try {
-    const result = await runImport({ source: SOURCE, pool }, (client) => runMlitImport(client, args));
-    console.log(`import:mlit complete. rows_imported=${result.rowsImported}`);
-  } finally {
-    await pool.end();
-  }
-}
-
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
-if (isMain) {
-  main().catch((err: unknown) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
+runImportCliIfMain(import.meta.url, {
+  commandName: "import:mlit",
+  commandExample: "pnpm import:mlit --wards ... ",
+  parseArgs,
+  source: () => SOURCE,
+  run: runMlitImport,
+});

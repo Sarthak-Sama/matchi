@@ -10,20 +10,20 @@ Those assumptions are written down — specifically and falsifiably — in each
 script's module doc comment. **Spot-check one real file per dataset against
 them before trusting any output.**
 
-| Script | Source | Assumptions documented in |
-|---|---|---|
-| `pnpm import:mlit` | MLIT (wards, stations, rail, land prices, zoning) | `scripts/src/import-mlit.ts` and `scripts/src/import-mlit/*.ts` |
-| `pnpm import:rent` | e-Stat 2023 Housing & Land Survey; optional REINS | `scripts/src/import-rent/estat.ts`, `scripts/src/import-rent/reins.ts` |
-| `pnpm import:osm` | OpenStreetMap via Overpass | `scripts/src/import-osm/parse.ts` |
-| `pnpm import:transit` | GTFS / ODPT, or MLIT topology fallback | `scripts/src/import-transit.ts` |
-| `pnpm import:localities` | [e-Stat 2020 町丁・字等 boundaries](https://www.e-stat.go.jp/gis/statmap-search?aggregateUnitForBoundary=A&datum=2000&page=1&serveyId=A002005212020&toukeiCode=00200521&toukeiYear=2020&type=2) | `scripts/src/import-localities.ts` |
+| Script                   | Source                                                                                                                                                                                          | Assumptions documented in                                              |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `pnpm import:mlit`       | MLIT (wards, stations, rail, land prices, zoning)                                                                                                                                               | `scripts/src/import-mlit.ts` and `scripts/src/import-mlit/*.ts`        |
+| `pnpm import:rent`       | e-Stat 2023 Housing & Land Survey; optional REINS                                                                                                                                               | `scripts/src/import-rent/estat.ts`, `scripts/src/import-rent/reins.ts` |
+| `pnpm import:osm`        | OpenStreetMap via Overpass                                                                                                                                                                      | `scripts/src/import-osm/parse.ts`                                      |
+| `pnpm import:transit`    | GTFS / ODPT, or MLIT topology fallback                                                                                                                                                          | `scripts/src/import-transit.ts`                                        |
+| `pnpm import:localities` | [e-Stat 2020 町丁・字等 boundaries](https://www.e-stat.go.jp/gis/statmap-search?aggregateUnitForBoundary=A&datum=2000&page=1&serveyId=A002005212020&toukeiCode=00200521&toukeiYear=2020&type=2) | `scripts/src/import-localities.ts`                                     |
 
 ## The three assumptions most worth checking first
 
 These were flagged in review as the ones that would do the most damage if wrong.
 
 1. **e-Stat rent units.** The importer assumes the rent column is already
-   yen per m². Real e-Stat publication tables often report *total* rent and
+   yen per m². Real e-Stat publication tables often report _total_ rent and
    floor area in separate columns instead. A total-rent figure fails loudly
    (it breaks the ¥20,000/m² ceiling), but a **per-tsubo** figure does not —
    1 tsubo ≈ 3.3058 m², so per-tsubo values land inside the accepted range
@@ -32,7 +32,7 @@ These were flagged in review as the ones that would do the most damage if wrong.
    the run summary.
 
 2. **MLIT land-price `use_category`.** The derive step takes the median of
-   *residential* land prices only. If the real L01 export uses a different
+   _residential_ land prices only. If the real L01 export uses a different
    field code, or a category spelling the classifier doesn't recognise, every
    station falls back to a multiplier of 1.0 — every station in a ward then
    gets identical rent and the affordability ranking loses its within-ward

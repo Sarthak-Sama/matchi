@@ -15,7 +15,10 @@ type GeoJsonFeature = {
   readonly geometry?: { readonly type: string; readonly coordinates: unknown } | null;
 };
 
-function value(properties: Record<string, unknown> | undefined, keys: readonly string[]): string | null {
+function value(
+  properties: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): string | null {
   for (const key of keys) {
     const raw = properties?.[key];
     if (typeof raw === "string" || typeof raw === "number") return String(raw).trim() || null;
@@ -37,9 +40,13 @@ function localityId(wardCode: string, nameJa: string): string {
   return `${wardCode}:${createHash("sha256").update(nameJa).digest("hex").slice(0, 16)}`;
 }
 
-export async function importLocalities(pool: Pool, path = "data/localities.geojson"): Promise<number> {
+export async function importLocalities(
+  pool: Pool,
+  path = "data/localities.geojson",
+): Promise<number> {
   const parsed = JSON.parse(await readFile(path, "utf8")) as { features?: GeoJsonFeature[] };
-  if (!Array.isArray(parsed.features)) throw new Error(`${path}: expected GeoJSON FeatureCollection`);
+  if (!Array.isArray(parsed.features))
+    throw new Error(`${path}: expected GeoJSON FeatureCollection`);
   const grouped = new Map<string, { wardCode: string; nameJa: string; geometries: string[] }>();
   for (const feature of parsed.features) {
     if (!feature.geometry || !["Polygon", "MultiPolygon"].includes(feature.geometry.type)) continue;
@@ -56,7 +63,8 @@ export async function importLocalities(pool: Pool, path = "data/localities.geojs
     entry.geometries.push(JSON.stringify(feature.geometry));
     grouped.set(key, entry);
   }
-  if (grouped.size === 0) throw new Error(`${path}: no Tokyo 23-ward town/chome features recognized`);
+  if (grouped.size === 0)
+    throw new Error(`${path}: no Tokyo 23-ward town/chome features recognized`);
   const result = await runImport({ pool, source: SOURCE }, async (client) => {
     await client.query("DELETE FROM localities WHERE source IN ('estat-2020', $1)", [SOURCE]);
     let written = 0;
@@ -85,7 +93,8 @@ export async function importLocalities(pool: Pool, path = "data/localities.geojs
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  if (!process.env["DATABASE_URL"]) throw new Error("DATABASE_URL is required for import:localities");
+  if (!process.env["DATABASE_URL"])
+    throw new Error("DATABASE_URL is required for import:localities");
   const source = process.argv[2] ?? "data/localities.geojson";
   const pool = createPool();
   importLocalities(pool, source)

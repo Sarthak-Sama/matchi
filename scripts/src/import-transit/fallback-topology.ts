@@ -7,7 +7,7 @@
  * For each rail line with non-null geometry: find every `station_groups`
  * row within `STATION_MERGE_RADIUS_M` of that line's geometry (reusing
  * that same constant here, rather than inventing a new "on this line"
- * threshold — see task-14-report.md for why), order them along the line
+ * threshold), order them along the line
  * via `ST_LineLocatePoint`, and for each adjacent pair in that order
  * compute the along-line distance via `ST_Length(ST_LineSubstring(...)::
  * geography)` (a real geography cast, per this repo's metres-not-degrees
@@ -20,8 +20,7 @@
  * other known `station_groups` between them — "adjacent" is defined by
  * that ordering, so there is nothing left to be "intermediate". This
  * fallback therefore always applies the constant with an intermediate
- * count of 0 (contributing 0 minutes) rather than omitting it — see
- * task-14-report.md's worked example for the full formula and why a
+ * count of 0 (contributing 0 minutes) rather than omitting it — a
  * nonzero count isn't derivable from topology alone without a richer
  * "real stations not yet in station_groups" data source than this mode
  * has.
@@ -172,8 +171,16 @@ export async function computeFallbackEdges(client: PoolClient): Promise<Fallback
         offpeakWaitMinutes: OFFPEAK_WAIT_MINUTES,
         confidence: "low" as const,
       };
-      edges.push({ ...commonFields, fromStationGroupId: pair.from_id, toStationGroupId: pair.to_id });
-      edges.push({ ...commonFields, fromStationGroupId: pair.to_id, toStationGroupId: pair.from_id });
+      edges.push({
+        ...commonFields,
+        fromStationGroupId: pair.from_id,
+        toStationGroupId: pair.to_id,
+      });
+      edges.push({
+        ...commonFields,
+        fromStationGroupId: pair.to_id,
+        toStationGroupId: pair.from_id,
+      });
     }
   }
 

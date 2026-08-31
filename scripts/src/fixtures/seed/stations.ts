@@ -174,7 +174,7 @@ export const STATIONS: readonly StationFixture[] = [
     ward_code: "13110",
   },
 
-  // ---- Deliberately disconnected fixture (Task 8/9/10 hard filter) ----
+  // ---- Deliberately disconnected fixture (hard-filter coverage) ----
   {
     station_group_id: "sg-isolated-test",
     name_ja: "テスト孤立駅",

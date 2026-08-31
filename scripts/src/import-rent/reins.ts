@@ -3,9 +3,8 @@
  * ward-level rent table parser. Only invoked when `--reins <file>` is
  * passed to `import:rent`.
  *
- * FORMAT ASSUMPTIONS (unverifiable without a real REINS export — see
- * task-12-report.md; adjust the *_KEYS arrays below if a real export
- * differs):
+ * FORMAT ASSUMPTIONS (unverifiable without a real REINS export; adjust the
+ * *_KEYS arrays below if a real export differs):
  *
  *   - Encoding: UTF-8 (a plain byte-order-mark is stripped if present).
  *     Unlike e-Stat, REINS member exports are commonly already saved as
@@ -104,7 +103,10 @@ function resolvePeriod(record: Readonly<Record<string, string>>, context: string
   return combined;
 }
 
-export function parseReinsRow(record: Readonly<Record<string, string>>, rowIndex: number): RawReinsRow {
+export function parseReinsRow(
+  record: Readonly<Record<string, string>>,
+  rowIndex: number,
+): RawReinsRow {
   const context = `REINS row #${rowIndex}`;
 
   const wardCode = pickColumn(record, WARD_CODE_KEYS);

@@ -2,7 +2,7 @@
  * Stations dataset — MLIT's National Land Numerical Information railway
  * data (dataset code N02), station points.
  *
- * ASSUMED property names (see task-11-report.md): `N02_005` (Japanese
+ * ASSUMED property names (verify against a real download): `N02_005` (Japanese
  * station name) is the one field N02 reliably carries; this module also
  * accepts a friendlier `name_ja` / `station_name`. N02 has no stable
  * feature id and no English name field, so both `station_id` and

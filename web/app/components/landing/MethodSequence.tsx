@@ -55,7 +55,10 @@ export function MethodSequence() {
         <Funnel
           considered={funnel.considered}
           excluded={[
-            { label: `Over ${EXAMPLE_SEARCH.maxCommuteMinutes} min`, count: funnel.excludedByCommute },
+            {
+              label: `Over ${EXAMPLE_SEARCH.maxCommuteMinutes} min`,
+              count: funnel.excludedByCommute,
+            },
             { label: "Over budget", count: funnel.excludedByRent },
             { label: "No rail route", count: funnel.excludedByDisconnected },
           ]}
@@ -208,9 +211,7 @@ function Funnel({
 
   return (
     <div ref={ref} className="border border-line-strong bg-paper px-4 py-4">
-      <p className="label-utility text-[10px] text-ink-muted">
-        This example, area by area
-      </p>
+      <p className="label-utility text-[10px] text-ink-muted">This example, area by area</p>
       <dl className="mt-3 space-y-2.5">
         {bars.map((bar, index) => (
           <div key={bar.label}>

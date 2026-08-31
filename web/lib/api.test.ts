@@ -28,9 +28,9 @@ describe("web/lib/api", () => {
     const errorBody = {
       error: { code: "VALIDATION_ERROR", message: "Request validation failed" },
     };
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(errorBody), { status: 400 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(errorBody), { status: 400 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(postJson("/v1/optimize", {})).rejects.toMatchObject({

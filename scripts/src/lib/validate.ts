@@ -1,6 +1,6 @@
 /**
  * Small, dependency-free validation helpers shared by every import script
- * (Task 11's `import:mlit`, and Tasks 12-14's `import:rent` / `import:osm` /
+ * (`import:mlit`, `import:rent`, `import:osm`, and
  * `import:transit`). Both throw plain `Error`s with messages specific
  * enough to act on directly — which column is missing, which row failed,
  * how many rows were expected — rather than a generic "invalid input".

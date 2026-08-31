@@ -130,7 +130,10 @@ export function matchStops(
     const normalizedName = normalizeStationName(group.name);
     let best: { stationGroupId: string; distanceM: number } | undefined;
     for (const candidate of candidates) {
-      const candidateNames = [normalizeStationName(candidate.nameJa), normalizeStationName(candidate.nameEn)];
+      const candidateNames = [
+        normalizeStationName(candidate.nameJa),
+        normalizeStationName(candidate.nameEn),
+      ];
       if (!candidateNames.includes(normalizedName)) continue;
       const distanceM = haversineMeters(group.lon, group.lat, candidate.lon, candidate.lat);
       if (distanceM > STATION_MERGE_RADIUS_M) continue;

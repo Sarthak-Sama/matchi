@@ -57,7 +57,9 @@ export function buildGtfsPlan(input: GtfsPlanInput): GtfsPlan {
   const routeMapping = mapRoutesToLines(routes, railLines);
   const pairStats = computeAdjacentPairStats(trips, stopTimesByTrip);
   const headwayStats = computeHeadways(trips, stopTimesByTrip);
-  const headwayByKey = new Map(headwayStats.map((h) => [directionKey(h.routeId, h.firstStopId), h]));
+  const headwayByKey = new Map(
+    headwayStats.map((h) => [directionKey(h.routeId, h.firstStopId), h]),
+  );
 
   const warnings: string[] = [];
   const warnedMissingHeadway = new Set<string>();
@@ -117,7 +119,10 @@ export function buildGtfsPlan(input: GtfsPlanInput): GtfsPlan {
     const headway = headwayByKey.get(dirKey);
     let peakWaitMinutes = headway?.peakWaitMinutes;
     let offpeakWaitMinutes = headway?.offpeakWaitMinutes;
-    if ((peakWaitMinutes === undefined || offpeakWaitMinutes === undefined) && !warnedMissingHeadway.has(dirKey)) {
+    if (
+      (peakWaitMinutes === undefined || offpeakWaitMinutes === undefined) &&
+      !warnedMissingHeadway.has(dirKey)
+    ) {
       warnedMissingHeadway.add(dirKey);
       warnings.push(
         `route ${pair.routeId} direction starting at stop ${pair.firstStopId}: not enough ` +

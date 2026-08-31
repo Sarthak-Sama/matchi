@@ -3,7 +3,7 @@
  * takes plain arrays (the caller fetches `rail_lines` itself), so it's
  * directly unit-testable with no `DATABASE_URL`.
  *
- * `buildGraph` (Task 8) THROWS on a `ride` edge with a null
+ * `buildGraph` THROWS on a `ride` edge with a null
  * `rail_line_id` — a real modeling hazard, not a defensive nicety, since a
  * null-line ride edge would silently be treated as "same line" as any
  * other null-line ride, charging no boarding wait and hiding an implicit
@@ -19,7 +19,7 @@
  *      identifiers, and this codebase's own `rail_line_id`s (see
  *      `import-mlit/rail-lines.ts`) are deliberately built the same way
  *      when the source lacks its own id. ASSUMPTION, not a guarantee —
- *      documented in task-14-report.md.
+ *      documented in this file.
  *   2. Otherwise, a case-insensitive, whitespace-trimmed match of the
  *      route's `route_short_name`/`route_long_name` against the line's
  *      `name_ja`/`name_en` (any combination).

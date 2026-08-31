@@ -37,7 +37,7 @@
  * one.
  *
  * ---------------------------------------------------------------------
- * The cost model (see task-8-brief.md for the authoritative statement)
+ * The cost model
  * ---------------------------------------------------------------------
  * - `ride` edge: `travelMinutes` always. `waitMinutes` (the boarding wait)
  *   is added only when this edge starts a NEW run — i.e. the search state
@@ -92,7 +92,7 @@
  * `waitMinutes` value. `buildGraph`/`resolveWaitMinutes` (`graph.ts`)
  * reads `peak_wait_minutes`/`offpeak_wait_minutes` per ROW, so nothing
  * stops two edges on the same line from carrying different values if a
- * future importer (e.g. Task 14's GTFS import) sets them inconsistently.
+ * future importer (e.g. the GTFS import) sets them inconsistently.
  * Should that happen, this search would charge whichever edge sits at the
  * destination-end of the run, not necessarily the smallest or most
  * "correct" one — harmless under the current uniform seed data, but worth
@@ -446,7 +446,7 @@ function normalizeSeeds(seeds: readonly DijkstraSeed[]): DijkstraSeed[] {
  * plausible-looking "no neighbourhood is reachable" response for what is
  * really a bug or an unresolvable destination. Callers must decide what
  * an unresolvable destination means BEFORE calling: the route validates
- * the destination and returns its own error code (Task 6), which makes
+ * the destination and returns its own error code, which makes
  * this throw an unreachable backstop in production rather than a
  * user-facing path.
  */

@@ -98,8 +98,8 @@ things bite:
   does not own the extensions, and those statements fail.
 - **`pg_dump` must be at least the server's major version.** Neon runs
   Postgres 18; a Homebrew `postgresql@17` client refuses to dump from it
-  ("aborting because of server version mismatch"). Dumping *to* Neon from a
-  local 17 server is fine — it is reading from 17 — but dumping *from* Neon
+  ("aborting because of server version mismatch"). Dumping _to_ Neon from a
+  local 17 server is fine — it is reading from 17 — but dumping _from_ Neon
   needs `brew install postgresql@18`.
 
 ```bash

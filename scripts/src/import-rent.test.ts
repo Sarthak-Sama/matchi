@@ -205,25 +205,28 @@ describe("rent-unit: convertToPerSqm + --rent-unit", () => {
     expect(convertToPerSqm(3305.8, "tsubo")).toBe(1000);
   });
 
-  it("a per-tsubo reading of a fixture row converts into a different, still-sane per-m² value " +
-    "(demonstrating the exact silent-failure mode the range check alone cannot catch)", () => {
-    const text = decodeEstatCsv(fixtureBuffer("estat.csv"));
-    const shibuyaRaw = parseEstatCsv(text).find((r) => r.wardCode === "13113");
-    if (!shibuyaRaw) throw new Error("fixture is missing ward 13113");
+  it(
+    "a per-tsubo reading of a fixture row converts into a different, still-sane per-m² value " +
+      "(demonstrating the exact silent-failure mode the range check alone cannot catch)",
+    () => {
+      const text = decodeEstatCsv(fixtureBuffer("estat.csv"));
+      const shibuyaRaw = parseEstatCsv(text).find((r) => r.wardCode === "13113");
+      if (!shibuyaRaw) throw new Error("fixture is missing ward 13113");
 
-    const asSqm = mapEstatRows([shibuyaRaw], SEED_WARDS, "sqm")[0];
-    const asTsubo = mapEstatRows([shibuyaRaw], SEED_WARDS, "tsubo")[0];
+      const asSqm = mapEstatRows([shibuyaRaw], SEED_WARDS, "sqm")[0];
+      const asTsubo = mapEstatRows([shibuyaRaw], SEED_WARDS, "tsubo")[0];
 
-    // Raw fixture value is 4300 (already a plausible per-m² figure). Read
-    // as "sqm" it passes through unchanged; read as "tsubo" it converts
-    // down to a DIFFERENT plausible-looking per-m² value instead of
-    // silently equalling itself — this is exactly why the range check
-    // alone can't catch a per-tsubo/per-m² mixup: both readings land
-    // inside [1000, 20000].
-    expect(asSqm?.rentPerSqmYen).toBe(4300);
-    expect(asTsubo?.rentPerSqmYen).toBe(Math.round(4300 / 3.3058));
-    expect(asTsubo?.rentPerSqmYen).not.toBe(asSqm?.rentPerSqmYen);
-  });
+      // Raw fixture value is 4300 (already a plausible per-m² figure). Read
+      // as "sqm" it passes through unchanged; read as "tsubo" it converts
+      // down to a DIFFERENT plausible-looking per-m² value instead of
+      // silently equalling itself — this is exactly why the range check
+      // alone can't catch a per-tsubo/per-m² mixup: both readings land
+      // inside [1000, 20000].
+      expect(asSqm?.rentPerSqmYen).toBe(4300);
+      expect(asTsubo?.rentPerSqmYen).toBe(Math.round(4300 / 3.3058));
+      expect(asTsubo?.rentPerSqmYen).not.toBe(asSqm?.rentPerSqmYen);
+    },
+  );
 
   it("mapEstatRows/mapReinsRows default to 'sqm' (unchanged behavior) when rentUnit is omitted", () => {
     const text = decodeEstatCsv(fixtureBuffer("estat.csv"));
@@ -296,9 +299,8 @@ describe.runIf(Boolean(databaseUrl))("import:rent (DB integration)", () => {
   });
 
   it("a full run writes the estat + reins rows and records one success import_runs row", async () => {
-    const result = (await runImport(
-      { source: "rent", pool },
-      (client) => runRentImport(client, GOOD_ARGS),
+    const result = (await runImport({ source: "rent", pool }, (client) =>
+      runRentImport(client, GOOD_ARGS),
     )) as RentImportResult;
 
     expect(result.estatRowsImported).toBe(4);
@@ -325,9 +327,8 @@ describe.runIf(Boolean(databaseUrl))("import:rent (DB integration)", () => {
   it("re-running with the same fixtures is idempotent: identical rows, one more success run record", async () => {
     const before = await rentStatsSnapshot(pool);
 
-    const result = (await runImport(
-      { source: "rent", pool },
-      (client) => runRentImport(client, GOOD_ARGS),
+    const result = (await runImport({ source: "rent", pool }, (client) =>
+      runRentImport(client, GOOD_ARGS),
     )) as RentImportResult;
 
     expect(result.rowsImported).toBe(6);
@@ -353,7 +354,9 @@ describe.runIf(Boolean(databaseUrl))("import:rent (DB integration)", () => {
     await writeFile(badPath, "ward_code,ward_name,rent_per_sqm_yen\n13113,Shibuya,999\n", "utf8");
 
     await expect(
-      runImport({ source: "rent", pool }, (client) => runRentImport(client, { estatPath: badPath })),
+      runImport({ source: "rent", pool }, (client) =>
+        runRentImport(client, { estatPath: badPath }),
+      ),
     ).rejects.toThrowError(/rent_per_sqm_yen 999 is outside the sane range \[1000, 20000\]/);
 
     await rm(badFile, { recursive: true, force: true });

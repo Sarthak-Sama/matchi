@@ -73,7 +73,7 @@ describe("resolveSource", () => {
     expect(text).toBe("local wins");
   });
 
-  it("with encoding: 'latin1', round-trips arbitrary non-UTF-8 bytes losslessly (Task 12's Shift-JIS case)", async () => {
+  it("with encoding: 'latin1', round-trips arbitrary non-UTF-8 bytes losslessly (the Shift-JIS case)", async () => {
     // A real Shift-JIS byte sequence for "渋谷区" (Shibuya ward) — not valid
     // UTF-8, so reading it with the default "utf8" encoding would corrupt
     // it irreversibly (invalid sequences become U+FFFD). Encoding: "latin1"

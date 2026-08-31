@@ -39,8 +39,8 @@ export function IndexBand() {
           A cross-section of Tokyo&rsquo;s neighborhoods
         </h2>
         <p className="mt-2 max-w-xl font-serif text-[19px] leading-snug tracking-editorial text-ink sm:text-[22px]">
-          Ninety-six of the {LOCALITY_COUNT}. Every one of them is somewhere a person already
-          calls home.
+          Ninety-six of the {LOCALITY_COUNT}. Every one of them is somewhere a person already calls
+          home.
         </p>
       </div>
 

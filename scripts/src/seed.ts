@@ -44,8 +44,12 @@ const SEED_SOURCE = "seed";
 
 export function assertSeedAllowed(argv: readonly string[], databaseUrl: string | undefined): void {
   if (!databaseUrl) throw new Error("DATABASE_URL is required for db:seed");
-  if (/(production|prod)/i.test(databaseUrl)) throw new Error("db:seed refuses a production-named DATABASE_URL");
-  if (!/(test|_test|localhost|127\.0\.0\.1)/i.test(databaseUrl) && !argv.includes("--confirm-dev-seed")) {
+  if (/(production|prod)/i.test(databaseUrl))
+    throw new Error("db:seed refuses a production-named DATABASE_URL");
+  if (
+    !/(test|_test|localhost|127\.0\.0\.1)/i.test(databaseUrl) &&
+    !argv.includes("--confirm-dev-seed")
+  ) {
     throw new Error("db:seed requires --confirm-dev-seed for a non-test development database");
   }
 }
@@ -252,8 +256,12 @@ export async function runSeed(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  try { assertSeedAllowed(process.argv.slice(2), process.env["DATABASE_URL"]); }
-  catch (error) { console.error(error); process.exit(1); }
+  try {
+    assertSeedAllowed(process.argv.slice(2), process.env["DATABASE_URL"]);
+  } catch (error) {
+    console.error(error);
+    process.exit(1);
+  }
 
   await runSeed();
 }

@@ -47,7 +47,9 @@ export function EmptyResults({
         <ul className="mt-3 space-y-2.5">
           {adjustments.slice(0, 3).map((adjustment) => (
             <li key={adjustment} className="flex gap-3 text-[14px] leading-relaxed">
-              <span aria-hidden="true" className="text-vermilion-deep">→</span>
+              <span aria-hidden="true" className="text-vermilion-deep">
+                →
+              </span>
               {adjustment}
             </li>
           ))}

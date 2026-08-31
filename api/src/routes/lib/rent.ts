@@ -48,8 +48,8 @@ export interface StoredRentInputs {
 
 /**
  * Recomputes rent for `layout` from `inputs`, reusing `estimateRent`
- * (`@tokyo/shared`, the exact function Task 6 wrote and Task 7's `derive`
- * rent step calls) — the rent formula itself is never reimplemented here.
+ * (`@tokyo/shared`, the same function the `derive` rent step calls) — the
+ * rent formula itself is never reimplemented here.
  *
  * `baseConfidence` is reconstructed FRESH via `rentStatBaseConfidence` from
  * `inputs.rentSource` / `inputs.rentSourcePeriod` and `currentYear`, NOT

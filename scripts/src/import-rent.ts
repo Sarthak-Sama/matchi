@@ -11,8 +11,7 @@
  * which currently always fails, naming `ESTAT_APP_ID` and a manual
  * download URL, because no verified e-Stat download endpoint/table id
  * could be confirmed without live network access while building this
- * script (see task-12-report.md's "e-Stat format assumptions" section, the
- * same situation Task 11 documented for MLIT). Passing `--file` is the
+ * script (the same situation as MLIT). Passing `--file` is the
  * only supported path today. `--reins` has no download path at all — REINS
  * has no public API; a member exports their own quarterly report.
  *
@@ -34,7 +33,7 @@
  * The unit in effect is printed prominently at the start of every run.
  *
  * `rent_stats.source` names the data PROVIDER (`'estat'` | `'reins'`), not
- * this ingesting script — Task 6's `pickRentStat` reads that column
+ * this ingesting script — `pickRentStat` reads that column
  * directly to prefer a recent REINS row over e-Stat. Each provider's rows
  * are upserted by this table's natural key (`ward_code`, `period`,
  * `source`); a ward that disappears from one (source, period) file's
@@ -44,7 +43,7 @@
  * earlier quarter's history for the same reason (see `upsertRentStats`).
  * This script's own `import_runs` bookkeeping row uses `source = 'rent'`
  * (the ingesting script's identity), distinct from the provider values
- * written into `rent_stats.source` — see task-12-report.md decision #1.
+ * written into `rent_stats.source`.
  *
  * Every dataset is parsed and validated (ward matching, then the sane
  * numeric ranges from `@tokyo/shared`'s `config/scoring.ts`) before any
@@ -57,13 +56,10 @@
  * `import:mlit` now checks before dropping a ward).
  */
 
-import { fileURLToPath } from "node:url";
-
 import type { PoolClient } from "pg";
 
-import { createPool } from "./lib/db.js";
 import type { ImportResult } from "./lib/import-run.js";
-import { runImport } from "./lib/import-run.js";
+import { parseFlagValue, runImportCliIfMain } from "./lib/cli.js";
 import { expectRowCount } from "./lib/validate.js";
 import type { ParsedRentStat } from "./import-rent/estat.js";
 import { decodeEstatCsv, ESTAT_SOURCE, mapEstatRows, parseEstatCsv } from "./import-rent/estat.js";
@@ -127,7 +123,15 @@ async function upsertRentStats(
          sample_count = EXCLUDED.sample_count,
          source_updated_at = EXCLUDED.source_updated_at,
          imported_at = now()`,
-      [r.wardCode, r.period, source, r.rentPerSqmYen, r.managementFeeYen, r.sampleCount ?? null, sourceUpdatedAt],
+      [
+        r.wardCode,
+        r.period,
+        source,
+        r.rentPerSqmYen,
+        r.managementFeeYen,
+        r.sampleCount ?? null,
+        sourceUpdatedAt,
+      ],
     );
   }
 
@@ -157,11 +161,20 @@ function mergeLiveEstatRows(
   return rent.values.map((value) => {
     const managementFeeYen = feeByWard.get(value.area) ?? Number.NaN;
     assertRentRanges(value.value, managementFeeYen, `e-Stat API ward ${value.area}`);
-    return { wardCode: value.area, period: "2023", source: ESTAT_SOURCE, rentPerSqmYen: value.value, managementFeeYen };
+    return {
+      wardCode: value.area,
+      period: "2023",
+      source: ESTAT_SOURCE,
+      rentPerSqmYen: value.value,
+      managementFeeYen,
+    };
   });
 }
 
-export async function runRentImport(client: PoolClient, args: ImportRentArgs): Promise<RentImportResult> {
+export async function runRentImport(
+  client: PoolClient,
+  args: ImportRentArgs,
+): Promise<RentImportResult> {
   const rentUnit = args.rentUnit ?? DEFAULT_RENT_UNIT;
   console.log(
     `import:rent — rent unit in effect: "${rentUnit}"` +
@@ -171,7 +184,10 @@ export async function runRentImport(client: PoolClient, args: ImportRentArgs): P
   const wards = await loadWards(client);
   expectRowCount(wards.length, { min: 23, max: 23, label: "loaded Tokyo wards" });
 
-  const live = args.estatPath === undefined ? await fetchLiveEstat(process.env["ESTAT_APP_ID"] ?? "") : undefined;
+  const live =
+    args.estatPath === undefined
+      ? await fetchLiveEstat(process.env["ESTAT_APP_ID"] ?? "")
+      : undefined;
   const estatRows = live
     ? mergeLiveEstatRows(live.rent, live.fee)
     : mapEstatRows(parseEstatCsv(await loadEstat(args.estatPath)), wards, rentUnit);
@@ -189,7 +205,12 @@ export async function runRentImport(client: PoolClient, args: ImportRentArgs): P
   });
 
   const estatSourceUpdatedAt = args.estatSourceDate ?? (live ? ESTAT_SOURCE_UPDATED_AT : null);
-  const estatRowsImported = await upsertRentStats(client, ESTAT_SOURCE, estatRows, estatSourceUpdatedAt);
+  const estatRowsImported = await upsertRentStats(
+    client,
+    ESTAT_SOURCE,
+    estatRows,
+    estatSourceUpdatedAt,
+  );
 
   console.log(
     `import:rent — estat=${String(estatRowsImported)} row(s) across ${String(matchedWardCodes.size)} ` +
@@ -202,16 +223,6 @@ export async function runRentImport(client: PoolClient, args: ImportRentArgs): P
     estatRowsImported,
     reinsRowsImported: 0,
   };
-}
-
-function parseFlagValue(argv: readonly string[], flag: string): string | undefined {
-  const index = argv.indexOf(flag);
-  if (index === -1) return undefined;
-  const value = argv[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value`);
-  }
-  return value;
 }
 
 function parseRentUnitFlag(argv: readonly string[]): RentUnit | undefined {
@@ -241,29 +252,10 @@ export function parseArgs(argv: readonly string[]): ImportRentArgs {
   };
 }
 
-async function main(): Promise<void> {
-  if (!process.env["DATABASE_URL"]) {
-    console.error(
-      "DATABASE_URL is not set. Set it to a PostgreSQL connection string, e.g.\n" +
-        "  DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo pnpm import:rent --file ...",
-    );
-    process.exit(1);
-  }
-
-  const args = parseArgs(process.argv.slice(2));
-  const pool = createPool();
-  try {
-    const result = await runImport({ source: RUN_SOURCE, pool }, (client) => runRentImport(client, args));
-    console.log(`import:rent complete. rows_imported=${String(result.rowsImported)}`);
-  } finally {
-    await pool.end();
-  }
-}
-
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
-if (isMain) {
-  main().catch((err: unknown) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
+runImportCliIfMain(import.meta.url, {
+  commandName: "import:rent",
+  commandExample: "pnpm import:rent --file ...",
+  parseArgs,
+  source: () => RUN_SOURCE,
+  run: runRentImport,
+});

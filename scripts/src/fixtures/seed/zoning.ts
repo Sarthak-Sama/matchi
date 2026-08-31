@@ -9,8 +9,7 @@
  *    residential rectangle and touches no commercial polygon -> ~100%
  *    residential share.
  *
- * (Verified for real post-seed with an ST_Intersects/ST_Area query — see
- * task-5-report.md.)
+ * (Verified for real post-seed with an ST_Intersects/ST_Area query.)
  */
 
 import type { LonLat } from "./geo.js";

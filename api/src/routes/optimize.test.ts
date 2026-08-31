@@ -28,7 +28,9 @@ import { emptyGraphs, graphsFromEdges, testConfig } from "../test-support/fixtur
 // (via sg-mid), sg-isolated has no edges at all.
 // ---------------------------------------------------------------------------
 
-function edge(overrides: Partial<RailEdgeRow> & Pick<RailEdgeRow, "fromStationGroupId" | "toStationGroupId">): RailEdgeRow {
+function edge(
+  overrides: Partial<RailEdgeRow> & Pick<RailEdgeRow, "fromStationGroupId" | "toStationGroupId">,
+): RailEdgeRow {
   return {
     railLineId: "rl-1",
     railLineName: "Test Line",
@@ -447,9 +449,15 @@ describe("POST /v1/optimize", () => {
       await app.close();
 
       const body = optimizeResponseSchema.parse(response.json());
-      expect(body.results.find((r) => r.stationGroupId === "sg-dest")?.isDestinationAccessStation).toBe(true);
-      expect(body.results.find((r) => r.stationGroupId === "sg-near")?.isDestinationAccessStation).toBe(true);
-      expect(body.results.find((r) => r.stationGroupId === "sg-far")?.isDestinationAccessStation).toBe(false);
+      expect(
+        body.results.find((r) => r.stationGroupId === "sg-dest")?.isDestinationAccessStation,
+      ).toBe(true);
+      expect(
+        body.results.find((r) => r.stationGroupId === "sg-near")?.isDestinationAccessStation,
+      ).toBe(true);
+      expect(
+        body.results.find((r) => r.stationGroupId === "sg-far")?.isDestinationAccessStation,
+      ).toBe(false);
     });
 
     it("lets the search pick the cheaper access station per origin, not the nearest to the office", async () => {
@@ -637,9 +645,9 @@ describe("POST /v1/optimize", () => {
 // invocation, silently leaving `neighborhood_metrics` empty the next time
 // this file runs (this was caught for real: candidatesConsidered came back
 // `0` the second time this suite ran back-to-back). Re-running
-// `db:migrate && db:seed && derive` here — exactly the recovery command
-// task-10-brief.md itself documents — makes this test's precondition true
-// regardless of what any other suite left behind, on every run.
+// `db:migrate && db:seed && derive` here — the documented recovery
+// command — makes this test's precondition true regardless of what any
+// other suite left behind, on every run.
 // ---------------------------------------------------------------------------
 
 const databaseUrl = process.env["DATABASE_URL"];
@@ -785,7 +793,12 @@ describe.runIf(Boolean(databaseUrl))("POST /v1/optimize (integration)", () => {
         monthlyBudgetYen: 200_000,
         layout: "1LDK",
         maxCommuteMinutes: 45,
-        preferences: { floodSafety: "high", supermarkets: "medium", restaurants: "low", quietness: "essential" },
+        preferences: {
+          floodSafety: "high",
+          supermarkets: "medium",
+          restaurants: "low",
+          quietness: "essential",
+        },
       },
     });
     await app.close();
@@ -810,7 +823,12 @@ describe.runIf(Boolean(databaseUrl))("POST /v1/optimize (integration)", () => {
         monthlyBudgetYen: 200_000,
         layout: "1LDK",
         maxCommuteMinutes: 45,
-        preferences: { floodSafety: "high", supermarkets: "medium", restaurants: "low", quietness: "essential" },
+        preferences: {
+          floodSafety: "high",
+          supermarkets: "medium",
+          restaurants: "low",
+          quietness: "essential",
+        },
       },
     });
     await app.close();

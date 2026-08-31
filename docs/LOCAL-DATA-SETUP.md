@@ -4,12 +4,12 @@ Downloaded on 2026-08-25. All source data lives under `data/`, which is intentio
 
 ## Downloaded MLIT source archives
 
-| Dataset | Local archive | Status |
-| --- | --- | --- |
-| N02 railway, 2025 | `data/raw/mlit/N02-25_GML.zip` | Downloaded and inspected |
-| N03 administrative boundaries, Tokyo, 2024 | `data/raw/mlit/N03-20240101_13_GML.zip` | Downloaded and converted |
-| L01 posted land prices, Tokyo, 2026 | `data/raw/mlit/L01-26_13_GML.zip` | Downloaded and inspected |
-| A29 zoning, Tokyo, 2019 | `data/raw/mlit/A29-19_13_GML.zip` | Downloaded; legacy ZIP filenames prevent normal macOS expansion |
+| Dataset                                    | Local archive                           | Status                                                          |
+| ------------------------------------------ | --------------------------------------- | --------------------------------------------------------------- |
+| N02 railway, 2025                          | `data/raw/mlit/N02-25_GML.zip`          | Downloaded and inspected                                        |
+| N03 administrative boundaries, Tokyo, 2024 | `data/raw/mlit/N03-20240101_13_GML.zip` | Downloaded and converted                                        |
+| L01 posted land prices, Tokyo, 2026        | `data/raw/mlit/L01-26_13_GML.zip`       | Downloaded and inspected                                        |
+| A29 zoning, Tokyo, 2019                    | `data/raw/mlit/A29-19_13_GML.zip`       | Downloaded; legacy ZIP filenames prevent normal macOS expansion |
 
 SHA-256 values:
 
@@ -34,13 +34,13 @@ aaf76af133b2e771e538fabc4646d2e443dc1d5a67b221382a28d744e706cc9f  N02-25_GML.zip
 
 No application parser was modified.
 
-| Import input | Current real source | Repository expects | Consequence |
-| --- | --- | --- | --- |
-| N02 stations | `LineString`; name `N02_005`, IDs `N02_005c`/`N02_005g` | Point | Raw file is rejected; centroid staging is available |
-| N02 rail lines | `N02_003`, `N02_004`, no `mode` | `mode` is required | A classification policy is needed before import |
-| N03 wards | multiple polygons per ward | effectively one geometry per ward | `data/wards.geojson` is already dissolved |
-| L01 land prices | year `L01_007`, price `L01_008`, use `L01_028` | `L01_005`, `L01_006`, `L01_022` | Current importer would read incorrect values |
-| A29 zoning | classification `A29_004`; `A29_001` is administrative code | `A29_001` as category | Current importer would misclassify zoning |
+| Import input    | Current real source                                        | Repository expects                | Consequence                                         |
+| --------------- | ---------------------------------------------------------- | --------------------------------- | --------------------------------------------------- |
+| N02 stations    | `LineString`; name `N02_005`, IDs `N02_005c`/`N02_005g`    | Point                             | Raw file is rejected; centroid staging is available |
+| N02 rail lines  | `N02_003`, `N02_004`, no `mode`                            | `mode` is required                | A classification policy is needed before import     |
+| N03 wards       | multiple polygons per ward                                 | effectively one geometry per ward | `data/wards.geojson` is already dissolved           |
+| L01 land prices | year `L01_007`, price `L01_008`, use `L01_028`             | `L01_005`, `L01_006`, `L01_022`   | Current importer would read incorrect values        |
+| A29 zoning      | classification `A29_004`; `A29_001` is administrative code | `A29_001` as category             | Current importer would misclassify zoning           |
 
 ## What remains for a successful live import
 

@@ -3,10 +3,8 @@
  * Every property this module reads (`elements[].type/id/lat/lon/center/
  * geometry/tags`, `osm3s.timestamp_osm_base`) is an ASSUMPTION about
  * Overpass's real response shape, documented per-field below and
- * summarized in task-13-report.md's "Overpass format assumptions" section.
  *
- * Tag → category mapping (exactly as specified by task-13-brief.md, plus
- * the five-new-metrics additions from task-2-brief.md):
+ * Tag → category mapping:
  *   shop=supermarket                       -> pois.category = "supermarket"
  *   shop=greengrocer|butcher|bakery|grocery -> pois.category = "grocery"
  *   shop=convenience                       -> pois.category = "convenience"
@@ -21,7 +19,7 @@
  *
  * `pois.cuisine`/`pois.opening_hours` are carried through verbatim from the
  * OSM `cuisine`/`opening_hours` tags when present (any element, any
- * category) — `derive/amenities.ts` (Task 3) uses `cuisine` for
+ * category) — `derive/amenities.ts` uses `cuisine` for
  * `COUNT(DISTINCT cuisine)` and `opening_hours` for a late-night heuristic.
  *
  * Tag-precedence rule (not specified by the brief): `highway` is checked
@@ -82,14 +80,7 @@
  */
 
 export type PoiCategory =
-  | "supermarket"
-  | "grocery"
-  | "convenience"
-  | "restaurant"
-  | "cafe"
-  | "bar"
-  | "health"
-  | "landmark";
+  "supermarket" | "grocery" | "convenience" | "restaurant" | "cafe" | "bar" | "health" | "landmark";
 export type RoadClass = "motorway" | "trunk" | "primary";
 export type LeisureClass = "park" | "garden";
 export type OsmElementType = "node" | "way" | "relation";
@@ -161,7 +152,11 @@ export function classifyElement(
   const amenity = typeof tags["amenity"] === "string" ? tags["amenity"] : undefined;
   const amenityCategory = amenity !== undefined ? AMENITY_CATEGORY_MAP[amenity] : undefined;
 
-  if (shopCategory !== undefined && amenityCategory !== undefined && shopCategory !== amenityCategory) {
+  if (
+    shopCategory !== undefined &&
+    amenityCategory !== undefined &&
+    shopCategory !== amenityCategory
+  ) {
     console.warn(
       `import:osm — ${context}: has both shop=${shop} (-> ${shopCategory}) and amenity=${amenity} ` +
         `(-> ${amenityCategory}); shop takes precedence, category="${shopCategory}" (see ` +
@@ -255,7 +250,10 @@ export interface ParsedOverpassData {
   readonly sourceUpdatedAt: Date | null;
 }
 
-function stringTag(tags: Readonly<Record<string, unknown>> | undefined | null, key: string): string | null {
+function stringTag(
+  tags: Readonly<Record<string, unknown>> | undefined | null,
+  key: string,
+): string | null {
   const value = tags?.[key];
   return typeof value === "string" && value.length > 0 ? value : null;
 }
@@ -274,7 +272,10 @@ function elementContext(el: OverpassElement): string {
 }
 
 /** Nodes use their own lat/lon; ways and relations use their `center`. */
-function resolvePoiCoordinates(el: OverpassElement): { readonly lon: number; readonly lat: number } {
+function resolvePoiCoordinates(el: OverpassElement): {
+  readonly lon: number;
+  readonly lat: number;
+} {
   const context = elementContext(el);
 
   if (el.type === "node") {
@@ -341,12 +342,17 @@ function resolveRoadGeometry(el: OverpassElement): string {
  * 23-ward extract. A missing `geometry` array or a non-numeric coordinate
  * still throws — those mean Overpass did not send what we asked for.
  */
-function isUsableRing(vertices: readonly { readonly lat: number; readonly lon: number }[]): boolean {
+function isUsableRing(
+  vertices: readonly { readonly lat: number; readonly lon: number }[],
+): boolean {
   return vertices.length >= 3;
 }
 
 /** Builds one `(...)` polygon ring's WKT, closing it if Overpass didn't repeat the first vertex. */
-function ringWKT(vertices: readonly { readonly lat: number; readonly lon: number }[], ringContext: string): string {
+function ringWKT(
+  vertices: readonly { readonly lat: number; readonly lon: number }[],
+  ringContext: string,
+): string {
   if (!isUsableRing(vertices)) {
     throw new Error(
       `${ringContext}: ring has only ${String(vertices.length)} vertex/vertices (expected at least 3)`,
@@ -414,14 +420,17 @@ function resolveGreenSpaceGeometry(el: OverpassElement): string | null {
     const outerPolygons: string[] = [];
     let degenerateOuterMembers = 0;
     for (const [index, member] of members.entries()) {
-      if (member.role !== "outer" || member.type !== "way" || member.geometry === undefined) continue;
+      if (member.role !== "outer" || member.type !== "way" || member.geometry === undefined)
+        continue;
       // One unfinished outer way must not discard the rest of a valid
       // multipolygon park, so degenerate members are dropped individually.
       if (!isUsableRing(member.geometry)) {
         degenerateOuterMembers += 1;
         continue;
       }
-      outerPolygons.push(`(${ringWKT(member.geometry, `${context} outer member #${String(index)}`)})`);
+      outerPolygons.push(
+        `(${ringWKT(member.geometry, `${context} outer member #${String(index)}`)})`,
+      );
     }
     if (outerPolygons.length === 0 && degenerateOuterMembers > 0) {
       console.warn(

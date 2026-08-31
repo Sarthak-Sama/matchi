@@ -2,9 +2,8 @@
  * e-Stat 2023 Housing and Land Survey ward-level rent/management-fee
  * parser.
  *
- * FORMAT ASSUMPTIONS (unverifiable without a real download — see
- * task-12-report.md's "e-Stat format assumptions" section, which the user
- * must confirm against their actual export and adjust the *_KEYS arrays
+ * FORMAT ASSUMPTIONS (unverifiable without a real download; the user must
+ * confirm these against their actual export and adjust the *_KEYS arrays
  * below if they differ):
  *
  *   - Encoding: Shift-JIS (`decodeEstatCsv` below), e-Stat's CSV default.
@@ -39,8 +38,7 @@
  *     per-unit-area value for most publication tables; if the table the
  *     user downloads is one of those, they must divide rent by floor area
  *     themselves (or pass `--file` a pre-computed CSV) before running this
- *     script regardless of `--rent-unit` — flagged prominently in
- *     task-12-report.md.
+ *     script regardless of `--rent-unit`.
  *   - Every row's `period` is the fixed literal `"2023"` (the survey year),
  *     not read from any column.
  *
@@ -100,7 +98,10 @@ export interface RawEstatRow {
 }
 
 /** Parses one already-decoded CSV record (row index is 0-based, over data rows only). */
-export function parseEstatRow(record: Readonly<Record<string, string>>, rowIndex: number): RawEstatRow {
+export function parseEstatRow(
+  record: Readonly<Record<string, string>>,
+  rowIndex: number,
+): RawEstatRow {
   const context = `e-Stat row #${rowIndex}`;
 
   const wardCode = pickColumn(record, WARD_CODE_KEYS);

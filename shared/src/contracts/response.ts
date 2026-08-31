@@ -101,9 +101,14 @@ export const neighborhoodResultSchema = z.object({
     lon: z.number(),
   }),
   polygon: z.unknown().nullable(),
-  nearbyStations: z.array(z.object({
-    stationGroupId: z.string(), nameEn: z.string(), nameJa: z.string(), walkMinutes: z.number(),
-  })),
+  nearbyStations: z.array(
+    z.object({
+      stationGroupId: z.string(),
+      nameEn: z.string(),
+      nameJa: z.string(),
+      walkMinutes: z.number(),
+    }),
+  ),
   overallScore: z.number().min(0).max(100),
   rent: rentEstimateSchema,
   commute: commuteEstimateSchema,

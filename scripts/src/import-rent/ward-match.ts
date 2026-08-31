@@ -1,9 +1,9 @@
 /**
  * Ward matching shared by both the e-Stat and REINS parsers: "by the
  * 5-digit municipality code where available, otherwise by normalized
- * Japanese ward name" (task-12-brief.md).
+ * Japanese ward name".
  *
- * ASSUMPTION (stated per task-12-brief.md's "Before You Begin" — verify
+ * ASSUMPTION (verify
  * against a real download): the CSV passed via `--file`/`--reins` is
  * already scoped to Tokyo's ward-level rows (e.g. e-Stat's own regional
  * drill-down to Tokyo-to, not an unfiltered all-Japan export). Every
@@ -12,14 +12,13 @@
  * (once `import:mlit` has run) or a smaller subset in a partially-seeded
  * environment (e.g. this repo's 4-ward vertical slice). A row that matches
  * neither by code nor by name is a hard error naming the unmatched value,
- * never a silent skip — see this file's callers and task-12-report.md for
- * why that matters now that `rent_stats.ward_code` is a real FK `import:mlit`
- * checks before dropping a ward.
+ * never a silent skip — that matters now that `rent_stats.ward_code` is a
+ * real FK `import:mlit` checks before dropping a ward.
  *
  * If the real e-Stat export turns out to be nationwide (every prefecture,
  * not just Tokyo), this assumption is wrong and a pre-filter step (e.g. by
  * prefecture-code prefix `13`) would need to be added before this module
- * ever sees a row — flagged explicitly in task-12-report.md for the user
+ * ever sees a row — flagged explicitly for the user
  * to confirm against a live download.
  */
 

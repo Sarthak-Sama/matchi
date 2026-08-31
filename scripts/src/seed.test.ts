@@ -125,9 +125,9 @@ describe.runIf(Boolean(databaseUrl))("seed", () => {
 
   it("pinned POI counts (fixtures/seed/pois.ts) match a live ST_DWithin count", async () => {
     // Guards against a filler point silently drifting into a pinned
-    // station's catchment (this caught a real bug — see task-5-report.md's
-    // fix-up entry: a Daikanyama filler point once landed inside Shibuya's
-    // 800m catchment, making the live count 38 instead of the documented 37).
+    // station's catchment (this caught a real bug: a Daikanyama filler point
+    // once landed inside Shibuya's 800m catchment, making the live count 38
+    // instead of the documented 37).
     const stationGroupIds = Object.keys(PINNED_POI_COUNTS);
     const { rows } = await pool.query<{ station_group_id: string; count: string }>(
       `SELECT sg.station_group_id, count(p.id)::text AS count

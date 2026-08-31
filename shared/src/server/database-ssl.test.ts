@@ -5,7 +5,9 @@ import { databaseSslFor } from "./database-ssl.js";
 describe("databaseSslFor", () => {
   it("verifies certificates for a hosted database", () => {
     expect(
-      databaseSslFor("postgresql://u:p@ep-x-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"),
+      databaseSslFor(
+        "postgresql://u:p@ep-x-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require",
+      ),
     ).toEqual({ rejectUnauthorized: true });
   });
 

@@ -24,11 +24,7 @@
 import type { DbPool } from "../../db.js";
 import type { DijkstraSeed } from "../../domain/transit/dijkstra.js";
 import type { DestinationPoint } from "@tokyo/shared";
-import {
-  MAX_DESTINATION_WALK_M,
-  WALK_DETOUR_FACTOR,
-  WALK_SPEED_M_PER_MIN,
-} from "@tokyo/shared";
+import { MAX_DESTINATION_WALK_M, WALK_DETOUR_FACTOR, WALK_SPEED_M_PER_MIN } from "@tokyo/shared";
 
 /**
  * Straight-line metres -> walking minutes.

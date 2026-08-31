@@ -39,7 +39,8 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
     // A seeded ST_GeneratePoints call is deterministic, while PointOnSurface
     // would create nine identical and unrepresentative samples.
     await client.query("DELETE FROM locality_samples");
-    await client.query(`WITH raw_areas AS (
+    await client.query(
+      `WITH raw_areas AS (
         SELECT l.locality_id,
           COALESCE(
             NULLIF(ST_CollectionExtract(ST_MakeValid(ST_Intersection(l.geom, z.geom)), 3),
@@ -78,7 +79,9 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
         point, used_residential_zoning
       FROM generated, LATERAL ST_DumpPoints(points) AS dump
       CROSS JOIN LATERAL (SELECT dump.geom::geometry(Point, 4326) AS point) p
-    `, [LOCALITY_SAMPLE_COUNT]);
+    `,
+      [LOCALITY_SAMPLE_COUNT],
+    );
 
     await client.query(
       `INSERT INTO locality_sample_stations
@@ -236,7 +239,13 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
       ],
     );
 
-    const land = await client.query<{ locality_id: string; ward_code: string; median: string | null; count: string }>(`
+    const land = await client.query<{
+      locality_id: string;
+      ward_code: string;
+      median: string | null;
+      count: string;
+    }>(
+      `
       WITH per_sample AS (
         SELECT ls.locality_id, ls.sample_number,
           percentile_cont(0.5) WITHIN GROUP (ORDER BY lp.price_yen_per_sqm) AS median,
@@ -250,17 +259,52 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
         percentile_cont(0.5) WITHIN GROUP (ORDER BY ps.median)::text AS median,
         round(percentile_cont(0.5) WITHIN GROUP (ORDER BY ps.point_count))::text AS count
       FROM per_sample ps JOIN localities l ON l.locality_id=ps.locality_id
-      GROUP BY ps.locality_id, l.ward_code`, [CATCHMENT_RADIUS_M]);
-    const wardLand = await client.query<{ ward_code: string; median: string | null }>(`SELECT ward_code, percentile_cont(0.5) WITHIN GROUP (ORDER BY price_yen_per_sqm)::text AS median FROM land_prices WHERE use_category = 'residential' GROUP BY ward_code`);
-    const rentStats = await client.query<(RentStatRow & { ward_code: string })>("SELECT ward_code, period, source, rent_per_sqm_yen, management_fee_yen FROM rent_stats");
-    const wards = new Map(wardLand.rows.map((row) => [row.ward_code, row.median === null ? null : Number(row.median)]));
-    const stats = new Map<string, (RentStatRow & { ward_code: string })[]>();
-    for (const row of rentStats.rows) stats.set(row.ward_code, [...(stats.get(row.ward_code) ?? []), row]);
+      GROUP BY ps.locality_id, l.ward_code`,
+      [CATCHMENT_RADIUS_M],
+    );
+    const wardLand = await client.query<{ ward_code: string; median: string | null }>(`
+      SELECT ward_code, percentile_cont(0.5) WITHIN GROUP (ORDER BY price_yen_per_sqm)::text AS median
+      FROM land_prices WHERE use_category = 'residential' GROUP BY ward_code`);
+    const rentStats = await client.query<RentStatRow & { ward_code: string }>(
+      "SELECT ward_code, period, source, rent_per_sqm_yen, management_fee_yen FROM rent_stats",
+    );
+
+    const wardMedianLandPriceByCode = new Map(
+      wardLand.rows.map((row) => [row.ward_code, row.median === null ? null : Number(row.median)]),
+    );
+    const rentStatsByWardCode = new Map<string, (RentStatRow & { ward_code: string })[]>();
+    for (const row of rentStats.rows) {
+      const existing = rentStatsByWardCode.get(row.ward_code) ?? [];
+      rentStatsByWardCode.set(row.ward_code, [...existing, row]);
+    }
+
     for (const row of land.rows) {
-      const choices = stats.get(row.ward_code); if (!choices?.length) continue;
+      const choices = rentStatsByWardCode.get(row.ward_code);
+      if (!choices?.length) continue;
+
       const selected = pickRentStat(choices, { currentYear: new Date().getFullYear() }).stat;
-      const multiplier = computeLandPriceMultiplier({ catchmentMedianLandPrice: row.median === null ? null : Number(row.median), wardMedianLandPrice: wards.get(row.ward_code) ?? null, pointCount: Number(row.count) });
-      await client.query(`UPDATE locality_metrics SET rent_per_sqm_yen=$2, management_fee_yen=$3, land_price_multiplier=$4, land_price_point_count=$5, land_price_used_fallback=$6, rent_source=$7, rent_source_period=$8 WHERE locality_id=$1`, [row.locality_id, selected.rent_per_sqm_yen, selected.management_fee_yen, multiplier.multiplier, Number(row.count), multiplier.usedFallback, selected.source, selected.period]);
+      const multiplier = computeLandPriceMultiplier({
+        catchmentMedianLandPrice: row.median === null ? null : Number(row.median),
+        wardMedianLandPrice: wardMedianLandPriceByCode.get(row.ward_code) ?? null,
+        pointCount: Number(row.count),
+      });
+
+      await client.query(
+        `UPDATE locality_metrics SET
+           rent_per_sqm_yen=$2, management_fee_yen=$3, land_price_multiplier=$4,
+           land_price_point_count=$5, land_price_used_fallback=$6, rent_source=$7, rent_source_period=$8
+         WHERE locality_id=$1`,
+        [
+          row.locality_id,
+          selected.rent_per_sqm_yen,
+          selected.management_fee_yen,
+          multiplier.multiplier,
+          Number(row.count),
+          multiplier.usedFallback,
+          selected.source,
+          selected.period,
+        ],
+      );
     }
     return rowCount ?? 0;
   });

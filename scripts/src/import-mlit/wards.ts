@@ -2,8 +2,7 @@
  * Wards dataset — MLIT's National Land Numerical Information administrative
  * boundary data (dataset code N03), one polygon per municipality.
  *
- * ASSUMED property names (see task-11-report.md for the full list of
- * assumptions to verify against a real download): the MLIT field codes
+ * ASSUMED property names (verify against a real download): the MLIT field codes
  * `N03_007` (5-digit JIS administrative code) and `N03_004` (Japanese
  * name) are tried first; a friendlier `ward_code` / `name_ja` is accepted
  * as a fallback so hand-built or pre-renamed fixtures work too.
@@ -94,7 +93,8 @@ export function parseWards(features: readonly GeoJSONFeature[]): ParsedWard[] {
   for (const [index, feature] of features.entries()) {
     const ward = parseWardFeature(feature, index);
     const list = grouped.get(ward.wardCode) ?? [];
-    list.push(ward); grouped.set(ward.wardCode, list);
+    list.push(ward);
+    grouped.set(ward.wardCode, list);
   }
   return [...grouped.values()].map((parts) => {
     const first = parts[0];
@@ -107,6 +107,11 @@ export function parseWards(features: readonly GeoJSONFeature[]): ParsedWard[] {
 export function assertTokyoWards(wards: readonly ParsedWard[]): void {
   const expected = new Set(Object.keys(TOKYO_WARD_NAME_EN));
   if (wards.length !== expected.size || wards.some((ward) => !expected.has(ward.wardCode))) {
-    throw new Error(`wards: require exactly Tokyo codes 13101–13123; received ${wards.map((w) => w.wardCode).sort().join(", ")}`);
+    throw new Error(
+      `wards: require exactly Tokyo codes 13101–13123; received ${wards
+        .map((w) => w.wardCode)
+        .sort()
+        .join(", ")}`,
+    );
   }
 }

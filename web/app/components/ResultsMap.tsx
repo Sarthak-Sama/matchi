@@ -63,7 +63,10 @@ function asMultiPolygon(value: unknown): MultiPolygon | null {
   return null;
 }
 
-function buildProjection(results: readonly NeighborhoodResult[], destination: Point | null): Projection {
+function buildProjection(
+  results: readonly NeighborhoodResult[],
+  destination: Point | null,
+): Projection {
   let minLon = Infinity;
   let maxLon = -Infinity;
   let minLat = Infinity;
@@ -110,7 +113,7 @@ function buildProjection(results: readonly NeighborhoodResult[], destination: Po
 
   return {
     project: (lat, lon) => ({
-      x: offsetX + ((lon - minLon) * lonScale) * scale,
+      x: offsetX + (lon - minLon) * lonScale * scale,
       y: offsetY + (maxLat - lat) * scale,
     }),
   };
@@ -135,7 +138,11 @@ function polygonPath(polygon: MultiPolygon, projection: Projection): string {
 
 interface ResultsMapProps {
   readonly results: readonly NeighborhoodResult[];
-  readonly destination: { readonly lat: number; readonly lon: number; readonly label: string } | null;
+  readonly destination: {
+    readonly lat: number;
+    readonly lon: number;
+    readonly label: string;
+  } | null;
   readonly highlightedId: string | null;
   readonly onHighlight: (localityId: string | null) => void;
   readonly onSelect: (result: NeighborhoodResult) => void;
@@ -173,9 +180,7 @@ export function ResultsMap({
     [results, projection],
   );
 
-  const destinationXY = destination
-    ? projection.project(destination.lat, destination.lon)
-    : null;
+  const destinationXY = destination ? projection.project(destination.lat, destination.lon) : null;
 
   const pinned = expanded ? shapes : shapes.slice(0, PREVIEW_PIN_LIMIT);
   const hiddenPinCount = shapes.length - pinned.length;
@@ -195,31 +200,32 @@ export function ResultsMap({
         {/* SVG has no z-index: paint order is document order, so the
             highlighted outline is drawn last or its neighbours cover it. */}
         {[...shapes]
-          .sort((a, b) =>
-            Number(a.result.localityId === highlightedId) -
-            Number(b.result.localityId === highlightedId),
+          .sort(
+            (a, b) =>
+              Number(a.result.localityId === highlightedId) -
+              Number(b.result.localityId === highlightedId),
           )
           .map(({ result, d }) => {
-          if (!d) return null;
-          const isHighlighted = result.localityId === highlightedId;
-          const isTop = result.rank === 1;
-          return (
-            <path
-              key={result.localityId}
-              d={d}
-              fillRule="evenodd"
-              vectorEffect="non-scaling-stroke"
-              className={`transition-colors duration-200 motion-reduce:transition-none ${
-                isHighlighted
-                  ? "fill-vermilion/25 stroke-vermilion"
-                  : isTop
-                    ? "fill-sage-deep/70 stroke-line-strong"
-                    : "fill-paper/60 stroke-line-strong"
-              }`}
-              strokeWidth={isHighlighted ? 1.6 : 1}
-            />
-          );
-        })}
+            if (!d) return null;
+            const isHighlighted = result.localityId === highlightedId;
+            const isTop = result.rank === 1;
+            return (
+              <path
+                key={result.localityId}
+                d={d}
+                fillRule="evenodd"
+                vectorEffect="non-scaling-stroke"
+                className={`transition-colors duration-200 motion-reduce:transition-none ${
+                  isHighlighted
+                    ? "fill-vermilion/25 stroke-vermilion"
+                    : isTop
+                      ? "fill-sage-deep/70 stroke-line-strong"
+                      : "fill-paper/60 stroke-line-strong"
+                }`}
+                strokeWidth={isHighlighted ? 1.6 : 1}
+              />
+            );
+          })}
       </svg>
 
       {/* Destination — the vermilion survey nail. Stacked above every
@@ -290,10 +296,8 @@ export function ResultsMap({
         Map of {results.length} candidate neighborhoods
         {destination ? ` around ${destination.label}` : ""}, drawn from locality boundaries.
         Neighborhoods are numbered by rank
-        {hiddenPinCount > 0
-          ? `; this compact view marks the top ${pinned.length}`
-          : ""}
-        . The same information appears in the ranked list.
+        {hiddenPinCount > 0 ? `; this compact view marks the top ${pinned.length}` : ""}. The same
+        information appears in the ranked list.
       </figcaption>
     </figure>
   );
