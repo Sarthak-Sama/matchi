@@ -18,7 +18,6 @@ export function MethodSequence() {
         title="Say where you have to be"
         body="A station, an office, a campus — anywhere with a name. The guide works backwards from the one point in your week that is not negotiable, and the morning you have to make it by."
       >
-        {/* The committed-destination state, as the form actually renders it. */}
         <div className="flex min-h-13 items-center gap-3 border border-moss bg-paper px-4 py-2.5">
           <span className="text-vermilion">
             <DestinationMark />
@@ -62,7 +61,6 @@ export function MethodSequence() {
         title="Read the shortlist, and the compromise"
         body="Every recommendation arrives with what it costs you, not just what it offers — the weakest component named, the confidence stated, and the date the data was collected."
       >
-        {/* The actual top result, rendered the way the shortlist renders it. */}
         <div className="border border-line-strong bg-paper">
           <p className="label-utility border-b border-line px-4 py-2 text-vermilion-deep">
             <span className="font-mono tracking-normal">01</span>

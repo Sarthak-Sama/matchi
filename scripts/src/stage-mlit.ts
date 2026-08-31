@@ -72,15 +72,19 @@ export function withinTokyo(coordinates: unknown): boolean {
 
 type Point = readonly [number, number];
 
+function isPoint(value: unknown): value is Point {
+  return Array.isArray(value) && typeof value[0] === "number" && typeof value[1] === "number";
+}
+
 function ringContains(point: Point, ring: unknown): boolean {
   if (!Array.isArray(ring)) return false;
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const a = ring[i];
     const b = ring[j];
-    if (!Array.isArray(a) || !Array.isArray(b)) continue;
-    const [xi, yi] = a as unknown as Point;
-    const [xj, yj] = b as unknown as Point;
+    if (!isPoint(a) || !isPoint(b)) continue;
+    const [xi, yi] = a;
+    const [xj, yj] = b;
     if (
       yi > point[1] !== yj > point[1] &&
       point[0] < ((xj - xi) * (point[1] - yi)) / (yj - yi) + xi
@@ -170,9 +174,9 @@ export function centroidOfLineGeometry(geometry: Feature["geometry"]): Point | n
     for (let i = 1; i < line.length; i += 1) {
       const a = line[i - 1];
       const b = line[i];
-      if (!Array.isArray(a) || !Array.isArray(b)) continue;
-      const [ax, ay] = a as unknown as Point;
-      const [bx, by] = b as unknown as Point;
+      if (!isPoint(a) || !isPoint(b)) continue;
+      const [ax, ay] = a;
+      const [bx, by] = b;
       const length = Math.hypot(bx - ax, by - ay);
       lon += ((ax + bx) / 2) * length;
       lat += ((ay + by) / 2) * length;

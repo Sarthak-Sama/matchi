@@ -139,20 +139,13 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
           )}
         </div>
 
-        {/* Scrollable body. `tabIndex` gives the keyboard somewhere to
-            stand inside a long entry: the close button is the only other
-            stop, and a plain overflow container cannot be scrolled without
-            a pointer. */}
         <div
           role="region"
           aria-label="Neighborhood entry details"
           tabIndex={0}
           className="flex-1 overflow-y-auto"
         >
-          {/* Key metrics — an editorial data strip, not dashboard cards. */}
           <section aria-label="Key metrics" className="border-b border-line">
-            {/* A six-column strip, not four equal cards: the rent range is
-                the widest value on the page and gets three of the six. */}
             <dl className="grid grid-cols-2 divide-x divide-y divide-line sm:grid-cols-6 sm:divide-y-0">
               <MetricCell
                 label="Commute"
@@ -174,7 +167,6 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
             </dl>
           </section>
 
-          {/* The commute, composed */}
           <section
             aria-labelledby="commute-heading"
             className="border-b border-line px-5 py-5 sm:px-8"
@@ -190,9 +182,7 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
             ) : (
               <>
                 <CommuteBar result={result} />
-                {/* The legs double as the bar's key — each swatch repeats a
-                    band above it, so the bar never carries meaning by
-                    colour alone. */}
+
                 <ol className="mt-4 space-y-1.5 text-[13px] tnum">
                   <CommuteLeg
                     label="Walk to the station"
@@ -234,10 +224,6 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
             </p>
           </section>
 
-          {/* Why it fits / The trade-offs. The trade-off block is
-              unconditional: when the API states no reason against, the
-              weakest scored component is named instead, so no entry can
-              read as an unqualified recommendation. */}
           <section aria-labelledby="fit-heading" className="border-b border-line px-5 py-5 sm:px-8">
             <h3 id="fit-heading" className="label-utility text-ink">
               The recommendation, in words
@@ -291,7 +277,6 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
             )}
           </section>
 
-          {/* Lifestyle evidence */}
           {result.factors.length > 0 && (
             <section
               aria-labelledby="evidence-heading"
@@ -308,7 +293,6 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
             </section>
           )}
 
-          {/* Methodology notes */}
           <section aria-labelledby="method-heading" className="px-5 py-5 sm:px-8">
             <h3 id="method-heading" className="label-utility text-ink">
               Notes on this estimate

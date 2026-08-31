@@ -116,7 +116,6 @@ export function ResultsSection({
         </div>
       </div>
 
-      {/* Desktop workspace — map left, shortlist right. */}
       <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,11fr)_minmax(0,10fr)] lg:items-start">
         <div className="sticky top-20 hidden lg:block">
           <div className="relative aspect-[1000/720] overflow-hidden border border-line-strong">

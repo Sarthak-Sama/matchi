@@ -42,7 +42,6 @@ export function LoadingResults() {
       >
         <div className="skeleton hidden aspect-[1000/720] border border-line lg:block" />
         <div>
-          {/* Featured-result skeleton */}
           <div className="border border-line">
             <div className="skeleton h-8 border-b border-line" />
             <div className="space-y-3 px-5 py-6">
@@ -53,7 +52,7 @@ export function LoadingResults() {
               <div className="skeleton h-4 w-3/5" />
             </div>
           </div>
-          {/* Row skeletons */}
+
           <div className="mt-6 divide-y divide-line border-y border-line">
             {[0, 1, 2, 3].map((row) => (
               <div key={row} className="flex items-center gap-4 px-4 py-4">

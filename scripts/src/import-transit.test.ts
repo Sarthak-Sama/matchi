@@ -489,7 +489,7 @@ describe("buildGtfsPlan (fixture)", () => {
     expect(plan.edges).toHaveLength(4);
     for (const edge of plan.edges) {
       expect(edge.confidence).toBe("high");
-      expect(edge.railLineId).toBe("R1"); // R2's only edge (Shinjuku->Ghost) is skipped: Ghost is unmatched.
+      expect(edge.railLineId).toBe("R1");
       expect(edge.peakTravelMinutes).toBeGreaterThan(0);
       expect(edge.offpeakTravelMinutes).toBeGreaterThan(0);
     }
@@ -715,7 +715,7 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
        VALUES
          ('sg-test-interchange-a', 'テスト接続A', 'Test Interchange A', ST_SetSRID(ST_GeomFromText($1), 4326), 'test-fixture'),
          ('sg-test-interchange-b', 'テスト接続B', 'Test Interchange B', ST_SetSRID(ST_GeomFromText($2), 4326), 'test-fixture')`,
-      [pointWKT([139.75, 35.7]), pointWKT([139.7515, 35.7008])], // ~150m apart
+      [pointWKT([139.75, 35.7]), pointWKT([139.7515, 35.7008])],
     );
 
     const client = await pool.connect();

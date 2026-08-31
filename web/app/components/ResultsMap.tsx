@@ -175,8 +175,7 @@ export function ResultsMap({
         preserveAspectRatio="xMidYMid meet"
       >
         <rect width={VIEW_W} height={VIEW_H} className="fill-sage" />
-        {/* SVG has no z-index: paint order is document order, so the
-            highlighted outline is drawn last or its neighbours cover it. */}
+
         {[...shapes]
           .sort(
             (a, b) =>
@@ -206,10 +205,6 @@ export function ResultsMap({
           })}
       </svg>
 
-      {/* Destination — the vermilion survey nail. Stacked above every
-          rank pin except the highlighted one: it is the anchor the whole
-          shortlist is measured from, so it must never be buried by a pin
-          that happens to project on top of it. */}
       {destinationXY && (
         <div
           aria-hidden="true"
@@ -231,7 +226,6 @@ export function ResultsMap({
         </div>
       )}
 
-      {/* Rank pins — real buttons, keyboard accessible. */}
       {pinned.map(({ result, pin }) => {
         const isHighlighted = result.localityId === highlightedId;
         const isTop = result.rank === 1;

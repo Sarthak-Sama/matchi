@@ -165,7 +165,6 @@ export function NarrowingPlate() {
           )}
         </svg>
 
-        {/* The beat caption, in the plate's own margin. */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-3">
           <motion.p
             key={current?.line}
@@ -178,8 +177,6 @@ export function NarrowingPlate() {
             <span className="mt-0.5 block text-[13px] font-medium tnum">{current?.line}</span>
           </motion.p>
 
-          {/* Progress through the four beats — also the only non-colour cue
-              that the plate is mid-sequence. */}
           <span className="flex gap-1.5 pb-1" aria-hidden="true">
             {BEATS.map((item, index) => (
               <span

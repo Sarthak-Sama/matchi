@@ -372,8 +372,8 @@ describe("reconstructPath at a branching station follows the actual state chain,
       { stationGroupId: "sg-branch-dest", railLineId: null, edgeType: null },
     ]);
 
-    const recomputedRailMinutes = 3 + 14; // sg-branch-u->v (3) + sg-branch-v->dest via rl-branch-l (14)
-    const recomputedWaitMinutes = OFFPEAK_WAIT_MINUTES; // one boarding, rl-branch-l used for both ride hops
+    const recomputedRailMinutes = 3 + 14;
+    const recomputedWaitMinutes = OFFPEAK_WAIT_MINUTES;
     expect(recomputedRailMinutes + recomputedWaitMinutes + BRANCH_WALK_MINUTES).toBe(
       uState?.totalMinutes,
     );

@@ -48,7 +48,6 @@ export function FeaturedResult({
         highlighted ? "border-vermilion" : "border-line-strong"
       } bg-paper-soft`}
     >
-      {/* Rank band */}
       <div className="flex items-center justify-between border-b border-line px-5 py-2.5 sm:px-7">
         <p className="label-utility whitespace-nowrap text-vermilion-deep">
           <span className="font-mono tracking-normal">01</span>
@@ -69,8 +68,6 @@ export function FeaturedResult({
       </div>
 
       <div className="px-5 py-5 sm:px-7 sm:py-6">
-        {/* Name and score share the first line; the descriptor runs
-            beneath both, where it has room to be a sentence. */}
         <div className="flex items-start justify-between gap-5">
           <div className="min-w-0">
             <h3 className="font-serif text-3xl leading-tight font-medium tracking-editorial text-balance break-words sm:text-4xl">
@@ -106,7 +103,6 @@ export function FeaturedResult({
           </p>
         )}
 
-        {/* The three decision numbers, as an editorial strip — not cards. */}
         <dl className="mt-5 grid grid-cols-3 divide-x divide-line border-y border-line">
           <div className="py-3 pr-3">
             <dt className="label-utility text-[9px] text-ink-muted">Commute</dt>
@@ -141,10 +137,6 @@ export function FeaturedResult({
           </div>
         </dl>
 
-        {/* Why it fits / consider carefully — the compromise column is
-            never dropped: when the API states no reason against, the
-            weakest scored component is named instead, so the reader is
-            never shown an unqualified recommendation. */}
         <div className="mt-5 grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
           {strength && (
             <div>
