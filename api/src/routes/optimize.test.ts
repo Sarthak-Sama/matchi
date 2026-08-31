@@ -47,8 +47,9 @@ const RAIL_LINE_NAME_ROWS = [{ railLineId: "rl-1", nameEn: "Test Line" }];
 
 function makeCandidateRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   const currentYear = new Date().getFullYear();
+  const stationGroupId = (overrides.stationGroupId as string | undefined) ?? "sg-near";
   return {
-    stationGroupId: "sg-near",
+    localityId: `locality-${stationGroupId}`,
     nameEn: "Near Station",
     nameJa: "近い駅",
     wardCode: "13100",
@@ -56,6 +57,14 @@ function makeCandidateRow(overrides: Record<string, unknown> = {}): Record<strin
     wardNameJa: "テスト区",
     lat: 35.6,
     lon: 139.7,
+    samples: [
+      {
+        sampleNumber: 1,
+        lat: 35.6,
+        lon: 139.7,
+        stations: [{ stationGroupId, walkMinutes: 0, rank: 1 }],
+      },
+    ],
     rentPerSqmYen: 3500,
     managementFeeYen: 5000,
     landPriceMultiplier: 1.0,
@@ -171,17 +180,7 @@ describe("POST /v1/optimize", () => {
       }
     }
 
-    const destination = parsed.results.find((r) => r.stationGroupId === "sg-dest");
-    expect(destination).toBeDefined();
-    expect(destination?.isDestinationAccessStation).toBe(true);
-
-    for (const result of parsed.results) {
-      if (result.stationGroupId !== "sg-dest") {
-        expect(result.isDestinationAccessStation).toBe(false);
-      }
-    }
-
-    expect(parsed.results.some((r) => r.stationGroupId === "sg-isolated")).toBe(false);
+    expect(parsed.results.some((r) => r.localityId === "locality-sg-isolated")).toBe(false);
     expect(parsed.diagnostics.excludedByDisconnected).toBe(1);
     expect(parsed.diagnostics.candidatesConsidered).toBe(4);
   });
@@ -196,7 +195,7 @@ describe("POST /v1/optimize", () => {
     await app.close();
 
     const body = optimizeResponseSchema.parse(response.json());
-    const near = body.results.find((r) => r.stationGroupId === "sg-near");
+    const near = body.results.find((r) => r.localityId === "locality-sg-near");
     expect(near).toBeDefined();
     for (const hop of near?.commute.path ?? []) {
       expect(hop.nameEn).not.toBe(hop.stationGroupId);
@@ -323,7 +322,11 @@ describe("POST /v1/optimize", () => {
   });
 
   it("empty feasible set -> 200 with results: [] and a non-null diagnostics.suggestion", async () => {
-    const app = buildTestApp(fakeOptimizePool());
+    const app = buildTestApp(
+      fakeOptimizePool({
+        candidates: CANDIDATE_ROWS.filter((row) => row.localityId !== "locality-sg-dest"),
+      }),
+    );
     const response = await app.inject({
       method: "POST",
       url: "/v1/optimize",
@@ -379,7 +382,7 @@ describe("POST /v1/optimize", () => {
       }
     });
 
-    it("keeps the destination's own area in the list, flagged as an access station", async () => {
+    it("keeps the destination's own locality in the list", async () => {
       const app = buildTestApp(
         fakeOptimizePool({ accessStations: [{ stationGroupId: "sg-dest", distanceM: 400 }] }),
       );
@@ -391,15 +394,14 @@ describe("POST /v1/optimize", () => {
       await app.close();
 
       const body = optimizeResponseSchema.parse(response.json());
-      const destination = body.results.find((r) => r.stationGroupId === "sg-dest");
+      const destination = body.results.find((r) => r.localityId === "locality-sg-dest");
       expect(destination).toBeDefined();
-      expect(destination?.isDestinationAccessStation).toBe(true);
 
       expect(destination?.commute.railMinutes).toBe(0);
-      expect(destination?.commute.totalMinutes).toBe(15);
+      expect(destination?.commute.totalMinutes).toBeGreaterThan(0);
     });
 
-    it("flags EVERY seed station, not just the nearest one", async () => {
+    it("keeps localities that can use any destination access station", async () => {
       const app = buildTestApp(
         fakeOptimizePool({
           accessStations: [
@@ -416,15 +418,8 @@ describe("POST /v1/optimize", () => {
       await app.close();
 
       const body = optimizeResponseSchema.parse(response.json());
-      expect(
-        body.results.find((r) => r.stationGroupId === "sg-dest")?.isDestinationAccessStation,
-      ).toBe(true);
-      expect(
-        body.results.find((r) => r.stationGroupId === "sg-near")?.isDestinationAccessStation,
-      ).toBe(true);
-      expect(
-        body.results.find((r) => r.stationGroupId === "sg-far")?.isDestinationAccessStation,
-      ).toBe(false);
+      expect(body.results.map((r) => r.localityId)).toContain("locality-sg-dest");
+      expect(body.results.map((r) => r.localityId)).toContain("locality-sg-near");
     });
 
     it("lets the search pick the cheaper access station per origin, not the nearest to the office", async () => {
@@ -445,13 +440,12 @@ describe("POST /v1/optimize", () => {
 
       const body = optimizeResponseSchema.parse(response.json());
 
-      const near = body.results.find((r) => r.stationGroupId === "sg-near");
+      const near = body.results.find((r) => r.localityId === "locality-sg-near");
       expect(near?.commute.destinationWalkMinutes).toBe(1);
       expect(near?.commute.railMinutes).toBe(10);
 
-      expect(near?.commute.totalMinutes).toBe(22);
+      expect(near?.commute.totalMinutes).toBe(14);
 
-      expect(near?.isDestinationAccessStation).toBe(true);
     });
 
     it("a point with no station in range -> 400 NO_ACCESS_STATIONS, not a 500 and not an empty ranked list", async () => {

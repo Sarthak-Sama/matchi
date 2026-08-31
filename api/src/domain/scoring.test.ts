@@ -78,7 +78,7 @@ function makeLifestyle(overrides: Partial<LifestyleMetricsInput> = {}): Lifestyl
 
 function makeCandidate(overrides: Partial<Candidate> = {}): Candidate {
   return {
-    stationGroupId: "sg-1",
+    localityId: "locality-1",
     nameEn: "Test Station",
     nameJa: "テスト駅",
     wardCode: "13101",
@@ -88,7 +88,6 @@ function makeCandidate(overrides: Partial<Candidate> = {}): Candidate {
     rent: makeRent(),
     commute: makeCommute(),
     lifestyle: makeLifestyle(),
-    isDestinationAccessStation: false,
     ...overrides,
   };
 }
@@ -111,24 +110,28 @@ function makeRequest(overrides: Partial<OptimizationRequest> = {}): Optimization
 }
 
 function makeScored(overrides: {
-  stationGroupId: string;
+  localityId: string;
   overallScore: number;
   totalMinutes: number;
   medianYen: number;
 }): ScoredCandidate {
   return {
-    stationGroupId: overrides.stationGroupId,
-    nameEn: overrides.stationGroupId,
-    nameJa: overrides.stationGroupId,
+    localityId: overrides.localityId,
+    nameEn: overrides.localityId,
+    nameJa: overrides.localityId,
     wardCode: "13101",
     wardNameEn: "Test Ward",
     wardNameJa: "テスト区",
     centroid: { lat: 35.6, lon: 139.7 },
+    polygon: null,
+    nearbyStations: [],
     overallScore: overrides.overallScore,
     rent: makeRent({ medianYen: overrides.medianYen }),
 
     commute: {
       ...makeCommute({ totalMinutes: overrides.totalMinutes }),
+      mode: "transit",
+      rangeMinutes: { min: overrides.totalMinutes, max: overrides.totalMinutes },
       path: [] as {
         stationGroupId: string;
         nameEn: string;
@@ -140,7 +143,6 @@ function makeScored(overrides: {
     reasonsFor: [],
     reasonsAgainst: [],
     catchmentLabel: CATCHMENT_LABEL,
-    isDestinationAccessStation: false,
   };
 }
 
@@ -261,20 +263,20 @@ describe("scoreLifestyle axis selection", () => {
   it("keeps overallScore finite and rank order intact when no axis is rated", () => {
     const request = makeRequest({ preferences: {} });
     const cheap = scoreCandidate(
-      makeCandidate({ stationGroupId: "sg-cheap", rent: makeRent({ medianYen: 100_000 }) }),
+      makeCandidate({ localityId: "locality-cheap", rent: makeRent({ medianYen: 100_000 }) }),
       request,
     );
     const pricey = scoreCandidate(
-      makeCandidate({ stationGroupId: "sg-pricey", rent: makeRent({ medianYen: 190_000 }) }),
+      makeCandidate({ localityId: "locality-pricey", rent: makeRent({ medianYen: 190_000 }) }),
       request,
     );
 
     expect(Number.isFinite(cheap.overallScore)).toBe(true);
     expect(Number.isFinite(pricey.overallScore)).toBe(true);
     expect(cheap.factors.map((f) => f.key)).toEqual(["affordability", "commute"]);
-    expect(rankCandidates([pricey, cheap]).map((c) => c.stationGroupId)).toEqual([
-      "sg-cheap",
-      "sg-pricey",
+    expect(rankCandidates([pricey, cheap]).map((c) => c.localityId)).toEqual([
+      "locality-cheap",
+      "locality-pricey",
     ]);
   });
 });
@@ -375,7 +377,7 @@ describe("scoreCandidate — point contributions sum to overallScore across seve
 
   const cases: Candidate[] = [
     makeCandidate({
-      stationGroupId: "sg-a",
+      localityId: "locality-a",
       rent: makeRent({ medianYen: 100_000 }),
       commute: makeCommute({ totalMinutes: 10 }),
       lifestyle: makeLifestyle({
@@ -386,7 +388,7 @@ describe("scoreCandidate — point contributions sum to overallScore across seve
       }),
     }),
     makeCandidate({
-      stationGroupId: "sg-b",
+      localityId: "locality-b",
       rent: makeRent({ medianYen: 290_000 }),
       commute: makeCommute({ totalMinutes: 85 }),
       lifestyle: makeLifestyle({
@@ -397,7 +399,7 @@ describe("scoreCandidate — point contributions sum to overallScore across seve
       }),
     }),
     makeCandidate({
-      stationGroupId: "sg-c",
+      localityId: "locality-c",
       rent: makeRent({ medianYen: 200_000 }),
       commute: makeCommute({ totalMinutes: 45 }),
       lifestyle: makeLifestyle({
@@ -409,7 +411,7 @@ describe("scoreCandidate — point contributions sum to overallScore across seve
     }),
   ];
 
-  it.each(cases.map((c) => [c.stationGroupId, c] as const))(
+  it.each(cases.map((c) => [c.localityId, c] as const))(
     "%s: sum(factors[].pointContribution) === overallScore",
     (_id, candidate) => {
       const result = scoreCandidate(candidate, request);
@@ -592,25 +594,25 @@ describe("applyHardFilters", () => {
   it("counts reconcile: excludedByDisconnected + excludedByCommute + excludedByRent + feasibleCount === candidatesConsidered", () => {
     const request = makeRequest({ monthlyBudgetYen: 200_000, maxCommuteMinutes: 60 });
     const candidates = [
-      makeCandidate({ stationGroupId: "feasible-1" }), // rent 120k, commute 30 -> feasible
+      makeCandidate({ localityId: "feasible-1" }), // rent 120k, commute 30 -> feasible
       makeCandidate({
-        stationGroupId: "rent-excluded",
+        localityId: "rent-excluded",
         rent: makeRent({ medianYen: 250_000 }),
         commute: makeCommute({ totalMinutes: 30 }),
       }),
       makeCandidate({
-        stationGroupId: "commute-excluded",
+        localityId: "commute-excluded",
 
         rent: makeRent({ medianYen: 300_000 }),
         commute: makeCommute({ totalMinutes: 90 }),
       }),
       makeCandidate({
-        stationGroupId: "disconnected",
+        localityId: "disconnected",
 
         rent: makeRent({ medianYen: 999_999 }),
         commute: null,
       }),
-      makeCandidate({ stationGroupId: "feasible-2" }), // rent 120k, commute 30 -> feasible
+      makeCandidate({ localityId: "feasible-2" }), // rent 120k, commute 30 -> feasible
     ];
 
     const { feasible, diagnostics } = applyHardFilters(candidates, request);
@@ -626,7 +628,7 @@ describe("applyHardFilters", () => {
         diagnostics.excludedByRent +
         diagnostics.feasibleCount,
     ).toBe(diagnostics.candidatesConsidered);
-    expect(feasible.map((c) => c.stationGroupId).sort()).toEqual(["feasible-1", "feasible-2"]);
+    expect(feasible.map((c) => c.localityId).sort()).toEqual(["feasible-1", "feasible-2"]);
     expect(diagnostics.suggestion).toBeNull();
   });
 
@@ -668,7 +670,7 @@ describe("applyHardFilters", () => {
       const medians = [150_000, 160_000, 140_000, 155_000];
       const candidates = medians.map((medianYen, i) =>
         makeCandidate({
-          stationGroupId: `sg-${i}`,
+          localityId: `locality-${i}`,
           rent: makeRent({ medianYen }),
           commute: makeCommute({ totalMinutes: 30 }),
         }),
@@ -688,7 +690,7 @@ describe("applyHardFilters", () => {
       const minutes = [40, 50, 45, 60];
       const candidates = minutes.map((totalMinutes, i) =>
         makeCandidate({
-          stationGroupId: `sg-${i}`,
+          localityId: `locality-${i}`,
           rent: makeRent({ medianYen: 100_000 }),
           commute: makeCommute({ totalMinutes }),
         }),
@@ -706,7 +708,7 @@ describe("applyHardFilters", () => {
     it("names disconnected as the dominant reason when every candidate is unreachable", () => {
       const request = makeRequest({ monthlyBudgetYen: 500_000, maxCommuteMinutes: 90 });
       const candidates = [0, 1, 2].map((i) =>
-        makeCandidate({ stationGroupId: `sg-${i}`, commute: null }),
+        makeCandidate({ localityId: `locality-${i}`, commute: null }),
       );
 
       const { diagnostics } = applyHardFilters(candidates, request);
@@ -723,25 +725,25 @@ describe("applyHardFilters", () => {
 describe("rankCandidates", () => {
   it("sorts by overallScore desc, then commute asc, then rent median asc, assigning rank from 1", () => {
     const a = makeScored({
-      stationGroupId: "a",
+      localityId: "a",
       overallScore: 80,
       totalMinutes: 30,
       medianYen: 100_000,
     });
     const b = makeScored({
-      stationGroupId: "b",
+      localityId: "b",
       overallScore: 80,
       totalMinutes: 20,
       medianYen: 90_000,
     });
     const c = makeScored({
-      stationGroupId: "c",
+      localityId: "c",
       overallScore: 80,
       totalMinutes: 20,
       medianYen: 80_000,
     });
     const d = makeScored({
-      stationGroupId: "d",
+      localityId: "d",
       overallScore: 90,
       totalMinutes: 999,
       medianYen: 999_999,
@@ -749,7 +751,7 @@ describe("rankCandidates", () => {
 
     const ranked = rankCandidates([a, b, c, d]);
 
-    expect(ranked.map((r) => r.stationGroupId)).toEqual(["d", "c", "b", "a"]);
+    expect(ranked.map((r) => r.localityId)).toEqual(["d", "c", "b", "a"]);
     expect(ranked.map((r) => r.rank)).toEqual([1, 2, 3, 4]);
   });
 });

@@ -54,8 +54,7 @@ export interface ExclusionCounts {
 }
 
 export interface CandidateRow extends LifestyleMetricColumns {
-  readonly localityId?: string;
-  readonly stationGroupId?: string;
+  readonly localityId: string;
   readonly nameEn: string | null;
   readonly nameJa: string;
   readonly wardCode: string | null;
@@ -64,7 +63,7 @@ export interface CandidateRow extends LifestyleMetricColumns {
   readonly lat: number;
   readonly lon: number;
   readonly polygon?: unknown;
-  readonly samples?: LocalitySample[];
+  readonly samples: readonly LocalitySample[];
   readonly rentPerSqmYen: number | null;
   readonly managementFeeYen: number | null;
   readonly landPriceMultiplier: number | null;
@@ -178,27 +177,6 @@ export function localityCommute(
   };
 }
 
-function legacyStationCommute(
-  legacyStationId: string,
-  dijkstraResult: ReturnType<typeof reverseDijkstra>,
-  nameLookups: NameLookups,
-): ReturnType<typeof estimateCommute> {
-  const raw = estimateCommute(dijkstraResult, legacyStationId);
-  return raw ? { ...raw, path: resolvePathNames(raw.path, nameLookups) } : null;
-}
-
-function resolveCommute(
-  row: CandidateRow,
-  destination: Destination,
-  dijkstraResult: ReturnType<typeof reverseDijkstra>,
-  nameLookups: NameLookups,
-  legacyStationId: string | undefined,
-): ReturnType<typeof estimateCommute> {
-  if (row.samples) return localityCommute(row.samples, destination, dijkstraResult, nameLookups);
-  if (legacyStationId) return legacyStationCommute(legacyStationId, dijkstraResult, nameLookups);
-  return null;
-}
-
 function nearbyStationsFromSamples(
   samples: readonly LocalitySample[],
   nameLookups: NameLookups,
@@ -222,23 +200,6 @@ function nearbyStationsFromSamples(
     });
 }
 
-function resolveNearbyStations(
-  row: CandidateRow,
-  nameLookups: NameLookups,
-  legacyStationId: string | undefined,
-): NonNullable<Candidate["nearbyStations"]> {
-  if (row.samples) return nearbyStationsFromSamples(row.samples, nameLookups);
-  if (!legacyStationId) return [];
-  return [
-    {
-      stationGroupId: legacyStationId,
-      nameEn: row.nameEn ?? row.nameJa,
-      nameJa: row.nameJa,
-      walkMinutes: 8,
-    },
-  ];
-}
-
 export function buildCandidate(
   row: CandidateRow,
   dijkstraResult: ReturnType<typeof reverseDijkstra>,
@@ -251,7 +212,7 @@ export function buildCandidate(
 ): Candidate | null {
   if (row.wardCode === null || row.wardNameEn === null || row.wardNameJa === null) {
     log.warn(
-      { localityId: row.localityId ?? row.stationGroupId },
+      { localityId: row.localityId },
       "excluding candidate from /v1/optimize: no ward assignment",
     );
     return null;
@@ -267,7 +228,7 @@ export function buildCandidate(
     row.rentSourcePeriod === null
   ) {
     log.warn(
-      { localityId: row.localityId ?? row.stationGroupId, wardCode: row.wardCode },
+      { localityId: row.localityId, wardCode: row.wardCode },
       "excluding candidate from /v1/optimize: incomplete rent inputs (ward likely has no rent_stats row)",
     );
     return null;
@@ -277,7 +238,7 @@ export function buildCandidate(
   if (normScores === null) {
     exclusionCounts.missingLifestyleMetrics += 1;
     log.warn(
-      { localityId: row.localityId ?? row.stationGroupId },
+      { localityId: row.localityId },
       "excluding candidate from /v1/optimize: incomplete normalized lifestyle metrics",
     );
     return null;
@@ -297,8 +258,7 @@ export function buildCandidate(
     currentYear,
   );
 
-  const legacyStationId = row.stationGroupId;
-  const commute = resolveCommute(row, destination, dijkstraResult, nameLookups, legacyStationId);
+  const commute = localityCommute(row.samples, destination, dijkstraResult, nameLookups);
 
   const lifestyle: LifestyleMetricsInput = {
     ...normScores,
@@ -309,7 +269,6 @@ export function buildCandidate(
 
   return {
     localityId: row.localityId,
-    ...(legacyStationId ? { stationGroupId: legacyStationId } : {}),
     nameEn: row.nameEn ?? row.nameJa,
     nameJa: row.nameJa,
     wardCode: row.wardCode,
@@ -317,16 +276,9 @@ export function buildCandidate(
     wardNameJa: row.wardNameJa,
     centroid: { lat: row.lat, lon: row.lon },
     polygon: row.polygon ?? null,
-    nearbyStations: resolveNearbyStations(row, nameLookups, legacyStationId),
+    nearbyStations: nearbyStationsFromSamples(row.samples, nameLookups),
     rent,
     commute,
     lifestyle,
-    ...(legacyStationId
-      ? {
-          isDestinationAccessStation: destination.seeds.some(
-            (seed) => seed.node === legacyStationId,
-          ),
-        }
-      : {}),
   };
 }
