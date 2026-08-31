@@ -45,9 +45,7 @@ export interface LifestyleMetricsInput {
 }
 
 export interface Candidate {
-  readonly localityId?: string;
-
-  readonly stationGroupId?: string;
+  readonly localityId: string;
   readonly nameEn: string;
   readonly nameJa: string;
   readonly wardCode: string;
@@ -65,7 +63,6 @@ export interface Candidate {
   readonly commute: CommuteEstimateResult | null;
   readonly lifestyle: LifestyleMetricsInput;
 
-  readonly isDestinationAccessStation?: boolean;
 }
 
 export interface HardFilterDiagnostics {
@@ -277,14 +274,6 @@ function classifyDirection(componentScore: number): FactorEvidence["direction"] 
   return "neutral";
 }
 
-function resolveLocalityId(candidate: {
-  readonly localityId?: string;
-  readonly stationGroupId?: string;
-  readonly nameJa: string;
-}): string {
-  return candidate.localityId ?? `legacy:${candidate.stationGroupId ?? candidate.nameJa}`;
-}
-
 function normalizeCommute(commute: CommuteEstimateResult) {
   return {
     ...commute,
@@ -294,15 +283,7 @@ function normalizeCommute(commute: CommuteEstimateResult) {
   };
 }
 
-export type ScoredCandidate = Omit<
-  NeighborhoodResult,
-  "rank" | "localityId" | "polygon" | "nearbyStations" | "commute"
-> & {
-  readonly localityId?: string;
-  readonly polygon?: unknown | null;
-  readonly nearbyStations?: NeighborhoodResult["nearbyStations"];
-  readonly commute: CommuteEstimateResult;
-};
+export type ScoredCandidate = Omit<NeighborhoodResult, "rank">;
 
 export function scoreCandidate(
   candidate: Candidate,
@@ -311,7 +292,7 @@ export function scoreCandidate(
   const commute = candidate.commute;
   if (!commute) {
     throw new Error(
-      `scoreCandidate: candidate "${candidate.localityId ?? candidate.stationGroupId ?? "unknown"}" has no commute result — it ` +
+      `scoreCandidate: candidate "${candidate.localityId}" has no commute result — it ` +
         `should have been excluded by applyHardFilters (the "disconnected" rule) before scoring.`,
     );
   }
@@ -358,8 +339,7 @@ export function scoreCandidate(
   const { reasonsFor, reasonsAgainst } = buildReasons(factors);
 
   return {
-    localityId: resolveLocalityId(candidate),
-    ...(candidate.stationGroupId ? { stationGroupId: candidate.stationGroupId } : {}),
+    localityId: candidate.localityId,
     nameEn: candidate.nameEn,
     nameJa: candidate.nameJa,
     wardCode: candidate.wardCode,
@@ -375,9 +355,6 @@ export function scoreCandidate(
     reasonsFor,
     reasonsAgainst,
     catchmentLabel: CATCHMENT_LABEL,
-    ...(candidate.isDestinationAccessStation === undefined
-      ? {}
-      : { isDestinationAccessStation: candidate.isDestinationAccessStation }),
   };
 }
 
@@ -416,17 +393,8 @@ export function rankCandidates(scored: readonly ScoredCandidate[]): Neighborhood
       return a.commute.totalMinutes - b.commute.totalMinutes;
     }
     if (a.rent.medianYen !== b.rent.medianYen) return a.rent.medianYen - b.rent.medianYen;
-    return (a.localityId ?? a.stationGroupId ?? a.nameJa).localeCompare(
-      b.localityId ?? b.stationGroupId ?? b.nameJa,
-    );
+    return a.localityId.localeCompare(b.localityId);
   });
 
-  return sorted.map((candidate, index) => ({
-    ...candidate,
-    localityId: resolveLocalityId(candidate),
-    polygon: candidate.polygon ?? null,
-    nearbyStations: candidate.nearbyStations ?? [],
-    commute: normalizeCommute(candidate.commute),
-    rank: index + 1,
-  }));
+  return sorted.map((candidate, index) => ({ ...candidate, rank: index + 1 }));
 }
