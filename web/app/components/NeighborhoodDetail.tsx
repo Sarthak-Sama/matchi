@@ -72,7 +72,6 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
 
   return (
     <div className="fixed inset-0 z-50" role="presentation">
-      {}
       <div
         aria-hidden="true"
         onClick={onClose}
@@ -85,7 +84,6 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
         aria-labelledby="neighborhood-entry-title"
         className="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l border-line-strong bg-paper shadow-[-24px_0_60px_rgba(40,36,31,0.25)]"
       >
-        {}
         <div className="border-b border-line px-5 pt-5 pb-5 sm:px-8">
           <div className="flex items-center justify-between gap-3">
             <p className="label-utility text-vermilion-deep">

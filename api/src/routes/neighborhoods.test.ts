@@ -156,18 +156,12 @@ describe("GET /v1/neighborhoods/:stationGroupId", () => {
     expect((response.json() as { error: { code: string } }).error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("returns rent: null when the station has no rent_stats-backed inputs", async () => {
+  it("returns rent: null when any rent_stats-backed input is missing", async () => {
     const pool: DbPool = {
       query: vi.fn().mockResolvedValue({
         rows: [
           {
             ...FULL_ROW,
-            rentPerSqmYen: null,
-            managementFeeYen: null,
-            landPriceMultiplier: null,
-            landPricePointCount: null,
-            landPriceUsedFallback: null,
-            rentSource: null,
             rentSourcePeriod: null,
           },
         ],

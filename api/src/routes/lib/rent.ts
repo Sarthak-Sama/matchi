@@ -12,6 +12,34 @@ export interface StoredRentInputs {
   readonly rentSourcePeriod: string;
 }
 
+export type StoredRentInputRow = {
+  readonly [Key in keyof StoredRentInputs]: StoredRentInputs[Key] | null;
+};
+
+export function readStoredRentInputs(row: StoredRentInputRow): StoredRentInputs | null {
+  if (
+    row.rentPerSqmYen === null ||
+    row.managementFeeYen === null ||
+    row.landPriceMultiplier === null ||
+    row.landPricePointCount === null ||
+    row.landPriceUsedFallback === null ||
+    row.rentSource === null ||
+    row.rentSourcePeriod === null
+  ) {
+    return null;
+  }
+
+  return {
+    rentPerSqmYen: row.rentPerSqmYen,
+    managementFeeYen: row.managementFeeYen,
+    landPriceMultiplier: row.landPriceMultiplier,
+    landPricePointCount: row.landPricePointCount,
+    landPriceUsedFallback: row.landPriceUsedFallback,
+    rentSource: row.rentSource,
+    rentSourcePeriod: row.rentSourcePeriod,
+  };
+}
+
 export function recomputeRentForLayout(
   inputs: StoredRentInputs,
   layout: LayoutId,

@@ -26,7 +26,8 @@ import {
   readLifestyleNormScores,
   readLifestyleRawCounts,
 } from "./lib/lifestyle-columns.js";
-import { recomputeRentForLayout } from "./lib/rent.js";
+import { readStoredRentInputs, recomputeRentForLayout } from "./lib/rent.js";
+import type { StoredRentInputRow } from "./lib/rent.js";
 import { parseOrThrow } from "./lib/validation.js";
 
 const paramsSchema = z.object({ stationGroupId: z.string().min(1) }).strict();
@@ -66,7 +67,7 @@ const NEIGHBORHOOD_SQL = `
   WHERE sg.station_group_id = $1
 `;
 
-interface NeighborhoodRow extends LifestyleMetricColumns {
+interface NeighborhoodRow extends LifestyleMetricColumns, StoredRentInputRow {
   readonly stationGroupId: string;
   readonly nameEn: string;
   readonly nameJa: string;
@@ -76,13 +77,6 @@ interface NeighborhoodRow extends LifestyleMetricColumns {
   readonly wardNameJa: string | null;
   readonly lat: number;
   readonly lon: number;
-  readonly rentPerSqmYen: number | null;
-  readonly managementFeeYen: number | null;
-  readonly landPriceMultiplier: number | null;
-  readonly landPricePointCount: number | null;
-  readonly landPriceUsedFallback: boolean | null;
-  readonly rentSource: string | null;
-  readonly rentSourcePeriod: string | null;
   readonly derivedAt: Date | null;
   readonly sourceDates: Record<string, string> | null;
   readonly catchmentRadiusM: number | null;
@@ -138,28 +132,11 @@ export function registerNeighborhoodRoute(app: FastifyInstance, deps: AppDeps): 
       );
     }
 
+    const rentInputs = readStoredRentInputs(row);
     const rent =
-      row.rentPerSqmYen === null ||
-      row.managementFeeYen === null ||
-      row.landPriceMultiplier === null ||
-      row.landPricePointCount === null ||
-      row.landPriceUsedFallback === null ||
-      row.rentSource === null ||
-      row.rentSourcePeriod === null
+      rentInputs === null
         ? null
-        : recomputeRentForLayout(
-            {
-              rentPerSqmYen: row.rentPerSqmYen,
-              managementFeeYen: row.managementFeeYen,
-              landPriceMultiplier: row.landPriceMultiplier,
-              landPricePointCount: row.landPricePointCount,
-              landPriceUsedFallback: row.landPriceUsedFallback,
-              rentSource: row.rentSource,
-              rentSourcePeriod: row.rentSourcePeriod,
-            },
-            layout,
-            new Date().getFullYear(),
-          );
+        : recomputeRentForLayout(rentInputs, layout, new Date().getFullYear());
     if (rent === null) {
       request.log.warn(
         { stationGroupId },

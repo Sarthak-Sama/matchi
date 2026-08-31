@@ -54,7 +54,6 @@ export default function Home() {
       <Masthead />
 
       <main>
-        {}
         <div className="mx-auto max-w-[1360px] px-5 pt-10 pb-14 sm:px-8 lg:pt-16">
           <div className="grid gap-10 lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)] lg:gap-14">
             <div>
@@ -68,7 +67,6 @@ export default function Home() {
                 could live.
               </p>
 
-              {}
               <figure className="mt-10 hidden border border-line-strong lg:block">
                 <div className="aspect-[62/56] overflow-hidden bg-paper-soft">
                   <HeroMapFragment />
@@ -90,7 +88,6 @@ export default function Home() {
           </div>
         </div>
 
-        {}
         <div ref={resultsRegionRef} className="mx-auto max-w-[1360px] scroll-mt-16 px-5 sm:px-8">
           {search.isLoading && <LoadingResults />}
           {!search.isLoading && response && (
