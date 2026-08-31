@@ -7,7 +7,6 @@ import { parseOrThrow } from "./lib/validation.js";
 
 const paramsSchema = z.object({ localityId: z.string().min(1) }).strict();
 
-/** Read-only locality detail endpoint; station detail remains available at /v1/neighborhoods. */
 export function registerLocalityRoute(app: FastifyInstance, deps: AppDeps): void {
   app.get("/v1/localities/:localityId", async (request) => {
     const { localityId } = parseOrThrow(paramsSchema, request.params);

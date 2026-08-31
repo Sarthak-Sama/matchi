@@ -3,11 +3,6 @@ import { IMPORTANCE_VALUES, OSM_ATTRIBUTION, OVERALL_WEIGHTS } from "@tokyo/shar
 
 import { formatSourceDate } from "../../lib/format";
 
-/**
- * Methodology footer — the trust layer. Score weights, importance
- * multipliers, the modeled-data disclaimer, per-source data vintages
- * (when a search has run), and the OSM licence attribution.
- */
 export function MethodologyFooter({ response }: { readonly response: OptimizeResponse | null }) {
   return (
     <footer id="methodology" className="mt-20 border-t border-line-strong">

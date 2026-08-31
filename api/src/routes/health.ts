@@ -1,8 +1,3 @@
-/**
- * `GET /health` — reports whether the API can reach the database. Used by
- * process supervisors / load balancers, not by the frontend.
- */
-
 import type { FastifyInstance } from "fastify";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -10,10 +5,6 @@ import { fileURLToPath } from "node:url";
 
 import type { DbPool } from "../db.js";
 
-// `api/package.json`'s `version` field is the single source of truth for
-// the API's reported version. Resolved relative to this file so it works
-// identically under `tsx` (src/routes/health.ts) and the compiled build
-// (dist/routes/health.js) — both sit two directories under `api/`.
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageJsonPath = path.join(dirname, "..", "..", "package.json");
 const { version: API_VERSION } = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {

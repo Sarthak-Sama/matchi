@@ -6,16 +6,6 @@ import { useEffect, useRef, useState } from "react";
 import { DestinationMark } from "../icons";
 import { EXAMPLE_SEARCH } from "./tokyo-localities";
 
-/**
- * The three moves a search makes — each shown, not described.
- *
- * The steps deliberately do not share a layout. A row of three identical
- * cards would say the moves are interchangeable; they are not. Each gets
- * the device that fits it: a committed destination, the engine's own
- * exclusion arithmetic, and a real recommendation. Every figure below
- * comes from one real `/v1/optimize` call, frozen at build time.
- */
-
 const YEN = (value: number) => `¥${Math.round(value / 1000)}k`;
 
 export function MethodSequence() {
@@ -125,10 +115,6 @@ export function MethodSequence() {
   );
 }
 
-/**
- * One step: prose on the left, its evidence on the right, hairline between.
- * The alternating emphasis comes from the device, not from a shared frame.
- */
 function Step({
   step,
   title,
@@ -158,13 +144,6 @@ function Step({
   );
 }
 
-/**
- * The engine's exclusion arithmetic, drawn to scale.
- *
- * This is the one place a bar chart earns its keep on this page: the point
- * is the proportion — how much of the city a single commute cap removes —
- * and a proportion is what a bar is for. Bars grow once, when scrolled to.
- */
 function Funnel({
   considered,
   excluded,

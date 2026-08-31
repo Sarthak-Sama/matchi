@@ -1,13 +1,3 @@
-/**
- * GENERATED FILE — do not edit by hand.
- * Regenerate with `pnpm build:ward-plate` (see scripts/src/build-ward-plate.ts).
- *
- * The 23 special wards, simplified to 0.0016° and projected into a
- * 620x560 viewBox with the same equirectangular/cos(latitude)
- * projection `ResultsMap` uses at runtime, so the hero plate and the
- * results map read as one cartography.
- */
-
 export const WARD_PLATE_VIEWBOX = { width: 620, height: 560 } as const;
 
 export interface WardShape {
@@ -159,14 +149,12 @@ export const WARD_SHAPES: readonly WardShape[] = [
 ];
 
 export interface PlateStation {
-  /** Editorial romanization — see REFERENCE_STATIONS in the generator. */
   readonly romanized: string;
   readonly nameJa: string;
   readonly x: number;
   readonly y: number;
 }
 
-/** Reference stations located from `station_groups`, projected identically. */
 export const PLATE_STATIONS: readonly PlateStation[] = [
   { romanized: "Shinjuku", nameJa: "新宿", x: 248.3, y: 249.1 },
   { romanized: "Ikebukuro", nameJa: "池袋", x: 265.0, y: 175.5 },

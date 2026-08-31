@@ -1,26 +1,3 @@
-/**
- * Small, dependency-free CSV parser. Originally built for
- * `import-rent/estat.ts` and `import-rent/reins.ts`; lives in `lib/`
- * (rather than under `import-rent/`) because `import:transit`
- * reads GTFS, which is also CSV (`stops.txt`, `routes.txt`, `trips.txt`,
- * `stop_times.txt`) — a second caller needing the same primitives is exactly
- * what this shared-harness directory is for, matching `lib/source-file.ts`
- * and `lib/validate.ts`'s own reuse-by-every-import-script design.
- *
- * Handles RFC 4180-style quoting (`"..."` fields, `""` as an escaped quote
- * inside one, commas and newlines inside quotes) because e-Stat's own CSV
- * exports quote any field containing a comma — including numeric values
- * that carry a thousands separator, e.g. `"4,200"` for a plain 4200.
- * `parseNumericCell` below strips those commas before parsing so a quoted
- * thousands-separated number round-trips correctly either way.
- *
- * Deliberately not a general-purpose library: no dialect options, no
- * streaming. Every caller passes an already-fully-decoded, in-memory
- * string (post Shift-JIS/BOM handling for e-Stat, already-UTF-8 for REINS
- * and GTFS).
- */
-
-/** Parses `text` into rows of raw (still-quoted-stripped) string cells. */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -89,13 +66,6 @@ export function parseCsv(text: string): string[][] {
   return rows;
 }
 
-/**
- * Parses `text` as CSV with a header row and returns one object per
- * remaining row, keyed by the (trimmed) header cell. A short row (fewer
- * cells than the header) leaves the missing trailing keys unset rather
- * than throwing — `expectColumns` at the call site turns that into a
- * clear, row-specific error.
- */
 export function parseCsvRecords(text: string): Record<string, string>[] {
   const rows = parseCsv(text);
   const header = rows[0];
@@ -114,12 +84,6 @@ export function parseCsvRecords(text: string): Record<string, string>[] {
   });
 }
 
-/**
- * Returns the first non-empty value found under any of `candidates` in
- * `record`. Mirrors `import-mlit/geojson.ts`'s `pickProperty` so every
- * import script accepts both the source's real header text and a
- * friendlier alias without the caller pre-renaming columns.
- */
 export function pickColumn(
   record: Readonly<Record<string, string>>,
   candidates: readonly string[],
@@ -131,13 +95,6 @@ export function pickColumn(
   return undefined;
 }
 
-/**
- * Parses a numeric CSV cell, stripping comma thousands-separators (e.g.
- * `"4,200"` -> `4200`) and surrounding whitespace. Returns `undefined` for
- * an empty/missing cell (a genuinely absent optional column, e.g. sample
- * count) rather than `NaN`, so callers can tell "not provided" apart from
- * "provided but unparseable".
- */
 export function parseNumericCell(raw: string | undefined, context: string): number | undefined {
   if (raw === undefined) return undefined;
   const cleaned = raw.replace(/,/g, "").trim();

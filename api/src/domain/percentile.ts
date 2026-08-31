@@ -1,13 +1,3 @@
-/**
- * Linear-interpolation percentile (the "R-7" / Excel `PERCENTILE.INC`
- * method) over an ALREADY-SORTED-ASCENDING, non-empty array. `p` is a
- * fraction in `[0, 1]` (e.g. `0.25` for the 25th percentile).
- *
- * Shared by `domain/scoring.ts` (budget/commute suggestion thresholds) and
- * `routes/lib/candidates.ts` (per-locality commute range) — kept in one
- * place so the two don't drift into implementations with different
- * preconditions.
- */
 export function percentile(sortedAscending: readonly number[], p: number): number {
   const n = sortedAscending.length;
   if (n === 0) {

@@ -63,9 +63,6 @@ async function verifyZip(file: string): Promise<void> {
   }
 }
 
-/** Downloads only missing archives. Checksums are intentionally mandatory:
- * replace the catalog placeholders with values recorded from the official
- * release before a live run, rather than trusting a newly changed URL. */
 export async function prepareArchives(entries: readonly CatalogEntry[]): Promise<void> {
   await mkdir(RAW_MLIT_DIR, { recursive: true });
   await mkdir(RAW_ESTAT_BOUNDARY_DIR, { recursive: true });

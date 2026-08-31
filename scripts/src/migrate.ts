@@ -1,16 +1,3 @@
-/**
- * Migration runner.
- *
- * Applies every unapplied `*.sql` file in `db/migrations/`, in
- * lexicographic filename order, each inside its own transaction. Applied
- * filenames are tracked in a `schema_migrations` table so a second run is
- * a no-op.
- *
- * Usage:
- *   DATABASE_URL=postgresql://... pnpm db:migrate
- *   DATABASE_URL=postgresql://... pnpm db:migrate --dry-run
- */
-
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

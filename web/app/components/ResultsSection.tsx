@@ -13,13 +13,6 @@ import { NeighborhoodDetail } from "./NeighborhoodDetail";
 import { ResultRow } from "./ResultRow";
 import { ResultsMap } from "./ResultsMap";
 
-/**
- * The recommendations workspace: an editorial summary line, then map and
- * ranked shortlist reinforcing each other (hover/focus syncs both ways),
- * the top result given featured weight, and each row opening the
- * neighborhood entry drawer.
- */
-/** Three columns is the most that stays readable on a phone. */
 const MAX_COMPARED = 3;
 
 export function ResultsSection({
@@ -38,8 +31,7 @@ export function ResultsSection({
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [selectedResult, setSelectedResult] = useState<NeighborhoodResult | null>(null);
   const [mapExpanded, setMapExpanded] = useState(false);
-  // Comparison is deliberately ephemeral: nothing about it is persisted or
-  // sent anywhere, which is why the panel says so in as many words.
+
   const [comparedIds, setComparedIds] = useState<readonly string[]>([]);
 
   const toggleCompared = useCallback((result: NeighborhoodResult, compared: boolean) => {
@@ -56,8 +48,6 @@ export function ResultsSection({
   const pattern = deriveResultsSummary(results, destinationLabel);
   const [featured, ...rest] = results;
 
-  // Kept in shortlist order rather than tick order, so the columns read
-  // left to right in the same sequence as the list above them.
   const comparedResults = results.filter((result) => comparedIds.includes(result.localityId));
   const compareFull = comparedResults.length >= MAX_COMPARED;
 
@@ -67,7 +57,7 @@ export function ResultsSection({
 
   return (
     <section aria-labelledby="results-heading" className="mt-14">
-      {/* Editorial summary */}
+      {}
       <div className="border-t-2 border-ink pt-5">
         <p className="label-utility text-vermilion-deep">The shortlist</p>
         <h2
@@ -97,7 +87,7 @@ export function ResultsSection({
         />
       )}
 
-      {/* Mobile map — compact, with a clear expand action. */}
+      {}
       <div className="mt-6 lg:hidden">
         <div className="border border-line-strong">
           <div className={`relative overflow-hidden ${mapExpanded ? "h-[68vh]" : "h-64"}`}>
@@ -194,7 +184,6 @@ export function ResultsSection({
   );
 }
 
-/** The search recap line under the summary — compact, mono, factual. */
 export function buildSearchSummary(
   destinationLabel: string | null,
   arrivalTime: string,

@@ -1,23 +1,3 @@
-/**
- * Vertical-slice seed data: ~20 real Tokyo stations across 4 wards, plus
- * one deliberately disconnected station, giving every later task (7-10,
- * 14) real data to test against without network access.
- *
- * Truncates every table it owns (CASCADE, so derived tables like
- * station_areas / neighborhood_metrics are cleared too — `pnpm derive`
- * repopulates them from this data) and reinserts inside one transaction.
- * Every row carries `source = 'seed'`, except rent_stats, whose `source`
- * column identifies the data *provider* ('estat' | 'reins') rather than
- * "came from the seed script" — see fixtures/seed/rent.ts.
- *
- * Idempotent by construction: fixtures are deterministic (no
- * `Math.random()`, no clock reads), and every run truncates first, so row
- * counts are identical across runs.
- *
- * Usage:
- *   DATABASE_URL=postgresql://... pnpm db:seed --confirm-dev-seed
- */
-
 import { fileURLToPath } from "node:url";
 
 import type { PoolClient } from "pg";
@@ -68,8 +48,6 @@ const OWNED_TABLES = [
   "green_spaces",
 ] as const;
 
-// Tables printed in the row-count summary: owned tables plus the tables
-// CASCADE also clears (derived by `pnpm derive`, not seeded directly).
 const SUMMARY_TABLES = [...OWNED_TABLES, "station_areas", "neighborhood_metrics"] as const;
 
 async function truncateOwnedTables(client: PoolClient): Promise<void> {
@@ -150,8 +128,6 @@ async function insertRailEdges(client: PoolClient): Promise<void> {
 
 async function insertRentStats(client: PoolClient): Promise<void> {
   for (const stat of RENT_STATS) {
-    // `source` here is the data provider ('estat' | 'reins'), not 'seed' —
-    // see the module-level doc comment and fixtures/seed/rent.ts.
     await client.query(
       `INSERT INTO rent_stats (ward_code, period, source, rent_per_sqm_yen, management_fee_yen, sample_count)
        VALUES ($1, $2, $3, $4, $5, $6)`,

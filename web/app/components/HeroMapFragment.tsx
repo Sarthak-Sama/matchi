@@ -1,16 +1,5 @@
 import { PLATE_STATIONS, WARD_PLATE_VIEWBOX, WARD_SHAPES } from "./tokyo-wards";
 
-/**
- * The plate: the 23 special wards drawn from the same MLIT boundary data
- * the results map uses, with six reference stations projected identically.
- *
- * It earns its place by orienting rather than decorating — this is the
- * ground the search covers, at the scale the search covers it — and by
- * rhyming with the results map, so the guide reads as one cartography
- * from the first screen to the last. Purely presentational: it carries no
- * value that is not repeated in text, so the whole figure is hidden from
- * assistive technology.
- */
 export function HeroMapFragment() {
   const { width, height } = WARD_PLATE_VIEWBOX;
 

@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 
 const QUERY = "(prefers-reduced-motion: reduce)";
 
-/** Reactive `prefers-reduced-motion` — animations and staged copy check this. */
 export function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
 

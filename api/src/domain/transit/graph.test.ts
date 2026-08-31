@@ -60,7 +60,7 @@ describe("buildGraph", () => {
     expect(reverseEdges).toHaveLength(1);
     expect(reverseEdges?.[0]?.from).toBe("sg-x");
     expect(reverseEdges?.[0]?.to).toBe("sg-y");
-    // sg-x has no incoming edges in this fixture.
+
     expect(graph.reverse.get("sg-x")).toBeUndefined();
   });
 

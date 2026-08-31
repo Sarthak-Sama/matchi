@@ -1,19 +1,3 @@
-/**
- * Tests for `pnpm import:osm`.
- *
- * The pure-function tests below (tag classification, Overpass JSON
- * parsing, query building, download error handling) never touch a
- * database or the network — every input comes from the small committed
- * fixtures under `fixtures/osm/`, hand-built in-memory data, or an
- * injected fake `fetch`.
- *
- * The DB-guarded section at the bottom requires a real PostGIS database
- * reachable via `DATABASE_URL` — it skips with an explicit message when
- * unset, so a missing env var never reads as a silent pass. Run with:
- *
- *   DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test
- */
-
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,10 +26,6 @@ function fixture(name: string): string {
 function fixturePath(name: string): string {
   return path.join(FIXTURES_DIR, name);
 }
-
-// ---------------------------------------------------------------------------
-// classifyElement — tag -> category/road mapping, and the precedence rule.
-// ---------------------------------------------------------------------------
 
 describe("classifyElement", () => {
   it("maps each shop=* value to its expected category", () => {
@@ -180,10 +160,6 @@ describe("classifyElement", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// parseOverpassResponse — the committed fixture.
-// ---------------------------------------------------------------------------
-
 describe("parseOverpassResponse: valid fixture", () => {
   const parsed = parseOverpassResponse(fixture("overpass-sample.osm.json"));
 
@@ -192,7 +168,6 @@ describe("parseOverpassResponse: valid fixture", () => {
 
     const byOsmId = new Map(parsed.pois.map((p) => [p.osmId, p]));
 
-    // node -> uses its own lat/lon
     expect(byOsmId.get(1001)).toMatchObject({
       category: "supermarket",
       osmType: "node",
@@ -201,9 +176,8 @@ describe("parseOverpassResponse: valid fixture", () => {
     });
     expect(byOsmId.get(1002)).toMatchObject({ category: "convenience", osmType: "node" });
 
-    // way with center -> uses the way's center, not any node coordinate
     expect(byOsmId.get(2001)).toMatchObject({
-      category: "grocery", // shop=bakery
+      category: "grocery",
       osmType: "way",
       lon: 139.703,
       lat: 35.6595,
@@ -215,7 +189,6 @@ describe("parseOverpassResponse: valid fixture", () => {
       lat: 35.6602,
     });
 
-    // relation with center -> uses the relation's center
     expect(byOsmId.get(3001)).toMatchObject({
       category: "restaurant",
       osmType: "relation",
@@ -223,7 +196,7 @@ describe("parseOverpassResponse: valid fixture", () => {
       lat: 35.6611,
     });
     expect(byOsmId.get(3002)).toMatchObject({
-      category: "bar", // amenity=pub
+      category: "bar",
       osmType: "relation",
       lon: 139.7063,
       lat: 35.662,
@@ -267,8 +240,7 @@ describe("parseOverpassResponse: valid fixture", () => {
   it("parses a leisure=garden relation from its 'outer' way member(s), closing an open ring and ignoring 'inner' (hole) members", () => {
     const garden = parsed.greenSpaces.find((g) => g.name === "Fixture Garden");
     expect(garden).toMatchObject({ leisureClass: "garden" });
-    // Only the "outer" member's 3 vertices, closed by repeating the first —
-    // the "inner" member's vertices never appear.
+
     expect(garden?.geomWKT).toBe(
       "MULTIPOLYGON(((139.711 35.665, 139.7115 35.6655, 139.712 35.6645, 139.711 35.665)))",
     );
@@ -313,9 +285,6 @@ describe("parseOverpassResponse: name:en", () => {
 });
 
 describe("parseOverpassResponse: degenerate green-space geometry", () => {
-  // OSM genuinely contains unfinished park outlines with fewer than 3
-  // vertices. The real 23-ward extract aborted the whole import transaction
-  // on osm way 1156828012 (a 2-vertex leisure way) before these were skipped.
   function responseWith(elements: readonly unknown[]): string {
     return JSON.stringify({ version: 0.6, generator: "test", elements });
   }
@@ -489,10 +458,6 @@ describe("parseOverpassResponse: malformed input shapes", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// buildOverpassQuery — pure string building, no network.
-// ---------------------------------------------------------------------------
-
 describe("buildOverpassQuery", () => {
   const query = buildOverpassQuery(TOKYO_23_WARDS_BBOX);
 
@@ -524,10 +489,6 @@ describe("buildOverpassQuery", () => {
     expect(query).toContain(`relation["leisure"~"^(park|garden)$"]`);
   });
 });
-
-// ---------------------------------------------------------------------------
-// downloadOverpass — politeness/error handling, via an injected fake fetch.
-// ---------------------------------------------------------------------------
 
 describe("downloadOverpass", () => {
   it("sends exactly one POST request with a descriptive User-Agent", async () => {
@@ -567,10 +528,6 @@ describe("downloadOverpass", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// parseArgs
-// ---------------------------------------------------------------------------
-
 describe("parseArgs", () => {
   it("parses --file", () => {
     expect(parseArgs(["--file", "data/tokyo.osm.json"])).toEqual({
@@ -583,10 +540,6 @@ describe("parseArgs", () => {
     expect(parseArgs(["--download"])).toEqual({ filePath: undefined, download: true });
   });
 });
-
-// ---------------------------------------------------------------------------
-// DB integration — guarded on DATABASE_URL.
-// ---------------------------------------------------------------------------
 
 const databaseUrl = destructiveTestDatabaseUrl();
 
@@ -642,8 +595,7 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
     await runSeed();
     pool = new Pool({ connectionString: databaseUrl });
     await pool.query(`DELETE FROM import_runs WHERE source = 'openstreetmap'`);
-    // Clean slate for this script's own source-scoped data too, independent
-    // of whatever else has run against this shared database.
+
     await pool.query(`DELETE FROM pois WHERE source = 'openstreetmap'`);
     await pool.query(`DELETE FROM major_roads WHERE source = 'openstreetmap'`);
     await pool.query(`DELETE FROM green_spaces WHERE source = 'openstreetmap'`);
@@ -674,8 +626,6 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
     expect(runRows).toHaveLength(1);
     expect(runRows[0]).toMatchObject({ status: "success", rows_imported: 9 });
 
-    // poisSnapshot orders by (osm_type, osm_id) text — alphabetically
-    // "node" < "relation" < "way".
     const pois = await poisSnapshot(pool);
     expect(pois).toEqual([
       {
@@ -772,10 +722,6 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
 });
 
 describe("import:osm", () => {
-  // Sentinel test: passes (with an explicit explanatory title) only when
-  // DATABASE_URL is unset, so `pnpm test` output always makes clear *why*
-  // the real integration tests above were skipped rather than silently
-  // omitted. When DATABASE_URL is set, this sentinel itself is skipped.
   it.skipIf(Boolean(databaseUrl))(
     "SKIPPED integration tests above: DATABASE_URL is not set — set it to a PostGIS connection string to run them, e.g. DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test",
     () => {

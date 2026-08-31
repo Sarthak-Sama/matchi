@@ -1,8 +1,3 @@
-/**
- * `GET /v1/data-status` — the latest `import_runs` row per source, i.e. the
- * `source_updated_at` currently reflected in the data.
- */
-
 import type { DataStatus } from "@tokyo/shared";
 import { dataStatusSchema } from "@tokyo/shared";
 import type { FastifyInstance } from "fastify";

@@ -1,9 +1,3 @@
-/**
- * Tests for the N02 -> `rail_lines.mode` classifier. Every case below uses
- * an operator/class combination that actually occurs in the 2025 N02
- * export inside the Tokyo bounding box.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { classifyRailMode } from "./rail-mode.js";
@@ -19,7 +13,6 @@ describe("classifyRailMode", () => {
   });
 
   it("classifies Tokyo Metro as subway despite being a private operator", () => {
-    // N02_002=4 is the same operator type Tokyu and Keio carry.
     expect(classifyRailMode(input("12", "4", "東京地下鉄"))).toBe("subway");
   });
 
@@ -37,9 +30,6 @@ describe("classifyRailMode", () => {
     }
   });
 
-  // MLIT gives monorails four codes: suspended (14, 22) and straddle
-  // (15, 23). Mapping only the two that appear inside Tokyo's bbox would
-  // silently drop Chiba, Tama, Osaka and Okinawa.
   it("classifies all four monorail classes as monorail", () => {
     expect(classifyRailMode(input("14", "4", "湘南モノレール"))).toBe("monorail");
     expect(classifyRailMode(input("15", "4", "東京モノレール"))).toBe("monorail");
@@ -57,17 +47,14 @@ describe("classifyRailMode", () => {
     expect(classifyRailMode(input("25", "5", "愛知高速交通"))).toBe("local_rail");
   });
 
-  // The reason the classifier reads N02_001 before the operator name.
   it("does NOT call 東京都's tram or guideway a subway", () => {
     expect(classifyRailMode(input("21", "3", "東京都"))).toBe("local_rail");
     expect(classifyRailMode(input("24", "3", "東京都"))).toBe("local_rail");
-    // ...while the same operator's ordinary railway still is one.
+
     expect(classifyRailMode(input("12", "3", "東京都"))).toBe("subway");
   });
 
   it("returns null for an unmapped railway class rather than guessing", () => {
-    // Every code present in the 2025 export is mapped, so null is reached
-    // only by a code MLIT has not used before.
     expect(classifyRailMode(input("99", "4", "架空鉄道"))).toBeNull();
     expect(classifyRailMode({ railwayClass: null, operatorType: null, operator: null })).toBeNull();
   });

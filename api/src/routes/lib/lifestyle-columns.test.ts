@@ -40,8 +40,6 @@ describe("LIFESTYLE_SELECT_SQL", () => {
   });
 
   it("projects every raw column a describer declares, camelCased", () => {
-    // A raw column that isn't projected would arrive as `undefined` and
-    // surface in a `rawValueLabel` as "NaN supermarkets within 800 m".
     expect(LIFESTYLE_SELECT_SQL).toContain(`nm.supermarket_count AS "supermarketCount"`);
     expect(LIFESTYLE_SELECT_SQL).toContain(`nm.restaurant_count AS "restaurantCount"`);
     expect(LIFESTYLE_SELECT_SQL).toContain(`nm.cafe_count AS "cafeCount"`);

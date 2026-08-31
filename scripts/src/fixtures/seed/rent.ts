@@ -1,16 +1,3 @@
-/**
- * rent_stats: one e-Stat row per ward for 2023 (Shibuya highest, Setagaya
- * lowest, as required). REINS is deliberately absent until a licensed
- * production dataset is supplied.
- *
- * NOTE on `source` semantics for this table specifically: unlike every
- * other seeded table, `rent_stats.source` is NOT "where this row came
- * from the seed process" (that would always be 'seed') — it is the data
- * *provider* ('estat' | 'reins'), because pickRentStat reads this
- * exact column to decide which provider's row to prefer. So rent_stats
- * rows carry provider values here, never 'seed'.
- */
-
 export interface RentStatFixture {
   readonly ward_code: string;
   readonly period: string;

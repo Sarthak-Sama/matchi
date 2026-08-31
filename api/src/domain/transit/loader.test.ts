@@ -1,9 +1,3 @@
-/**
- * `loadRailEdges` is thin by design — this test only checks it queries the
- * right tables and passes rows through untouched, using a fake pool (no
- * real database, matching `health.test.ts`'s pattern).
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 import type { DbPool } from "../../db.js";

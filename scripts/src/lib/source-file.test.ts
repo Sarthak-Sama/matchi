@@ -1,9 +1,3 @@
-/**
- * Pure/offline tests for `resolveSource`. Every case here either reads a
- * local file or hits the "cannot resolve" error path — none of them set
- * both `url` and a satisfied credential, so `fetch` is never invoked.
- */
-
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -74,10 +68,6 @@ describe("resolveSource", () => {
   });
 
   it("with encoding: 'latin1', round-trips arbitrary non-UTF-8 bytes losslessly (the Shift-JIS case)", async () => {
-    // A real Shift-JIS byte sequence for "渋谷区" (Shibuya ward) — not valid
-    // UTF-8, so reading it with the default "utf8" encoding would corrupt
-    // it irreversibly (invalid sequences become U+FFFD). Encoding: "latin1"
-    // must hand back the exact same bytes for the caller to decode itself.
     const shiftJisBytes = Buffer.from([0x8f, 0x61, 0x92, 0x4a, 0x8b, 0xe6]);
     const file = path.join(dir, "shift-jis.csv");
     await writeFile(file, shiftJisBytes);

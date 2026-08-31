@@ -1,26 +1,3 @@
-/**
- * Streaming reader for `stop_times.txt` — GTFS's largest file by far (one
- * row per stop visited by every trip in the feed), so this is the one
- * GTFS table this importer deliberately never loads whole into memory or
- * hands to `lib/csv.ts`'s batch `parseCsv` (which takes one big string and
- * returns one big array up front).
- *
- * Reads the file line-by-line via `node:readline` over a
- * `fs.createReadStream`, and reuses `lib/csv.ts`'s `parseCsv` PER LINE
- * (never a second CSV parser — a single stop_times line has no embedded
- * newline, so `parseCsv(line)` parsing it as a one-row CSV document is
- * exactly the same quote-handling logic, just invoked once per line
- * instead of once for the whole file).
- *
- * Rows are filtered to `relevantTripIds` as they stream past — a row for
- * a trip outside a selected weekday service (or with no service at all)
- * is discarded immediately rather than held. What DOES accumulate is one
- * array per relevant trip (needed regardless of approach: computing a
- * trip's adjacent-stop travel times requires that trip's full,
- * sequence-ordered stop list) — this is a small fraction of the file for
- * any real feed's weekday-only slice, not the raw file contents.
- */
-
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 
@@ -35,11 +12,6 @@ export interface StopTimeRow {
   readonly departureMinutes: number;
 }
 
-/**
- * Streams `filePath` (a `stop_times.txt`), keeping only rows whose
- * `trip_id` is in `relevantTripIds`, and returns each such trip's rows
- * sorted by `stop_sequence` ascending.
- */
 export async function streamRelevantStopTimes(
   filePath: string,
   relevantTripIds: ReadonlySet<string>,

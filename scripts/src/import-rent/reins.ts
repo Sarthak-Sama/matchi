@@ -1,42 +1,3 @@
-/**
- * Optional REINS (Real Estate Information Network System) quarterly
- * ward-level rent table parser. Only invoked when `--reins <file>` is
- * passed to `import:rent`.
- *
- * FORMAT ASSUMPTIONS (unverifiable without a real REINS export; adjust the
- * *_KEYS arrays below if a real export differs):
- *
- *   - Encoding: UTF-8 (a plain byte-order-mark is stripped if present).
- *     Unlike e-Stat, REINS member exports are commonly already saved as
- *     UTF-8 CSV/Excel by the agent producing them; this script does NOT
- *     apply the Shift-JIS decode e-Stat needs. If a real REINS export
- *     turns out to be Shift-JIS too, re-decode with `iconv-lite` the same
- *     way `import-rent/estat.ts` does before calling `parseReinsCsv`.
- *   - One header row, one data row per ward. Column headers tried, first
- *     match wins:
- *       ward code    : "地域コード" | "ward_code"
- *       ward name    : "地域" | "区" | "name_ja" | "ward_name"
- *       period       : "period" | "四半期" — accepted directly in the
- *                      `YYYYQn` shape this script writes to the database
- *                      (e.g. "2026Q2"); OR, split across "year" | "年" and
- *                      "quarter" | "Q" | "四半期番号" columns, combined
- *                      into `${year}Q${quarter}`.
- *       rent/area    : "rent_per_sqm_yen" | "家賃(1㎡当たり)"
- *       mgmt fee     : "management_fee_yen" | "共益費・サービス費"
- *                      (defaults to 0 when absent)
- *       sample count : "sample_count" | "成約件数" (optional)
- *   - `rent_stats.source` is the fixed literal `"reins"` for every row.
- *   - Same caller-declared unit as e-Stat: `import:rent`'s
- *     `--rent-unit=sqm|tsubo` flag applies uniformly to both files in one
- *     run (see `import-rent/estat.ts`'s doc comment for why this can't be
- *     inferred from the numbers). REINS listings commonly quote per-tsubo
- *     rents too, so this matters here just as much as for e-Stat.
- *
- * REINS data is licensed for members' internal use; `import-rent.ts`'s
- * `runRentImport` prints `REINS_LICENCE_NOTICE` every time this path runs
- * — it is on the caller to have the rights to whatever file they pass in.
- */
-
 import { expectColumns } from "../lib/validate.js";
 import { parseCsvRecords, parseNumericCell, pickColumn } from "../lib/csv.js";
 import type { ParsedRentStat } from "./estat.js";
@@ -69,7 +30,7 @@ export interface RawReinsRow {
   readonly wardCode?: string;
   readonly wardName?: string;
   readonly period: string;
-  /** As read from the source column, in whatever unit `--rent-unit` declares — NOT yet known to be per-m². */
+
   readonly rentValueRawYen: number;
   readonly managementFeeYen: number;
   readonly sampleCount?: number;
@@ -139,7 +100,6 @@ export function parseReinsRow(
   return { rowIndex, wardCode, wardName, period, rentValueRawYen, managementFeeYen, sampleCount };
 }
 
-/** Strips a leading UTF-8 BOM character, if present, then parses every data row. */
 export function parseReinsCsv(text: string): RawReinsRow[] {
   const stripped = text.replace(/^\uFEFF/, "");
   return parseCsvRecords(stripped).map((record, index) => parseReinsRow(record, index));

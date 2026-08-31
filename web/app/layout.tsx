@@ -4,17 +4,6 @@ import { Archivo, IBM_Plex_Mono, Newsreader } from "next/font/google";
 
 import "./globals.css";
 
-/**
- * The Field Guide's two-and-a-half type roles:
- *  - Newsreader: a contemporary literary serif for neighborhood names,
- *    headings, and descriptive introductions (with optical sizing).
- *  - Archivo: a plain-spoken grotesque for navigation, forms, labels,
- *    and data.
- *  - IBM Plex Mono: restrained technical metadata — coordinates, ranks,
- *    timestamps.
- * Japanese text falls through to high-quality system Mincho/Gothic stacks
- * (see globals.css) rather than shipping multi-megabyte CJK webfonts.
- */
 const newsreader = Newsreader({
   subsets: ["latin"],
   variable: "--font-newsreader",

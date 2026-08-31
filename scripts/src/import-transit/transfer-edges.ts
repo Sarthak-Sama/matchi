@@ -1,28 +1,3 @@
-/**
- * Transfer-edge generation, shared by both GTFS and `--from-topology`
- * mode (the task brief describes this as one common final step, not
- * per-mode logic).
- *
- * For every pair of DIFFERENT `station_groups` whose points are within
- * `STATION_MERGE_RADIUS_M`, writes a `transfer` edge in EACH direction:
- * `travel_minutes = 0` and `rail_line_id = NULL` — `TRANSFER_PENALTY_MINUTES`
- * is applied by the router (`api/src/domain/transit/dijkstra.ts`'s
- * `relax`), unconditionally, for every `transfer`-type edge it walks,
- * regardless of what that edge's own `travel_minutes` says. Storing the
- * penalty here too would double-apply it.
- *
- * Scope note: this recomputes the FULL cross-group transfer-edge set from
- * the CURRENT `station_groups` table every run (a physical-proximity fact
- * that should always reflect the latest station positions, regardless of
- * which import mode/run last touched it) — so both the delete-stale and
- * the upsert below deliberately match `edge_type = 'transfer' AND
- * from_station_group_id <> to_station_group_id`, NEVER touching the
- * same-station-group self-loop `transfer` rows the seed fixture and a
- * future GTFS-derived same-station interchange might also write (those
- * represent a different concept — a same-group platform change — and are
- * out of this function's scope).
- */
-
 import { STATION_MERGE_RADIUS_M } from "@tokyo/shared";
 import type { PoolClient } from "pg";
 
@@ -31,7 +6,6 @@ export interface TransferEdgePair {
   readonly toStationGroupId: string;
 }
 
-/** Every ordered pair of distinct `station_groups` within `STATION_MERGE_RADIUS_M` of each other. */
 async function findTransferPairs(client: PoolClient): Promise<TransferEdgePair[]> {
   const { rows } = await client.query<{ from_id: string; to_id: string }>(
     `SELECT a.station_group_id AS from_id, b.station_group_id AS to_id
@@ -44,11 +18,6 @@ async function findTransferPairs(client: PoolClient): Promise<TransferEdgePair[]
   return rows.map((r) => ({ fromStationGroupId: r.from_id, toStationGroupId: r.to_id }));
 }
 
-/**
- * Recomputes the full cross-group transfer-edge set and writes it,
- * deleting any stale cross-group transfer edge no longer within radius.
- * Returns the number of pairs written (each pair is one directed row).
- */
 export async function writeTransferEdges(
   client: PoolClient,
   source: string,

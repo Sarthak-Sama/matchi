@@ -1,15 +1,3 @@
-/**
- * Parsing for GTFS's small "static" tables — `stops.txt`, `routes.txt`,
- * `trips.txt`, `calendar.txt`, `calendar_dates.txt` — all comfortably
- * small enough to load fully into memory (unlike `stop_times.txt`, which
- * `gtfs-stop-times.ts` streams instead). Reuses `lib/csv.ts`'s
- * `parseCsvRecords`/`pickColumn`/`expectColumns` rather than a new parser.
- *
- * ASSUMED GTFS column names follow the GTFS reference exactly (`stop_id`,
- * `route_id`, `service_id`, etc.) — this is a standardized public format,
- * unlike MLIT's ad hoc field codes, so no alias list is needed here.
- */
-
 import { expectColumns } from "../lib/validate.js";
 import { parseCsvRecords, parseNumericCell } from "../lib/csv.js";
 
@@ -18,7 +6,7 @@ export interface GtfsStop {
   readonly name: string;
   readonly lat: number;
   readonly lon: number;
-  /** Set only for a child (platform-level) stop; references another stop's `stopId`. */
+
   readonly parentStation: string | undefined;
 }
 
@@ -117,7 +105,6 @@ export function parseGtfsCalendar(text: string): GtfsCalendar[] {
   });
 }
 
-/** GTFS `exception_type`: `1` = service added on this date, `2` = removed. */
 export interface GtfsCalendarDate {
   readonly serviceId: string;
   readonly date: string;
@@ -141,7 +128,6 @@ export function parseGtfsCalendarDates(text: string): GtfsCalendarDate[] {
   });
 }
 
-/** `date` is `YYYYMMDD`. Returns true for Monday-Friday (JS `Date#getDay` 1-5). */
 function isWeekdayDate(date: string): boolean {
   const year = Number(date.slice(0, 4));
   const month = Number(date.slice(4, 6));
@@ -150,30 +136,6 @@ function isWeekdayDate(date: string): boolean {
   return weekday >= 1 && weekday <= 5;
 }
 
-/**
- * Selects `service_id`s that count as "a typical weekday" for this
- * import's median/headway computations.
- *
- * ASSUMPTION: a `calendar.txt` row
- * counts as a weekday service iff `monday` THROUGH `friday` are ALL `1`
- * — the standard "runs every weekday" pattern GTFS feeds use, distinct
- * from a weekend-only (`saturday`/`sunday` = 1, weekdays = 0) or
- * every-day-of-the-week service. `saturday`/`sunday` on that row are NOT
- * required to be `0` — a genuine every-day service still legitimately
- * "runs on weekdays" and should be included.
- *
- * `calendar_dates.txt` is consulted only as a fallback for a
- * `service_id` that has NO `calendar.txt` row at all (a "calendar_dates
- * only" feed, increasingly common) — such a service counts as a weekday
- * service if AT LEAST ONE of its `exception_type = 1` (added) dates falls
- * on a Monday-Friday. This is an approximation for a service defined by
- * many individual added dates (some of which may be weekend specials);
- * documented as a known limitation, not exercised by any single-date
- * fixture row today. `exception_type = 2` (removed) dates and dates
- * layered on TOP of a `calendar.txt` row are not applied at all — this
- * importer picks a service in or out for the whole run, it does not
- * resolve exceptions against one specific reference date.
- */
 export function selectWeekdayServiceIds(
   calendars: readonly GtfsCalendar[],
   calendarDates: readonly GtfsCalendarDate[],

@@ -6,23 +6,6 @@ import { useEffect, useState } from "react";
 import { WARD_PLATE_VIEWBOX, WARD_SHAPES } from "../tokyo-wards";
 import { EXAMPLE_SEARCH, LOCALITY_COUNT, localityPoint } from "./tokyo-localities";
 
-/**
- * The plate that narrows — the landing page's argument, drawn rather than
- * asserted.
- *
- * Four beats: the 23 wards draw themselves, every area the engine weighs
- * settles onto them, a real search sweeps out from a real station, and the
- * areas that actually fit are left standing. Every coordinate here is real
- * MLIT geometry, every dot is a real locality, and the shortlist is the
- * genuine output of a real `/v1/optimize` call — the parameters are printed
- * beside it so the reader can check.
- *
- * Performance shapes the implementation: 937 individually animated nodes
- * would be a slideshow. The full field is one `<g>` behind an expanding
- * clip circle, so the reveal costs a single animated attribute; only the
- * twenty survivors are animated as individual elements.
- */
-
 const STAGE_MS = 1100;
 
 interface Beat {
@@ -36,16 +19,14 @@ const BEATS: readonly Beat[] = [
   { eyebrow: "The limits", line: "45 minutes · ¥200,000 · 1LDK" },
   {
     eyebrow: "The shortlist",
-    // `matched` would be wrong here: 550 areas cleared the limits, and the
-    // engine returns the best 20 of them.
+
     line: `${EXAMPLE_SEARCH.funnel.qualified} fit — the best ${EXAMPLE_SEARCH.funnel.shortlisted}`,
   },
 ];
 
 export function NarrowingPlate() {
   const reducedMotion = useReducedMotion();
-  // With reduced motion the plate opens on its final state: the argument is
-  // in the finished image, not in the movement, so nothing is lost.
+
   const [beat, setBeat] = useState(() => (reducedMotion ? BEATS.length - 1 : -1));
 
   useEffect(() => {
@@ -67,8 +48,6 @@ export function NarrowingPlate() {
   const showMatches = beat >= 3;
   const current = BEATS[Math.max(beat, 0)];
 
-  // The sweep radius has to clear the far corner of the plate from the
-  // destination, or the field would stay half-hidden.
   const sweepRadius =
     Math.hypot(
       Math.max(EXAMPLE_SEARCH.destination.x, width - EXAMPLE_SEARCH.destination.x),
@@ -85,7 +64,7 @@ export function NarrowingPlate() {
           className="block h-full w-full"
         >
           <defs>
-            {/* One animated radius reveals the whole field at once. */}
+            {}
             <clipPath id="plate-sweep">
               <motion.circle
                 cx={EXAMPLE_SEARCH.destination.x}
@@ -97,7 +76,7 @@ export function NarrowingPlate() {
             </clipPath>
           </defs>
 
-          {/* 01 — the wards draw themselves. */}
+          {}
           <g className="fill-paper-soft stroke-line-strong" strokeWidth="1.1">
             {WARD_SHAPES.map((ward, index) => (
               <motion.path
@@ -115,8 +94,7 @@ export function NarrowingPlate() {
             ))}
           </g>
 
-          {/* 02 — every area the engine weighs. Dimmed once the search runs,
-                  so the survivors read against the field they came from. */}
+          {}
           <motion.g
             clipPath="url(#plate-sweep)"
             className="fill-moss"
@@ -130,7 +108,7 @@ export function NarrowingPlate() {
             })}
           </motion.g>
 
-          {/* 03 — the search sweeps out from a real station. */}
+          {}
           {showSweep && (
             <motion.circle
               cx={EXAMPLE_SEARCH.destination.x}
@@ -145,7 +123,7 @@ export function NarrowingPlate() {
             />
           )}
 
-          {/* 04 — what survived. */}
+          {}
           {showMatches &&
             EXAMPLE_SEARCH.matchedIndices.map((localityIndex, order) => {
               const { x, y } = localityPoint(localityIndex);
@@ -166,7 +144,7 @@ export function NarrowingPlate() {
               );
             })}
 
-          {/* The destination — a survey nail, as everywhere else in the guide. */}
+          {}
           {showSweep && (
             <motion.g
               initial={{ opacity: reducedMotion ? 1 : 0 }}

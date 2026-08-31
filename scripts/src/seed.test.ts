@@ -1,17 +1,3 @@
-/**
- * Integration test for the seed script. Requires a real PostGIS database
- * reachable via `DATABASE_URL` — skips with an explicit message when unset,
- * so a missing env var never reads as a silent pass.
- *
- * Run with:
- *   DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test
- *
- * Unlike migrate.test.ts, this runs against DATABASE_URL's real `public`
- * schema (seed.ts doesn't support the search_path scratch-schema trick) —
- * so DATABASE_URL must point at a database you're fine having its
- * seed-owned tables truncated and reseeded, e.g. tokyo_test.
- */
-
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -124,10 +110,6 @@ describe.runIf(Boolean(databaseUrl))("seed", () => {
   });
 
   it("pinned POI counts (fixtures/seed/pois.ts) match a live ST_DWithin count", async () => {
-    // Guards against a filler point silently drifting into a pinned
-    // station's catchment (this caught a real bug: a Daikanyama filler point
-    // once landed inside Shibuya's 800m catchment, making the live count 38
-    // instead of the documented 37).
     const stationGroupIds = Object.keys(PINNED_POI_COUNTS);
     const { rows } = await pool.query<{ station_group_id: string; count: string }>(
       `SELECT sg.station_group_id, count(p.id)::text AS count
@@ -158,10 +140,6 @@ describe.runIf(Boolean(databaseUrl))("seed", () => {
 });
 
 describe("seed", () => {
-  // Sentinel test: passes (with an explicit explanatory title) only when
-  // DATABASE_URL is unset, so `pnpm test` output always makes clear *why*
-  // the real integration tests above were skipped rather than silently
-  // omitted. When DATABASE_URL is set, this sentinel itself is skipped.
   it.skipIf(Boolean(databaseUrl))(
     "SKIPPED integration tests above: DATABASE_URL is not set — set it to a PostGIS connection string to run them, e.g. DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test",
     () => {

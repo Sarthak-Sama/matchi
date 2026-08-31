@@ -6,7 +6,6 @@ import { reverseDijkstra } from "./dijkstra.js";
 import { buildGraph } from "./graph.js";
 import type { RailEdgeRow } from "./graph.js";
 
-// A single direct ride edge: sg-origin3 -(rl-direct)-> sg-dest3.
 const DIRECT_EDGE: RailEdgeRow[] = [
   {
     fromStationGroupId: "sg-origin3",
@@ -24,10 +23,6 @@ const DIRECT_EDGE: RailEdgeRow[] = [
 
 describe("estimateCommute", () => {
   it("a direct one-hop journey: exact minutes including one boarding wait and the 8-minute access walk", () => {
-    // By hand (offpeak, OFFPEAK_WAIT_MINUTES = 6, ACCESS_WALK_MINUTES = 8):
-    //   railMinutes = 5, waitMinutes = 6 (one boarding), transferCount = 0.
-    //   dijkstra totalMinutes = 5 + 6 = 11.
-    //   estimateCommute totalMinutes = 11 + 8 (access walk) = 19.
     const graph = buildGraph(DIRECT_EDGE, "offpeak");
     const result = reverseDijkstra(graph, [{ node: "sg-dest3", walkMinutes: 0 }]);
 
@@ -54,11 +49,6 @@ describe("estimateCommute", () => {
   });
 
   it("adds the access walk exactly once even across a multi-hop journey", () => {
-    // sg-before3 -(rl-direct, 3min)-> sg-origin3 -(rl-direct, 5min)-> sg-dest3,
-    // both hops on the SAME line -> one boarding wait, not two.
-    // By hand (offpeak, OFFPEAK_WAIT_MINUTES = 6, ACCESS_WALK_MINUTES = 8):
-    //   dijkstra totalMinutes = 3 + 5 + 6 = 14
-    //   estimateCommute totalMinutes = 14 + 8 = 22
     const multiHop: RailEdgeRow[] = [
       ...DIRECT_EDGE,
       {
@@ -84,16 +74,6 @@ describe("estimateCommute", () => {
   });
 
   it("does NOT re-add the destination-side walk: it is already inside the Dijkstra total", () => {
-    // The one rule this module's doc comment states that nothing else
-    // enforces: `estimateCommute` adds the ORIGIN-side access walk and
-    // ONLY that. The destination-side walk varies per access station, so
-    // the search must price it to choose between them, and it is therefore
-    // already in `state.totalMinutes`.
-    //
-    // By hand (offpeak, walk 7 min from sg-dest3 to the destination point):
-    //   dijkstra totalMinutes = 5 rail + 6 wait + 7 walk = 18
-    //   estimateCommute totalMinutes = 18 + 8 (access walk) = 26  <- 19 + 7
-    // A stray `+ state.destinationWalkMinutes` here would give 33.
     const graph = buildGraph(DIRECT_EDGE, "offpeak");
     const result = reverseDijkstra(graph, [{ node: "sg-dest3", walkMinutes: 7 }]);
 

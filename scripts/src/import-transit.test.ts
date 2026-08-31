@@ -1,18 +1,3 @@
-/**
- * Tests for `pnpm import:transit`.
- *
- * Pure-function tests (parsing, weekday selection, median/headway
- * statistics, stop matching, route->line mapping, the full GTFS "plan")
- * never touch a database or the network — every input is either hand-built
- * in-memory data or the tiny committed fixture under `fixtures/gtfs/`.
- *
- * The DB-guarded section at the bottom requires a real PostGIS database
- * reachable via `DATABASE_URL` — it skips with an explicit message when
- * unset. Run with:
- *
- *   DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test
- */
-
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -73,10 +58,6 @@ function fixturePath(name: string): string {
   return path.join(FIXTURES_DIR, name);
 }
 
-// ---------------------------------------------------------------------------
-// parseArgs
-// ---------------------------------------------------------------------------
-
 describe("parseArgs", () => {
   it("accepts --gtfs alone", () => {
     expect(parseArgs(["--gtfs", "/tmp/feed"])).toEqual({
@@ -108,10 +89,6 @@ describe("parseArgs", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// gtfs-time
-// ---------------------------------------------------------------------------
-
 describe("parseGtfsTime / minutesOfDay", () => {
   it("parses a normal time", () => {
     expect(parseGtfsTime("07:40:00", "t")).toBe(460);
@@ -126,14 +103,10 @@ describe("parseGtfsTime / minutesOfDay", () => {
   });
 
   it("wraps a rollover time back into 0-1439 for time-of-day comparisons", () => {
-    expect(minutesOfDay(1510)).toBe(70); // 25:10 -> 01:10
+    expect(minutesOfDay(1510)).toBe(70);
     expect(minutesOfDay(460)).toBe(460);
   });
 });
-
-// ---------------------------------------------------------------------------
-// gtfs-static: weekday selection
-// ---------------------------------------------------------------------------
 
 describe("selectWeekdayServiceIds", () => {
   it("excludes a weekend-only service and includes a Mon-Fri one", () => {
@@ -146,7 +119,7 @@ describe("selectWeekdayServiceIds", () => {
   it("falls back to calendar_dates.txt for a service with no calendar.txt row", () => {
     const ids = selectWeekdayServiceIds(
       [],
-      [{ serviceId: "ADHOC", date: "20260302", exceptionType: 1 }], // 2026-03-02 is a Monday
+      [{ serviceId: "ADHOC", date: "20260302", exceptionType: 1 }],
     );
     expect(ids.has("ADHOC")).toBe(true);
   });
@@ -154,15 +127,11 @@ describe("selectWeekdayServiceIds", () => {
   it("does not select a calendar_dates-only service whose added dates are all weekend", () => {
     const ids = selectWeekdayServiceIds(
       [],
-      [{ serviceId: "SPECIAL", date: "20260307", exceptionType: 1 }], // 2026-03-07 is a Saturday
+      [{ serviceId: "SPECIAL", date: "20260307", exceptionType: 1 }],
     );
     expect(ids.has("SPECIAL")).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// travel-stats: median, clamp, and the fixture's hand-checked pair
-// ---------------------------------------------------------------------------
 
 describe("median", () => {
   it("computes the middle value for an odd-length array", () => {
@@ -196,30 +165,23 @@ describe("expectedWaitFromHeadway", () => {
 
 describe("directionKey / pairMapKey collision guard", () => {
   it("directionKey does not collide across a naive-concatenation boundary shift", () => {
-    // Reviewer-supplied collision example: "AB"+"C" vs "A"+"BC" both
-    // concatenate to "ABC" with no separator between the two components.
     const a = directionKey("AB", "C");
     const b = directionKey("A", "BC");
     expect(a).not.toBe(b);
   });
 
   it("computeAdjacentPairStats keeps two boundary-shifted (route, firstStop, from, to) tuples distinct", () => {
-    // Both concatenate to "ABCCX" with no separator:
-    //   routeId="AB"  + firstStopId="C"  + fromStopId="C" + toStopId="X"
-    //   routeId="A"   + firstStopId="BC" + fromStopId="C" + toStopId="X"
-    // Trip 1: a 2-stop trip, so its own first stop IS the "C" in the pair.
     const trip1 = { tripId: "t1", routeId: "AB", serviceId: "s" };
     const stopTimes1 = [
       { tripId: "t1", stopId: "C", stopSequence: 1, arrivalMinutes: 360, departureMinutes: 360 },
-      { tripId: "t1", stopId: "X", stopSequence: 2, arrivalMinutes: 370, departureMinutes: 370 }, // travel = 10
+      { tripId: "t1", stopId: "X", stopSequence: 2, arrivalMinutes: 370, departureMinutes: 370 },
     ];
-    // Trip 2: a 3-stop trip whose first stop is "BC", with the pair of
-    // interest (C -> X) as its second adjacent pair.
+
     const trip2 = { tripId: "t2", routeId: "A", serviceId: "s" };
     const stopTimes2 = [
       { tripId: "t2", stopId: "BC", stopSequence: 1, arrivalMinutes: 360, departureMinutes: 360 },
       { tripId: "t2", stopId: "C", stopSequence: 2, arrivalMinutes: 365, departureMinutes: 365 },
-      { tripId: "t2", stopId: "X", stopSequence: 3, arrivalMinutes: 367, departureMinutes: 367 }, // travel = 2
+      { tripId: "t2", stopId: "X", stopSequence: 3, arrivalMinutes: 367, departureMinutes: 367 },
     ];
 
     const stopTimesByTrip = new Map([
@@ -237,9 +199,6 @@ describe("directionKey / pairMapKey collision guard", () => {
         s.routeId === "A" && s.firstStopId === "BC" && s.fromStopId === "C" && s.toStopId === "X",
     );
 
-    // If the two tuples collided (no separator), there would be exactly ONE
-    // merged entry with offpeakMinutes = median([10, 2]) = 6 and a sample
-    // count of 2 instead of two distinct single-sample entries.
     expect(fromAB).toBeDefined();
     expect(fromA).toBeDefined();
     expect(fromAB?.offpeakMinutes).toBe(10);
@@ -249,11 +208,6 @@ describe("directionKey / pairMapKey collision guard", () => {
   });
 });
 
-/**
- * Loads the committed fixture through the full parse+select+stream
- * pipeline (weekday selection included), for the travel-stats and
- * gtfs-plan tests below.
- */
 async function loadFixtureGtfs(): Promise<{
   stops: ReturnType<typeof parseGtfsStops>;
   routes: ReturnType<typeof parseGtfsRoutes>;
@@ -282,11 +236,10 @@ describe("computeAdjacentPairStats / computeHeadways (fixture)", () => {
       (s) => s.fromStopId === "gtfs-shibuya" && s.toStopId === "gtfs-daikanyama",
     );
     expect(pair).toBeDefined();
-    // Peak samples (07:40, 07:50, 08:00 departures): travel times 4, 5, 6 -> median 5.
-    // If the weekend trip (07:42 departure, travel time 99) leaked in, this would be 5.5.
+
     expect(pair?.peakMinutes).toBe(5);
     expect(pair?.peakSampleCount).toBe(3);
-    // Off-peak samples (06:00, 06:20 departures): travel times 2, 3 -> median 2.5.
+
     expect(pair?.offpeakMinutes).toBe(2.5);
     expect(pair?.offpeakSampleCount).toBe(2);
   });
@@ -296,17 +249,16 @@ describe("computeAdjacentPairStats / computeHeadways (fixture)", () => {
     const headways = computeHeadways(trips, stopTimesByTrip);
     const forward = headways.find((h) => h.routeId === "R1" && h.firstStopId === "gtfs-shibuya");
     expect(forward).toBeDefined();
-    // Peak departures 07:40, 07:50, 08:00 -> gaps of 10, 10 -> average headway 10 -> wait 5.
+
     expect(forward?.peakWaitMinutes).toBe(5);
-    // Off-peak departures 06:00, 06:20 -> gap of 20 -> average headway 20 -> wait 10.
+
     expect(forward?.offpeakWaitMinutes).toBe(10);
   });
 
   it("leaves a period's headway undefined when fewer than 2 departures exist in it", async () => {
     const { trips, stopTimesByTrip } = await loadFixtureGtfs();
     const headways = computeHeadways(trips, stopTimesByTrip);
-    // The backward direction (first stop Nakameguro) only has 2 PEAK departures
-    // (08:10, 08:25) and zero off-peak ones.
+
     const backward = headways.find(
       (h) => h.routeId === "R1" && h.firstStopId === "gtfs-nakameguro",
     );
@@ -315,10 +267,6 @@ describe("computeAdjacentPairStats / computeHeadways (fixture)", () => {
     expect(backward?.offpeakWaitMinutes).toBeUndefined();
   });
 });
-
-// ---------------------------------------------------------------------------
-// stop-matching
-// ---------------------------------------------------------------------------
 
 describe("matchStops", () => {
   const candidates: CandidateStationGroup[] = [
@@ -385,10 +333,6 @@ describe("matchStops", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// route-line-mapping
-// ---------------------------------------------------------------------------
-
 describe("mapRoutesToLines", () => {
   it("maps a route whose route_id equals an existing rail_line_id", () => {
     const { mapped, unmapped } = mapRoutesToLines(
@@ -416,11 +360,6 @@ describe("mapRoutesToLines", () => {
     expect(unmapped).toEqual(["R-unknown"]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// gtfs-source: directory passthrough, error paths, and (if the system `zip`
-// binary is available) real zip extraction — no network, no database.
-// ---------------------------------------------------------------------------
 
 describe("resolveGtfsSource", () => {
   it("passes a directory through unchanged, with a no-op cleanup", async () => {
@@ -474,10 +413,6 @@ describe("resolveGtfsSource", () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// gtfs-plan: the full pure pipeline over the committed fixture
-// ---------------------------------------------------------------------------
-
 describe("buildGtfsPlan (fixture)", () => {
   async function buildFixturePlan() {
     const { stops, routes, trips, stopTimesByTrip } = await loadFixtureGtfs();
@@ -503,9 +438,7 @@ describe("buildGtfsPlan (fixture)", () => {
         lon: 139.696,
         lat: 35.642,
       },
-      // Deliberately mismatched name: this candidate can ONLY be reached via
-      // the existing ref below, proving the ref path (not name/proximity)
-      // is what resolves gtfs-shinjuku.
+
       {
         stationGroupId: "cand-shinjuku-real",
         nameJa: "ShinjukuXYZ",
@@ -574,7 +507,7 @@ describe("buildGtfsPlan (fixture)", () => {
     const backward = plan.edges.find(
       (e) => e.fromStationGroupId === "cand-daikanyama" && e.toStationGroupId === "cand-shibuya",
     );
-    // Backward has 0 off-peak samples -> falls back to the peak median for both periods.
+
     expect(backward?.peakTravelMinutes).toBe(backward?.offpeakTravelMinutes);
   });
 
@@ -587,11 +520,6 @@ describe("buildGtfsPlan (fixture)", () => {
     ).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Nothing GTFS-bulk is ever persisted: no trips/stop_times/calendar table,
-// and no import-transit source file writes SQL against one.
-// ---------------------------------------------------------------------------
 
 describe("GTFS bulk tables are never persisted", () => {
   it("no import-transit source module contains a SQL write to trips/stop_times/calendar/calendar_dates", () => {
@@ -626,19 +554,8 @@ describe("GTFS bulk tables are never persisted", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// DB-guarded integration tests.
-// ---------------------------------------------------------------------------
-
 const databaseUrl = destructiveTestDatabaseUrl();
 
-/**
- * Builds a plausible MultiLineString for `railLineId` by walking the
- * simple path implied by its existing (bidirectional) `rail_edges` ride
- * rows — every seed line is a simple chain, so this recovers the real
- * station order without hand-copying `fixtures/seed/rail.ts`'s RIDES
- * table. Test-only: production geometry comes from `import:mlit`.
- */
 async function buildLineGeometryFromEdges(pool: Pool, railLineId: string): Promise<void> {
   const { rows: edgeRows } = await pool.query<{ from_id: string; to_id: string }>(
     `SELECT DISTINCT from_station_group_id AS from_id, to_station_group_id AS to_id
@@ -704,9 +621,7 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
 
   afterAll(async () => {
     if (!databaseUrl) return;
-    // Fully restores the pristine seed baseline (station_groups, rail_edges,
-    // rail_lines.geom, station_source_refs) regardless of what this file
-    // added/mutated — see seed.ts's TRUNCATE ... CASCADE.
+
     await runSeed();
     await pool.end();
   });
@@ -720,13 +635,6 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
   });
 
   it("aborts (and rolls back) when this run's own mode produces zero ride edges, even though the whole-table graph is otherwise healthy", async () => {
-    // Freshly seeded rail_lines all have geom IS NULL (seed.ts never sets
-    // it — see this file's own buildLineGeometryFromEdges helper, used
-    // ONLY by the next test, which runs after this one and mutates geom).
-    // --from-topology must therefore skip every line and contribute 0 ride
-    // edges of its own — validateGraph's whole-table check alone would NOT
-    // catch this (44 seed edges already exist), so this is exactly the
-    // "run silently contributes nothing" case the hard failure guards.
     const { rows: geomRows } = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM rail_lines WHERE geom IS NOT NULL`,
     );
@@ -737,8 +645,6 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
       runImport({ source: "mlit-topology", pool }, (client) => runTransitImport(client, args)),
     ).rejects.toThrow(/produced 0 ride edges/);
 
-    // Transaction rolled back: no mlit-topology row was left behind, and
-    // the pre-existing seed graph is untouched.
     const { rows: afterRows } = await pool.query<{ source: string; count: string }>(
       `SELECT source, count(*)::text AS count FROM rail_edges GROUP BY source`,
     );
@@ -776,8 +682,7 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
     expect(edgeRows.length).toBeGreaterThan(0);
     for (const row of edgeRows) {
       expect(row.confidence).toBe("low");
-      // Plausible: a positive travel time under an hour for what should be
-      // single-adjacent-stop hops within this vertical slice's small area.
+
       expect(row.peak_travel_minutes).toBeGreaterThan(0);
       expect(row.peak_travel_minutes).toBeLessThan(60);
       expect(row.offpeak_travel_minutes).toBe(row.peak_travel_minutes);
@@ -785,19 +690,11 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
       expect(row.offpeak_wait_minutes).toBe(OFFPEAK_WAIT_MINUTES);
     }
 
-    // Seed's own edges (source = 'seed') are untouched by a scoped delete.
     const { rows: seedCount } = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM rail_edges WHERE source = 'seed'`,
     );
     expect(Number(seedCount[0]?.count)).toBeGreaterThan(0);
 
-    // sg-nakameguro (one of the 4 named seed interchanges) and sg-yutenji
-    // are, in real coordinates as nudged by the seed fixture, ~278m apart
-    // — genuinely within STATION_MERGE_RADIUS_M despite being different
-    // station_groups. This is the literal "transfer edges appear at the
-    // seeded interchange stations exactly once per direction" case from
-    // the task brief: writeTransferEdges (run as part of the pipeline
-    // above) must have produced exactly one row each way.
     const { rows: interchangeRows } = await pool.query<{ from_id: string; to_id: string }>(
       `SELECT from_station_group_id AS from_id, to_station_group_id AS to_id
        FROM rail_edges
@@ -813,12 +710,6 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
   });
 
   it("writes a transfer edge exactly once per direction between two close-but-distinct station_groups, and none elsewhere", async () => {
-    // Two synthetic, deliberately close-together (150m) station_groups —
-    // the seed fixture's 4 real interchange hubs (Shibuya, Shinjuku, Meguro,
-    // Nakameguro) are each a SINGLE merged station_group, so no pair of
-    // DIFFERENT seed station_groups is actually within STATION_MERGE_RADIUS_M
-    // of each other; this synthetic pair is what exercises the cross-group
-    // transfer-edge rule the task brief describes.
     await pool.query(
       `INSERT INTO station_groups (station_group_id, name_ja, name_en, point, source)
        VALUES
@@ -857,7 +748,6 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
         expect(row.rail_line_id).toBeNull();
       }
 
-      // Re-running is idempotent: still exactly one row per direction, not two.
       await writeTransferEdges(client, "mlit-topology", null);
       const { rows: rowsAfter } = await pool.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM rail_edges
@@ -891,10 +781,6 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
 });
 
 describe("import:transit", () => {
-  // Sentinel test: passes (with an explicit explanatory title) only when
-  // DATABASE_URL is unset, so `pnpm test` output always makes clear *why*
-  // the real integration tests above were skipped rather than silently
-  // omitted. When DATABASE_URL is set, this sentinel itself is skipped.
   it.skipIf(Boolean(databaseUrl))(
     "SKIPPED integration tests above: DATABASE_URL is not set — set it to a PostGIS connection string to run them, e.g. DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test",
     () => {

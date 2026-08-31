@@ -5,17 +5,6 @@ import Link from "next/link";
 
 import { ArrowRightIcon } from "../icons";
 
-/**
- * The primary call to action, with its one flourish: the arrow steps
- * forward on hover and the whole control settles under a press.
- *
- * Motion rather than CSS here because these two gestures overlap — a
- * press that lands mid-hover, a pointer that leaves mid-press — and
- * Motion interrupts and re-targets an in-flight tween from wherever it
- * actually is. CSS would restart from the declared value and stutter.
- * Nothing essential rides on it: the link is a link, and with reduced
- * motion it simply does not move.
- */
 export function StartButton({
   children,
   className = "",

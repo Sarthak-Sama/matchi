@@ -52,9 +52,6 @@ function statusError(json: JsonRecord): string | null {
   return null;
 }
 
-/** Parses only the e-Stat v3 shape this importer requests. Validation is
- * deliberately before database work: incorrect dimensions are never
- * interpreted positionally as a rent number. */
 export function parseEstatApiResponse(
   raw: unknown,
   expected: { tableId: string; cat01: string; cat02: string },
@@ -137,8 +134,7 @@ async function fetchTable(
 async function cacheResponse(tableId: string, raw: unknown): Promise<void> {
   const dir = path.join(DATA_DIR, "raw", "estat");
   await mkdir(dir, { recursive: true });
-  // The body contains statistical data only. The application ID appears in
-  // the request URL and is never interpolated into this file or a log line.
+
   await writeFile(path.join(dir, `${tableId}-${ESTAT_TIME}.json`), JSON.stringify(raw));
 }
 

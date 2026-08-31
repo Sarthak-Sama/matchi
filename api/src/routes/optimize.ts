@@ -1,18 +1,3 @@
-/**
- * `POST /v1/optimize` — the integration point for Tasks 6-9: the rent
- * estimator, the derived PostGIS metrics, the transit graph, and the
- * scoring engine all meet here for the first time.
- *
- * Flow: resolve the destination (a station group id, or a POINT via
- * `lib/access-stations.ts`) into `reverseDijkstra` seeds -> pick
- * peak/off-peak from `arrivalTime` -> run ONE `reverseDijkstra` from those
- * seeds on the preloaded in-memory graph -> load `neighborhood_metrics`
- * joined to `station_groups`/`wards` for EVERY candidate -> build commute
- * estimates (with placeholder path names replaced by real ones) -> apply
- * hard filters -> score -> rank -> return the top 20 plus full
- * `diagnostics`, the echoed `request`, and `dataVintages`.
- */
-
 import type { Candidate } from "../domain/scoring.js";
 import { applyHardFilters, rankCandidates, scoreCandidate } from "../domain/scoring.js";
 import type { OptimizationRequest, OptimizeResponse } from "@tokyo/shared";
@@ -38,28 +23,6 @@ import type { NameLookups } from "./lib/station-names.js";
 import { loadNameLookups } from "./lib/station-names.js";
 import { parseOrThrow } from "./lib/validation.js";
 
-// ---------------------------------------------------------------------------
-// Destination resolution
-// ---------------------------------------------------------------------------
-
-/**
- * Turns either destination form into the `reverseDijkstra` seed list.
- *
- * Both branches reject BEFORE the search runs, on purpose:
- * `reverseDijkstra` throws a plain `Error` on an empty seed list (by
- * design — see its doc comment), which the global error handler would
- * render as a generic `500 INTERNAL_ERROR`. An unresolvable destination is
- * a client-fixable condition, so it gets a typed 4xx that says what to fix.
- *
- * The two branches report DIFFERENT errors because they are different
- * failures. A `destinationStationGroupId` that names no station is a bad
- * identifier — `404 STATION_NOT_FOUND`, unchanged from before this route
- * accepted points, because that request is unchanged. A
- * `destinationPoint` with nothing in walking range is a well-formed
- * request about a real place we simply cannot serve — `400
- * NO_ACCESS_STATIONS`. There is no station id to report "not found" for in
- * that case, which is exactly why it needs its own code.
- */
 async function resolveDestinationSeeds(
   pool: DbPool,
   body: OptimizationRequest,
@@ -80,9 +43,6 @@ async function resolveDestinationSeeds(
     return { seeds, point: body.destinationPoint };
   }
 
-  // The schema's `.refine` guarantees exactly one destination form is
-  // present, so this branch always has an id; the check keeps that
-  // guarantee visible to the type system rather than asserting it away.
   const destinationStationGroupId = body.destinationStationGroupId;
   if (
     destinationStationGroupId === undefined ||
@@ -95,8 +55,6 @@ async function resolveDestinationSeeds(
     );
   }
 
-  // A named station IS the access station, and the walk from it to itself
-  // is zero — the one case where a zero destination walk is honest.
   const pointResult = (await pool.query(
     `SELECT ST_Y(point) AS lat, ST_X(point) AS lon FROM station_groups WHERE station_group_id = $1`,
     [destinationStationGroupId],
@@ -111,13 +69,7 @@ async function resolveDestinationSeeds(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Route
-// ---------------------------------------------------------------------------
-
 export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void {
-  // A full candidate scan plus a Dijkstra pass per request — by far the most
-  // expensive endpoint, so it gets a tighter budget than the global one.
   const routeOptions = {
     config: {
       rateLimit: {
@@ -169,11 +121,6 @@ export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void
       if (candidate) candidates.push(candidate);
     }
 
-    // A distinct, single-line signal for the specific failure mode where
-    // EVERY row was dropped for missing lifestyle metrics — as opposed to
-    // ordinary per-row exclusions (see `buildCandidate`'s per-station
-    // `warn`s). This is what a migration-without-a-re-derive looks like in
-    // production: an empty `/v1/optimize` response with no other clue.
     if (
       candidates.length === 0 &&
       candidateRowsResult.rows.length > 0 &&

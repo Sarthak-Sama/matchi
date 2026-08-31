@@ -1,10 +1,3 @@
-/**
- * Shared numeric-range validation for both `estat.ts` and `reins.ts` — the
- * brief's "sane range" bounds live once in `@tokyo/shared`'s
- * `config/scoring.ts` (never re-typed here) and this is the one place that
- * checks a parsed row against them.
- */
-
 import {
   MANAGEMENT_FEE_YEN_MAX,
   MANAGEMENT_FEE_YEN_MIN,
@@ -12,7 +5,6 @@ import {
   RENT_PER_SQM_YEN_MIN,
 } from "@tokyo/shared";
 
-/** Throws a row-specific error when either value falls outside its configured sane range. */
 export function assertRentRanges(
   rentPerSqmYen: number,
   managementFeeYen: number,

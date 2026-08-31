@@ -1,18 +1,3 @@
-/**
- * The single source of truth for every formula constant, threshold, weight,
- * layout size, speed, penalty, and clamp bound used across the Tokyo
- * neighborhood optimizer.
- *
- * No numeric literal from the binding spec may be duplicated anywhere else
- * in the codebase — downstream packages import from this module instead of
- * re-typing a number. Later tasks append their own constants here rather
- * than introducing parallel config modules.
- */
-
-// ---------------------------------------------------------------------------
-// Layouts
-// ---------------------------------------------------------------------------
-
 export interface LayoutDefinition {
   readonly id: string;
   readonly label: string;
@@ -39,84 +24,30 @@ export const LAYOUTS = {
 
 export const LAYOUT_IDS = ["1R", "1K", "1DK", "1LDK", "2K_2DK", "2LDK", "3LDK"] as const;
 
-// ---------------------------------------------------------------------------
-// Rent estimator constants
-// ---------------------------------------------------------------------------
-
-/** Applied to layout min m² to derive the low end of a rent estimate. */
 export const LOW_ESTIMATE_FACTOR = 0.9;
 
-/** Applied to layout max m² to derive the high end of a rent estimate. */
 export const HIGH_ESTIMATE_FACTOR = 1.1;
 
 export const LAND_PRICE_MULTIPLIER_EXPONENT = 0.25;
 export const LAND_PRICE_MULTIPLIER_MIN = 0.85;
 export const LAND_PRICE_MULTIPLIER_MAX = 1.15;
 
-/**
- * Below this count of land-price data points, the multiplier is exactly
- * `1.0` and confidence drops.
- */
 export const MIN_LAND_PRICE_POINTS = 3;
 
-/**
- * `pnpm derive`'s rent step warns loudly when the share of processed
- * stations that hit the land-price fallback (`usedFallback: true` from
- * `computeLandPriceMultiplier`) is at or above this fraction. A high share
- * is the signature of a systemic land-price data problem (e.g. `import:mlit`
- * classified zero `land_prices` rows as `'residential'` because the real
- * MLIT export uses a different field code or category spelling than
- * `RESIDENTIAL_USE_TOKENS` recognizes — see `import-mlit/land-prices.ts`) —
- * as opposed to a handful of individually land-price-poor catchments, which
- * is normal and expected even with healthy source data.
- */
 export const LAND_PRICE_FALLBACK_WARN_SHARE = 0.5;
 
-/**
- * A rent stat "vintage" (source period) counts as recent if it is at most
- * this many years older than the current year. Used both to prefer a REINS
- * row over an e-Stat row in `pickRentStat`, and to decide whether
- * `estimateRent` should step confidence down for a stale source period.
- */
 export const RENT_STAT_RECENT_MAX_AGE_YEARS = 2;
 
-/**
- * A rent stat older than this many years is considered stale enough for
- * `pickRentStat` to assign `low` confidence.
- */
 export const RENT_STAT_OLD_MIN_AGE_YEARS = 5;
-
-// ---------------------------------------------------------------------------
-// Catchment
-// ---------------------------------------------------------------------------
 
 export const CATCHMENT_RADIUS_M = 800;
 
 export const CATCHMENT_LABEL = "approximate 10-minute station area";
 
-/**
- * Buffer distance (metres) used to compute `road_rail_exposure_share`: the
- * share of a station's catchment within this distance of a major road or
- * rail line.
- */
 export const ROAD_RAIL_BUFFER_M = 100;
 
-// ---------------------------------------------------------------------------
-// Station merging (import scripts)
-// ---------------------------------------------------------------------------
-
-/**
- * Two station records within this many metres of each other (after their
- * normalized names match) are collapsed into one `station_group` by the
- * import scripts.
- */
 export const STATION_MERGE_RADIUS_M = 300;
 
-// ---------------------------------------------------------------------------
-// Commute constants
-// ---------------------------------------------------------------------------
-
-/** Fixed neighborhood-to-station walk. */
 export const ACCESS_WALK_MINUTES = 8;
 
 export const TRANSFER_PENALTY_MINUTES = 5;
@@ -125,13 +56,6 @@ export const PEAK_WAIT_MINUTES = 4;
 
 export const OFFPEAK_WAIT_MINUTES = 6;
 
-/**
- * The morning peak window, expressed in minutes from midnight.
- *
- * `startMinutes` is INCLUSIVE (07:30 counts as peak), `endMinutes` is
- * EXCLUSIVE (10:00 itself does NOT count as peak). i.e. peak iff
- * `startMinutes <= minutes < endMinutes`.
- */
 export const PEAK_WINDOW = {
   startMinutes: 7 * 60 + 30,
   endMinutes: 10 * 60,
@@ -146,80 +70,19 @@ export const FALLBACK_SPEEDS_KMH = {
 
 export const DWELL_SECONDS_PER_INTERMEDIATE_STATION = 45;
 
-/**
- * `import:transit`'s GTFS mode derives expected wait from half the average
- * observed headway (see that script's `expectedWaitFromHeadway`), clamped
- * to this range. The floor guards against a handful of near-simultaneous
- * observed departures (e.g. two trips minutes apart at a terminal)
- * implying an implausibly short wait; the ceiling guards against a sparse
- * or partial-day GTFS sample (e.g. only late-night departures survived
- * weekday-service filtering) implying an implausibly long one.
- */
 export const MIN_EXPECTED_WAIT_MINUTES = 1;
 export const MAX_EXPECTED_WAIT_MINUTES = 15;
 
-// ---------------------------------------------------------------------------
-// Destination-side walk
-// ---------------------------------------------------------------------------
-
-/**
- * Walking speed in metres per minute.
- *
- * 80 m/min is not a guess or an average from a study: it is the figure
- * Japanese property listings are legally required to use when they state
- * 徒歩○分 ("N minutes on foot"), under the Fair Competition Code for real
- * estate advertising. Using the same number means the walk times this API
- * reports line up with the walk times users have already read on every
- * listing site they have open in another tab, instead of quietly
- * disagreeing with them by a minute or two on every station.
- */
 export const WALK_SPEED_M_PER_MIN = 80;
 
-/**
- * Straight-line (great-circle) distance is multiplied by this before it is
- * converted to minutes. Nobody walks through buildings — the real route
- * follows a street grid — so a straight line understates the walk. 1.3 is
- * the usual circuity factor for a dense grid-like street network, and
- * erring on the high side is the safe direction here: overstating a
- * commute by a minute costs a user nothing, understating it sends them to
- * view an apartment that is further from work than we promised.
- */
 export const WALK_DETOUR_FACTOR = 1.3;
 
-/**
- * The straight-line radius (metres) `routes/lib/access-stations.ts`
- * searches for a destination point's access stations, via
- * `ST_DWithin(sg.point::geography, ..., MAX_DESTINATION_WALK_M)`. With
- * `WALK_DETOUR_FACTOR` and `WALK_SPEED_M_PER_MIN` this caps a
- * destination-side walk at roughly 24 minutes (24.4, reported as 25 once
- * rounded up to whole minutes).
- *
- * Deliberately much wider than the home-side `CATCHMENT_RADIUS_M` (800),
- * and the two are not in tension — they measure different behaviour.
- * `CATCHMENT_RADIUS_M` asks "how far will someone walk to the shops and
- * back, several times a week, by choice?"; this asks "how far will
- * someone walk to the one fixed office they commute to?" People
- * demonstrably walk much further for the latter.
- *
- * The failure mode of a tight cap is also the wrong-shaped one: a
- * destination in a low-density area — exactly where an office genuinely
- * does sit a long way from any station, and exactly where "which station
- * do I even type in?" is hardest to answer — would resolve to zero access
- * stations and return `NO_ACCESS_STATIONS`, i.e. the feature would fail
- * precisely where it is most needed. A generous radius costs only a few
- * extra seeds, which the search then discards on cost.
- */
 export const MAX_DESTINATION_WALK_M = 1500;
-
-// ---------------------------------------------------------------------------
-// Locality sampling and sufficiency targets
-// ---------------------------------------------------------------------------
 
 export const LOCALITY_SAMPLE_COUNT = 9;
 export const LOCALITY_STATION_LIMIT = 3;
 export const LOCALITY_STATION_RADIUS_M = 1500;
 
-/** Practical sufficiency levels; values at or above these score 100. */
 export const LIFESTYLE_SUFFICIENCY_TARGETS = {
   supermarketEquivalent: 4,
   restaurantsAndCafes: 40,
@@ -231,11 +94,6 @@ export const LIFESTYLE_SUFFICIENCY_TARGETS = {
   nightlifeForQuietness: 6,
 } as const;
 
-// ---------------------------------------------------------------------------
-// Scoring weights
-// ---------------------------------------------------------------------------
-
-/** Must sum to exactly 1 (asserted in tests). */
 export const OVERALL_WEIGHTS = {
   affordability: 0.3,
   commute: 0.3,
@@ -249,59 +107,23 @@ export const IMPORTANCE_VALUES = {
   essential: 8,
 } as const;
 
-/**
- * `IMPORTANCE_VALUES`'s keys, in declaration order, as a plain array — the
- * form both the shareable-link query-string parser and the rating `<select>`
- * need. Exported once here rather than each of `web/app/page.tsx` and
- * `web/app/components/LifestylePicker.tsx` re-deriving the identical
- * `Object.keys(IMPORTANCE_VALUES) as Importance[]` locally.
- */
 export const IMPORTANCE_OPTIONS = Object.keys(IMPORTANCE_VALUES) as ReadonlyArray<
   keyof typeof IMPORTANCE_VALUES
 >;
 
-/**
- * `scoreAffordability` awards the full 100 when the modeled median rent is
- * at or below this fraction of the monthly budget, 0 when it meets or
- * exceeds the budget, linear in between.
- */
 export const AFFORDABILITY_FULL_SCORE_RATIO = 0.8;
 
-/**
- * `scoreCommute` awards the full 100 at or below this many minutes, 0 at
- * the request's `maxCommuteMinutes`, linear in between.
- */
 export const COMMUTE_FULL_SCORE_MINUTES = 15;
 
-/**
- * `buildReasons` (and each `FactorEvidence`'s own `direction`) classifies a
- * factor as a positive reason when its contribution relative to what it
- * could have contributed (`pointContribution / (100 * effectiveWeight)`)
- * is above this.
- */
 export const REASON_POSITIVE_THRESHOLD = 0.66;
 
-/**
- * The negative-reason counterpart of `REASON_POSITIVE_THRESHOLD`: a factor
- * is classified as a negative reason when that same ratio is below this.
- *
- */
 export const REASON_NEGATIVE_THRESHOLD = 0.34;
 
-// ---------------------------------------------------------------------------
-// Quietness proxy weights
-// ---------------------------------------------------------------------------
-
-/** Must sum to exactly 1 (asserted in tests). */
 export const QUIETNESS_WEIGHTS = {
   residentialZoningShare: 0.5,
   inverseRoadRailExposure: 0.3,
   inverseNightlifeDensity: 0.2,
 } as const;
-
-// ---------------------------------------------------------------------------
-// Amenity weights (supermarket-equivalent weighting)
-// ---------------------------------------------------------------------------
 
 export const AMENITY_WEIGHTS = {
   supermarket: 1.0,
@@ -309,134 +131,40 @@ export const AMENITY_WEIGHTS = {
   convenience: 0.25,
 } as const;
 
-// ---------------------------------------------------------------------------
-// Labels
-// ---------------------------------------------------------------------------
-
-/**
- * Load-bearing: every rent value the system produces or displays must carry
- * this label. Strings like "available rent", "listing", or anything
- * implying real inventory must never reach a user.
- */
 export const RENT_LABEL = "modeled area rent";
 
 export const COMMUTE_LABEL = "typical weekday estimate";
 
 export const QUIETNESS_LABEL = "quietness proxy";
 
-// ---------------------------------------------------------------------------
-// API route defaults (spec-given numeric literals for the /v1 routes)
-// ---------------------------------------------------------------------------
-
-/** `POST /v1/optimize` returns at most this many ranked results. */
 export const RESULTS_LIMIT = 20;
 
-/** `GET /v1/stations`'s `limit` query param default when omitted. */
 export const STATIONS_DEFAULT_LIMIT = 10;
 
-/** `GET /v1/stations`'s `limit` query param is capped (not rejected) at this value. */
 export const STATIONS_MAX_LIMIT = 50;
 
-/**
- * `GET /v1/places` returns at most this many combined POI + station
- * suggestions. Fixed rather than caller-tunable (unlike `/v1/stations`'s
- * `limit`): `/v1/places` has exactly one consumer — the destination
- * autocomplete — and one list length.
- */
 export const PLACES_LIMIT = 10;
 
-/** `GET /v1/neighborhoods/:id`'s `layout` query param default when omitted. */
 export const NEIGHBORHOOD_DEFAULT_LAYOUT = "1LDK" as const;
-
-// ---------------------------------------------------------------------------
-// Confidence
-// ---------------------------------------------------------------------------
 
 export type Confidence = "high" | "medium" | "low";
 
-/** Steps confidence down one notch: high -> medium -> low -> low. */
 export function lowerConfidence(c: Confidence): Confidence {
   if (c === "high") return "medium";
   if (c === "medium") return "low";
   return "low";
 }
 
-// ---------------------------------------------------------------------------
-// Import validation bounds (`import:rent`)
-// ---------------------------------------------------------------------------
-
-/**
- * A `rent_stats.rent_per_sqm_yen` value outside this range fails the
- * import with a clear error rather than being written.
- *
- * What this range genuinely catches: a raw total-monthly-rent figure
- * mistaken for a per-m² one (real Tokyo studio/1LDK rents run
- * ¥50,000-150,000/month, comfortably above 20,000) and gross parsing
- * mistakes.
- *
- * What it does NOT catch: a per-tsubo figure mistaken for per-m². 1 tsubo
- * ≈ 3.3058 m² (see `TSUBO_TO_SQM` below), so a realistic per-m² rent of
- * ¥2,700-4,300 becomes ¥8,926-14,215 when misread as per-tsubo — still
- * comfortably inside [1,000, 20,000]. Since per-tsubo is the dominant unit
- * in Japanese real-estate publishing, this is a real and silent failure
- * mode, not a hypothetical one: it would inflate every ward's rent by
- * ~3.3x with no error raised anywhere. Narrowing this range cannot fix
- * that — legitimate premium-ward per-m² rents occupy the same band a
- * cheap per-tsubo table would. The only correct fix is for the importer
- * to have the caller declare the unit explicitly rather than guessing;
- * see `import:rent`'s `--rent-unit=sqm|tsubo` flag, which converts a
- * declared tsubo figure via `TSUBO_TO_SQM` before this range is ever
- * checked.
- */
 export const RENT_PER_SQM_YEN_MIN = 1_000;
 export const RENT_PER_SQM_YEN_MAX = 20_000;
 
-/**
- * A `rent_stats.management_fee_yen` value outside this range fails the
- * import the same way.
- */
 export const MANAGEMENT_FEE_YEN_MIN = 0;
 export const MANAGEMENT_FEE_YEN_MAX = 50_000;
 
-/**
- * 1 tsubo (坪), the traditional Japanese unit of floor area still common
- * in real-estate rent/price publishing, equals this many square metres.
- * Used by `import:rent`'s `--rent-unit=tsubo` to convert a declared
- * per-tsubo rent figure to per-m² before it is validated against
- * `RENT_PER_SQM_YEN_MIN`/`MAX` and written to `rent_stats`. See that
- * range's own doc comment above for why this conversion has to be an
- * explicit, user-declared choice rather than something the importer
- * infers from the numbers.
- */
 export const TSUBO_TO_SQM = 3.3058;
 
-// ---------------------------------------------------------------------------
-// OSM import (`import:osm`)
-// ---------------------------------------------------------------------------
-
-/**
- * The attribution OpenStreetMap's licence (ODbL) requires whenever data
- * derived from OSM is displayed or otherwise used. `import:osm` prints this
- * on every run (success or failure) — this is a licence obligation, not a
- * nicety, so it must not be gated behind a successful write.
- */
 export const OSM_ATTRIBUTION = "© OpenStreetMap contributors";
 
-/**
- * Bounding box `import:osm --download` queries Overpass with, expressed as
- * `[south, west, north, east]` (Overpass QL's own bbox argument order),
- * approximating the extent of Tokyo's 23 special wards. This is a
- * spec-ish constant, not a physical/measured one: the true ward boundary
- * is the irregular polygon in `wards.geom` (from `import:mlit`), not a
- * rectangle. A rectangular bbox necessarily overshoots the real boundary
- * on every side (pulling in some POIs/roads just outside the 23 wards) —
- * acceptable here because Overpass's own per-element tag filters are the
- * real precision, and a slightly generous bbox costs a few unwanted rows,
- * not incorrect ones. Values: south 35.50, west 139.56, north 35.82, east
- * 139.92 — chosen to comfortably contain every special ward (Ota's
- * southern tip, Nerima/Itabashi's western and northern edges, Edogawa's
- * eastern edge) with margin, not tuned to any specific source.
- */
 export const TOKYO_23_WARDS_BBOX = {
   south: 35.5,
   west: 139.56,

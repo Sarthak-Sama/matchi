@@ -1,13 +1,5 @@
-/**
- * `fetch` wrapper for the Matchi API: `getJson`/`postJson` against
- * `NEXT_PUBLIC_API_BASE_URL`, throwing a typed `ApiClientError` carrying the
- * API's own `{ error: { code, message, details? } }` shape on HTTP errors,
- * network failures, and timeouts alike, so callers branch on `.code` only.
- */
-
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
 
-/** `/v1/optimize` runs a full candidate scan plus a Dijkstra pass, so this is generous. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
 function apiBaseUrl(): string {
@@ -30,7 +22,6 @@ function isApiErrorBody(value: unknown): value is ApiErrorBody {
   return typeof code === "string" && typeof message === "string";
 }
 
-/** Thrown by `getJson`/`postJson` for both HTTP error responses and network failures. */
 export class ApiClientError extends Error {
   readonly code: string;
   readonly details?: unknown;

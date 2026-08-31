@@ -1,8 +1,3 @@
-/**
- * major_roads: a handful of arterial roads passing near some stations and
- * not others, used later to derive road/rail noise exposure.
- */
-
 import type { LonLat } from "./geo.js";
 
 export interface MajorRoadFixture {
@@ -13,7 +8,6 @@ export interface MajorRoadFixture {
 
 export const MAJOR_ROADS: readonly MajorRoadFixture[] = [
   {
-    // Passes close by Nakameguro / Yutenji / Gakugei-daigaku (Meguro-dori corridor).
     name: "Meguro-dori",
     road_class: "arterial",
     line: [
@@ -25,7 +19,6 @@ export const MAJOR_ROADS: readonly MajorRoadFixture[] = [
     ],
   },
   {
-    // Passes close by Shibuya / Shinjuku (Meiji-dori corridor, north-south).
     name: "Meiji-dori",
     road_class: "arterial",
     line: [
@@ -36,7 +29,6 @@ export const MAJOR_ROADS: readonly MajorRoadFixture[] = [
     ],
   },
   {
-    // Runs through Setagaya, close to Sangenjaya / Komazawa-daigaku / Sakura-shinmachi.
     name: "Setagaya-dori",
     road_class: "arterial",
     line: [
@@ -47,7 +39,6 @@ export const MAJOR_ROADS: readonly MajorRoadFixture[] = [
     ],
   },
   {
-    // Highway well north, close only to Nakano.
     name: "Kanjo 7-go",
     road_class: "highway",
     line: [

@@ -4,13 +4,6 @@ import { useEffect, useState } from "react";
 
 import { usePrefersReducedMotion } from "../../lib/usePrefersReducedMotion";
 
-/**
- * The loading state preserves the shape of the results to come — a
- * summary block, a map canvas, ranked rows — so the page doesn't jump
- * when recommendations arrive. Staged status copy narrates the analysis;
- * with reduced motion it holds still on a single honest message.
- */
-
 const STAGES = [
   "Mapping the commute",
   "Checking rent fit",

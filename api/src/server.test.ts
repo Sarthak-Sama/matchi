@@ -1,11 +1,3 @@
-/**
- * `reloadGraph` tests. Importing `server.ts` never opens a real DB
- * connection or starts a real listener — `main()`'s side effects are
- * gated behind an `isMainModule` check (see `server.ts`'s doc comment) —
- * so this is a plain unit test against a fake pool, matching
- * `domain/transit/loader.test.ts`'s pattern.
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 import type { DbPool } from "./db.js";

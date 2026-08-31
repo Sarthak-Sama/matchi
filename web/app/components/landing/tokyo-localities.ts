@@ -1,15 +1,3 @@
-/**
- * GENERATED FILE — do not edit by hand.
- * Regenerate with `pnpm build:ward-plate`.
- *
- * Every locality the engine weighs, projected into the same plate
- * space as a flat [x, y, x, y, ...] list — flat rather than tuples
- * because 937 two-element arrays cost several kilobytes in shape
- * alone. Read it with `localityPoint(index)`.
- *
- * Landing-page only: the search hero draws wards and stations, not
- * candidates, and should not pay for these coordinates.
- */
 export const LOCALITY_COUNT = 937;
 
 export const LOCALITY_XY: readonly number[] = [
@@ -149,34 +137,20 @@ export const LOCALITY_XY: readonly number[] = [
   478.2, 304.0, 540.0, 226.6, 500.7, 295.6, 468.3, 214.4, 517.3, 183.1,
 ];
 
-/** The x/y of one locality, by index into `LOCALITY_XY`. */
 export function localityPoint(index: number): { x: number; y: number } {
   return { x: LOCALITY_XY[index * 2] ?? 0, y: LOCALITY_XY[index * 2 + 1] ?? 0 };
 }
 
-/**
- * A real request sent to a real /v1/optimize, and the indices into
- * `LOCALITY_XY` of the areas that actually came back. The landing page
- * shows the parameters beside the outcome — it is a worked example,
- * not an illustration.
- */
 export interface ExampleSearch {
   readonly destinationNameJa: string;
   readonly arrivalTime: string;
   readonly maxCommuteMinutes: number;
   readonly monthlyBudgetYen: number;
   readonly layout: string;
-  /** The destination, projected into plate space. */
+
   readonly destination: { readonly x: number; readonly y: number };
   readonly matchedIndices: readonly number[];
-  /**
-   * The engine's own account of what it ruled out, and why.
-   *
-   * `shortlisted` is the size of the returned shortlist, which is
-   * capped — it is NOT the number of areas that passed the filters.
-   * `qualified` is that number. Conflating them would overstate how
-   * much the limits actually narrow the city.
-   */
+
   readonly funnel: {
     readonly considered: number;
     readonly excludedByCommute: number;
@@ -185,7 +159,7 @@ export interface ExampleSearch {
     readonly qualified: number;
     readonly shortlisted: number;
   };
-  /** The top recommendation, exactly as the engine returned it. */
+
   readonly topResult: {
     readonly nameJa: string;
     readonly nameEn: string;
@@ -239,11 +213,6 @@ export const EXAMPLE_SEARCH: ExampleSearch = {
   },
 };
 
-/**
- * A cross-section of real place names, for the index band. Ninety-six
- * of the 937, shuffled deterministically so the band reads as the city
- * rather than as one ward's alphabetical run.
- */
 export const INDEX_NAMES: readonly string[] = [
   "市谷船河原町",
   "亀沢",
@@ -343,13 +312,6 @@ export const INDEX_NAMES: readonly string[] = [
   "八幡山",
 ];
 
-/**
- * What each lifestyle axis is actually counted from. The units differ
- * on purpose — an axis backed by park polygons is not measuring the
- * same kind of thing as one backed by shop locations, and flattening
- * them into a single figure would imply a comparability the data does
- * not have.
- */
 export interface AxisEvidence {
   readonly count: number;
   readonly unit: string;

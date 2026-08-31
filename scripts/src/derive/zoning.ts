@@ -1,21 +1,3 @@
-/**
- * Step 4 — zoning and road/rail exposure.
- *
- * `residential_zoning_share`: share of the catchment intersecting
- * `zoning_areas WHERE is_residential`, residential polygons unioned first
- * so overlaps can't push the share above 1.
- *
- * `road_rail_exposure_share`: share of the catchment within
- * `ROAD_RAIL_BUFFER_M` of a `major_roads` geometry or a `rail_lines`
- * geometry. Both layers are buffered via `::geography` casts (genuine
- * metres) and unioned together before measuring, so a catchment near both
- * a road and a rail line doesn't get double-counted. `rail_lines.geom` can
- * be NULL (no geometry imported yet for a line) — those rows are excluded
- * rather than erroring.
- *
- * Both shares are clamped to `[0, 1]` to absorb floating-point overshoot.
- */
-
 import type { Pool } from "pg";
 
 import { ROAD_RAIL_BUFFER_M } from "@tokyo/shared";

@@ -1,38 +1,3 @@
-/**
- * `--from-topology` fallback mode: derives `ride` edges purely from
- * `rail_lines.geom` and `station_groups.point` — no GTFS at all. Used when
- * a real GTFS feed isn't available (this repo's tests, or any environment
- * without ODPT credentials/network access).
- *
- * For each rail line with non-null geometry: find every `station_groups`
- * row within `STATION_MERGE_RADIUS_M` of that line's geometry (reusing
- * that same constant here, rather than inventing a new "on this line"
- * threshold), order them along the line
- * via `ST_LineLocatePoint`, and for each adjacent pair in that order
- * compute the along-line distance via `ST_Length(ST_LineSubstring(...)::
- * geography)` (a real geography cast, per this repo's metres-not-degrees
- * rule — `ST_LineLocatePoint`'s own 0-1 fraction output is scale-free and
- * does not need one). Distance converts to minutes via
- * `FALLBACK_SPEEDS_KMH[mode]`.
- *
- * `DWELL_SECONDS_PER_INTERMEDIATE_STATION`: by construction, two stations
- * adjacent in the ST_LineLocatePoint-ordered list for a line have ZERO
- * other known `station_groups` between them — "adjacent" is defined by
- * that ordering, so there is nothing left to be "intermediate". This
- * fallback therefore always applies the constant with an intermediate
- * count of 0 (contributing 0 minutes) rather than omitting it — a
- * nonzero count isn't derivable from topology alone without a richer
- * "real stations not yet in station_groups" data source than this mode
- * has.
- *
- * Both directions are always written (real rail lines run both ways),
- * with identical peak/off-peak minutes (physical distance/speed doesn't
- * vary by time of day) and the global `PEAK_WAIT_MINUTES`/
- * `OFFPEAK_WAIT_MINUTES` constants for expected wait (this mode has no
- * headway data to derive a better estimate from — hence `confidence =
- * 'low'`).
- */
-
 import type { Confidence } from "@tokyo/shared";
 import {
   DWELL_SECONDS_PER_INTERMEDIATE_STATION,
@@ -80,7 +45,6 @@ export interface FallbackTopologyResult {
   readonly warnings: readonly string[];
 }
 
-/** Computes fallback `ride` edges for every `rail_lines` row with non-null geometry. */
 export async function computeFallbackEdges(client: PoolClient): Promise<FallbackTopologyResult> {
   const { rows: allLines } = await client.query<{ rail_line_id: string }>(
     `SELECT rail_line_id FROM rail_lines`,
@@ -102,22 +66,6 @@ export async function computeFallbackEdges(client: PoolClient): Promise<Fallback
   const edges: NewFallbackEdge[] = [];
 
   for (const line of linesWithGeom) {
-    // `rail_lines.geom` is typed `geometry(MultiLineString, 4326)` (see
-    // db/migrations/0001_init.sql). `ST_LineLocatePoint`/`ST_LineSubstring`
-    // only accept a genuine LineString, so the geometry is merged and then
-    // split into its connected components, and stations are ordered WITHIN
-    // each component.
-    //
-    // Per-component ordering is what makes along-line distance meaningful
-    // here. A real line is rarely one unbroken path: 中央線, 京王線, 東横線
-    // and 13 others in the 2025 MLIT export branch or arrive as disconnected
-    // runs once clipped to Tokyo. Ordering stations along a merged
-    // MULTILINESTRING as though it were one path would interleave stations
-    // from different branches and invent adjacencies that do not exist;
-    // treating the whole line as unusable (the previous behaviour) instead
-    // dropped 16 lines and left 17% of station groups with no edges at all.
-    // Splitting keeps each component's fraction scale self-consistent, so a
-    // pair is only ever adjacent within one continuous run of track.
     const { rows: pairs } = await client.query<AdjacentPairRow>(
       `WITH parts AS (
          -- COALESCE: ST_Dump returns an EMPTY path array when its input is

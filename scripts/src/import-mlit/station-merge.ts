@@ -1,22 +1,3 @@
-/**
- * Station-complex merging: collapses raw station features whose normalized
- * name matches AND whose points are within `STATION_MERGE_RADIUS_M` (300m)
- * into one `station_group`, e.g. multiple operators' platforms for what a
- * rider would call "the same station".
- *
- * Matching is name-first, then proximity: stations are grouped by
- * normalized Japanese name, and only *within* a name group is a
- * union-find pass used to merge members transitively (A-B and B-C close
- * enough merges A, B, and C together even if A and C themselves are just
- * over the radius apart) — see `mergeStations`'s tests for the exact
- * two-merge/one-separate fixture.
- *
- * The representative point is the arithmetic mean of members' lon/lat.
- * For points already known to be within ~300m of each other, the error
- * versus a proper geodesic centroid is negligible, and this keeps the
- * whole module free of any geometry dependency.
- */
-
 import { STATION_MERGE_RADIUS_M } from "@tokyo/shared";
 
 import { slug } from "./geojson.js";
@@ -31,7 +12,6 @@ export interface MergedStationGroup {
   readonly members: readonly ParsedStation[];
 }
 
-/** Strips a trailing "駅" or " Station" suffix and case, so "渋谷駅" matches "渋谷". */
 export function normalizeStationName(name: string): string {
   return name
     .trim()
@@ -53,7 +33,6 @@ function haversineMeters(a: ParsedStation, b: ParsedStation): number {
   return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(Math.min(1, h)));
 }
 
-/** Simple union-find over a fixed set of integer indices. */
 class UnionFind {
   private readonly parent = new Map<number, number>();
 
@@ -68,7 +47,7 @@ class UnionFind {
       if (next === undefined) throw new Error(`UnionFind: unknown index ${root}`);
       root = next;
     }
-    // Path compression.
+
     let cur = x;
     while (this.parent.get(cur) !== root) {
       const next = this.parent.get(cur);
@@ -132,8 +111,6 @@ export function mergeStations(stations: readonly ParsedStation[]): MergedStation
       const lon = members.reduce((sum, m) => sum + m.lon, 0) / members.length;
       const lat = members.reduce((sum, m) => sum + m.lat, 0) / members.length;
 
-      // `representative.nameEn` always has a value — `parseStationFeature`
-      // already falls back to `nameJa` when the source has no English name.
       const baseSlug = slug(representative.nameEn);
       const stationGroupId = `mlit-${baseSlug}-${lat.toFixed(3)}-${lon.toFixed(3)}`;
 

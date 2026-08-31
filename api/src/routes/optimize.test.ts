@@ -1,15 +1,3 @@
-/**
- * `POST /v1/optimize` tests.
- *
- * Unit-level tests use `app.inject()` against a fake pool (dispatched by
- * matching a distinctive SQL substring in each query — see
- * `fakeOptimizePool` below) and a small hand-built `TransitGraphs` fixture
- * (`test-support/fixtures.ts`'s `graphsFromEdges`) — no real database
- * involved. One integration test at the bottom, guarded on `DATABASE_URL`,
- * runs against the real seeded + derived database (pattern mirrors
- * `scripts/src/seed.test.ts`).
- */
-
 import type { OptimizationRequest } from "@tokyo/shared";
 import { optimizeResponseSchema } from "@tokyo/shared";
 import { execFileSync } from "node:child_process";
@@ -22,11 +10,6 @@ import { buildApp } from "../app.js";
 import type { DbPool } from "../db.js";
 import type { RailEdgeRow } from "../domain/transit/graph.js";
 import { emptyGraphs, graphsFromEdges, testConfig } from "../test-support/fixtures.js";
-
-// ---------------------------------------------------------------------------
-// Fixture graph: sg-near --1 hop--> sg-dest, sg-far --2 hops--> sg-dest
-// (via sg-mid), sg-isolated has no edges at all.
-// ---------------------------------------------------------------------------
 
 function edge(
   overrides: Partial<RailEdgeRow> & Pick<RailEdgeRow, "fromStationGroupId" | "toStationGroupId">,
@@ -102,9 +85,7 @@ const CANDIDATE_ROWS = [
     normQuietness: 90,
   }),
   makeCandidateRow({ stationGroupId: "sg-isolated", nameEn: "Isolated Station", nameJa: "孤立駅" }),
-  // The DESTINATION's own area is a candidate like every other one — the
-  // `WHERE nm.station_group_id != $1` filter that used to delete it is gone
-  // (see CANDIDATES_SQL's comment in optimize.ts).
+
   makeCandidateRow({ stationGroupId: "sg-dest", nameEn: "Destination", nameJa: "目的地" }),
 ];
 
@@ -112,7 +93,7 @@ function fakeOptimizePool(
   overrides: {
     candidates?: unknown[];
     importRuns?: unknown[];
-    /** Rows the destination-point `ST_DWithin` lookup returns. */
+
     accessStations?: { stationGroupId: string; distanceM: number }[];
   } = {},
 ): DbPool {
@@ -122,14 +103,13 @@ function fakeOptimizePool(
 
   return {
     query: vi.fn((text: string) => {
-      if (text.includes("FROM neighborhood_metrics nm")) {
+      if (text.includes("localities l")) {
         return Promise.resolve({ rows: candidates });
       }
       if (text.includes("FROM rail_lines")) {
         return Promise.resolve({ rows: RAIL_LINE_NAME_ROWS });
       }
-      // Must be checked BEFORE the bare `FROM station_groups` name-lookup
-      // branch below — the access-station query selects from that table too.
+
       if (text.includes("ST_DWithin")) {
         return Promise.resolve({ rows: accessStations });
       }
@@ -165,10 +145,6 @@ function buildTestApp(pool: DbPool, graphs = FIXTURE_GRAPHS) {
   return buildApp({ config: testConfig(), pool, graphs });
 }
 
-// ---------------------------------------------------------------------------
-// Unit tests
-// ---------------------------------------------------------------------------
-
 describe("POST /v1/optimize", () => {
   it("happy path: 200, results sorted by overallScore desc, every result validates against optimizeResponseSchema", async () => {
     const app = buildTestApp(fakeOptimizePool());
@@ -194,19 +170,17 @@ describe("POST /v1/optimize", () => {
         expect(prev.overallScore).toBeGreaterThanOrEqual(cur.overallScore);
       }
     }
-    // The destination's own area IS a result now — living at the
-    // destination is a legitimate answer, and deleting it was the bug.
+
     const destination = parsed.results.find((r) => r.stationGroupId === "sg-dest");
     expect(destination).toBeDefined();
     expect(destination?.isDestinationAccessStation).toBe(true);
-    // Every OTHER area is reached by rail, not on foot.
+
     for (const result of parsed.results) {
       if (result.stationGroupId !== "sg-dest") {
         expect(result.isDestinationAccessStation).toBe(false);
       }
     }
-    // sg-isolated has no rail_edges at all — must be absent from results and
-    // counted under excludedByDisconnected.
+
     expect(parsed.results.some((r) => r.stationGroupId === "sg-isolated")).toBe(false);
     expect(parsed.diagnostics.excludedByDisconnected).toBe(1);
     expect(parsed.diagnostics.candidatesConsidered).toBe(4);
@@ -231,7 +205,7 @@ describe("POST /v1/optimize", () => {
         expect(hop.lineName).not.toMatch(/^rl-/);
       }
     }
-    // Explicitly assert the real names/line appear somewhere in the path.
+
     const names = (near?.commute.path ?? []).map((h) => h.nameEn);
     expect(names).toContain("Destination");
     expect(names).toContain("Near Station");
@@ -353,8 +327,7 @@ describe("POST /v1/optimize", () => {
     const response = await app.inject({
       method: "POST",
       url: "/v1/optimize",
-      // maxCommuteMinutes at the schema's own minimum (5) — ACCESS_WALK_MINUTES
-      // alone (8) already exceeds this for every reachable candidate.
+
       payload: baseRequest({ maxCommuteMinutes: 5 }),
     });
     await app.close();
@@ -366,10 +339,6 @@ describe("POST /v1/optimize", () => {
     expect(body.diagnostics.suggestion).not.toBeNull();
     expect(typeof body.diagnostics.suggestion).toBe("string");
   });
-
-  // -------------------------------------------------------------------------
-  // The destination as a POINT
-  // -------------------------------------------------------------------------
 
   describe("destinationPoint", () => {
     function pointRequest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -383,7 +352,6 @@ describe("POST /v1/optimize", () => {
     }
 
     it("resolves a point to seeds and itemizes a NON-ZERO destination walk in every commute", async () => {
-      // 400 straight-line metres from sg-dest -> 400 * 1.3 / 80 = 6.5 -> 7 min.
       const app = buildTestApp(
         fakeOptimizePool({ accessStations: [{ stationGroupId: "sg-dest", distanceM: 400 }] }),
       );
@@ -400,8 +368,7 @@ describe("POST /v1/optimize", () => {
 
       for (const result of body.results) {
         expect(result.commute.destinationWalkMinutes).toBe(7);
-        // Itemized, and counted exactly ONCE in the total — the rule
-        // commute.ts:63-70 states and commute.test.ts pins directly.
+
         expect(result.commute.totalMinutes).toBe(
           result.commute.accessWalkMinutes +
             result.commute.railMinutes +
@@ -427,7 +394,7 @@ describe("POST /v1/optimize", () => {
       const destination = body.results.find((r) => r.stationGroupId === "sg-dest");
       expect(destination).toBeDefined();
       expect(destination?.isDestinationAccessStation).toBe(true);
-      // 8 min home->station + 0 rail + 0 wait + 7 min walk to the office.
+
       expect(destination?.commute.railMinutes).toBe(0);
       expect(destination?.commute.totalMinutes).toBe(15);
     });
@@ -461,11 +428,6 @@ describe("POST /v1/optimize", () => {
     });
 
     it("lets the search pick the cheaper access station per origin, not the nearest to the office", async () => {
-      // arrivalTime 09:00 is peak, so a hop costs 10 rail + 3 wait.
-      // sg-near is 1 hop from sg-dest, which is a 1-minute walk from the
-      // office (10 + 3 + 1 = 14); walking from sg-near itself would be
-      // ceil(1200 * 1.3 / 80) = 20. Riding must win, and the search — not
-      // a nearest-station heuristic — is what discovers that.
       const app = buildTestApp(
         fakeOptimizePool({
           accessStations: [
@@ -482,28 +444,17 @@ describe("POST /v1/optimize", () => {
       await app.close();
 
       const body = optimizeResponseSchema.parse(response.json());
-      // sg-near's own best route ends at sg-dest with a 1-minute walk, not
-      // at sg-near with a 20-minute one.
+
       const near = body.results.find((r) => r.stationGroupId === "sg-near");
       expect(near?.commute.destinationWalkMinutes).toBe(1);
       expect(near?.commute.railMinutes).toBe(10);
-      // 8 access walk + 10 rail + 3 wait + 1 destination walk.
+
       expect(near?.commute.totalMinutes).toBe(22);
 
-      // sg-near is ALSO one of the destination's own access stations (it's
-      // in `accessStations` above), so `isDestinationAccessStation` is true
-      // here at the same time `railMinutes` is 10, not 0. This is exactly
-      // the fixture the UI's "destination area" banner must not fire on:
-      // the flag alone does not mean "you just walk there" — only
-      // `isDestinationAccessStation && commute.railMinutes === 0` does. See
-      // `web/app/page.tsx`'s banner gate.
       expect(near?.isDestinationAccessStation).toBe(true);
     });
 
     it("a point with no station in range -> 400 NO_ACCESS_STATIONS, not a 500 and not an empty ranked list", async () => {
-      // reverseDijkstra throws a plain Error on an empty seed list, which
-      // the global handler would render as a generic 500 INTERNAL_ERROR.
-      // The route must reject BEFORE calling it.
       const app = buildTestApp(fakeOptimizePool({ accessStations: [] }));
       const response = await app.inject({
         method: "POST",
@@ -568,10 +519,6 @@ describe("POST /v1/optimize", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // diagnostics identity — must survive dropping the self-exclusion
-  // -------------------------------------------------------------------------
-
   describe("diagnostics reconcile after the destination's own area rejoined the pool", () => {
     const cases: { name: string; payload: Record<string, unknown> }[] = [
       { name: "a station destination", payload: baseRequest() },
@@ -608,7 +555,7 @@ describe("POST /v1/optimize", () => {
             diagnostics.excludedByDisconnected +
             diagnostics.feasibleCount,
         ).toBe(diagnostics.candidatesConsidered);
-        // And the destination's own area is genuinely in that count now.
+
         expect(diagnostics.candidatesConsidered).toBe(4);
       });
     }
@@ -628,27 +575,6 @@ describe("POST /v1/optimize", () => {
     expect(body.error.code).toBe("GRAPH_UNAVAILABLE");
   });
 });
-
-// ---------------------------------------------------------------------------
-// Integration test — guarded on DATABASE_URL, runs against the real seeded
-// + derived database. Mirrors scripts/src/seed.test.ts's / derive.test.ts's
-// pattern of making its own `beforeAll` fully self-sufficient.
-//
-// This test's precondition is a POPULATED `neighborhood_metrics` table (the
-// `derive` step's output), which `scripts/src/seed.test.ts`'s own suite
-// (run later in the SAME `pnpm test` invocation, since `api`'s test files
-// run before `scripts`'s per `vitest.config.ts`'s project order) does NOT
-// preserve: `seed.ts` reinserts `station_groups` rows, which — via
-// `neighborhood_metrics`'s `ON DELETE CASCADE` FK — wipes any
-// previously-derived metrics. That wipe happens AFTER this test runs within
-// one invocation, but PERSISTS in the database for the NEXT `pnpm test`
-// invocation, silently leaving `neighborhood_metrics` empty the next time
-// this file runs (this was caught for real: candidatesConsidered came back
-// `0` the second time this suite ran back-to-back). Re-running
-// `db:migrate && db:seed && derive` here — the documented recovery
-// command — makes this test's precondition true regardless of what any
-// other suite left behind, on every run.
-// ---------------------------------------------------------------------------
 
 const databaseUrl = process.env["DATABASE_URL"];
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -730,8 +656,6 @@ describe.runIf(Boolean(databaseUrl))("POST /v1/optimize (integration)", () => {
     const graphs = buildGraphs(await loadRailEdges(pool));
     const app = buildApp({ config: testConfig(), pool, graphs });
 
-    // ~400 m south-east of sg-shibuya (139.7016, 35.6580) — an office
-    // between stations, the case the whole feature exists for.
     const response = await app.inject({
       method: "POST",
       url: "/v1/optimize",
@@ -755,8 +679,6 @@ describe.runIf(Boolean(databaseUrl))("POST /v1/optimize (integration)", () => {
     const body = optimizeResponseSchema.parse(response.json());
     expect(body.results.length).toBeGreaterThan(0);
 
-    // Every commute pays a real walk at the destination end, itemized and
-    // counted exactly once.
     for (const result of body.results) {
       expect(result.commute.destinationWalkMinutes).toBeGreaterThan(0);
       expect(result.commute.totalMinutes).toBe(

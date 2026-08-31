@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { resolvePeriod } from "./period.js";
 
-// PEAK_WINDOW = { startMinutes: 450 (07:30), endMinutes: 600 (10:00) },
-// start inclusive, end exclusive.
 describe("resolvePeriod", () => {
   it("is off-peak just before the window (07:29)", () => {
     expect(resolvePeriod("07:29")).toBe("offpeak");

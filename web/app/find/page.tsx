@@ -13,21 +13,12 @@ import { MethodologyFooter } from "../components/MethodologyFooter";
 import { ResultsSection, buildSearchSummary } from "../components/ResultsSection";
 import { SearchForm } from "../components/SearchForm";
 
-/**
- * The Field Guide, composed: masthead, an editorial hero that opens
- * straight onto the search, then the recommendations workspace. All
- * search state lives in `useOptimizeSearch`; this file owns layout,
- * results-region scrolling, and focus hand-off to the results heading.
- */
 export default function Home() {
   const search = useOptimizeSearch();
   const reducedMotion = usePrefersReducedMotion();
   const resultsRegionRef = useRef<HTMLDivElement>(null);
   const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
 
-  // Bring the results region into view when a search starts, and hand
-  // focus to the results heading when recommendations land — keyboard
-  // and screen-reader users are not left behind at the form.
   useEffect(() => {
     if (search.isLoading) {
       resultsRegionRef.current?.scrollIntoView({
@@ -63,7 +54,7 @@ export default function Home() {
       <Masthead />
 
       <main>
-        {/* Hero — the invitation and the instrument, side by side. */}
+        {}
         <div className="mx-auto max-w-[1360px] px-5 pt-10 pb-14 sm:px-8 lg:pt-16">
           <div className="grid gap-10 lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)] lg:gap-14">
             <div>
@@ -77,8 +68,7 @@ export default function Home() {
                 could live.
               </p>
 
-              {/* The plate. A figure, captioned like one: it shows the
-                  ground the search covers, at the scale it covers it. */}
+              {}
               <figure className="mt-10 hidden border border-line-strong lg:block">
                 <div className="aspect-[62/56] overflow-hidden bg-paper-soft">
                   <HeroMapFragment />
@@ -100,7 +90,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Recommendations workspace */}
+        {}
         <div ref={resultsRegionRef} className="mx-auto max-w-[1360px] scroll-mt-16 px-5 sm:px-8">
           {search.isLoading && <LoadingResults />}
           {!search.isLoading && response && (

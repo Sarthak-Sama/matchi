@@ -1,17 +1,3 @@
-/**
- * Scoring, hard filters, ranking, and explanations — pure functions over
- * precomputed `neighborhood_metrics` columns plus a commute estimate. No
- * database access happens here (the route does the querying and hands this
- * module plain data); every formula constant is imported from
- * `@tokyo/shared`'s `config/scoring.ts` rather than re-typed.
- *
- * This is where the product's actual opinion lives: which candidates
- * survive the hard filters, how they're scored, and why. Every point on
- * `overallScore` must be traceable to a `FactorEvidence` entry in
- * `factors`, and every `factors[].pointContribution` must be explainable
- * from its own `componentScore` and `effectiveWeight`.
- */
-
 import type {
   Confidence,
   FactorEvidence,
@@ -37,27 +23,6 @@ import { LIFESTYLE_AXIS_DESCRIBERS } from "./lifestyle-axis-describe.js";
 import { percentile } from "./percentile.js";
 import type { CommuteEstimateResult } from "./transit/commute.js";
 
-// ---------------------------------------------------------------------------
-// Input shapes
-// ---------------------------------------------------------------------------
-
-/**
- * Every axis's `norm_*` (0-100) column from `pnpm derive`'s normalization
- * step, plus the raw counts behind the two amenity axes (used for
- * human-readable `rawValueLabel`s — see the worked example in the task
- * report) and a single source date/confidence pair covering all of them.
- * `neighborhood_metrics` has no per-axis confidence column (only
- * `rent_confidence`), so one bundle-level confidence for the whole
- * derived-metrics row is the honest representation of what the pipeline
- * actually knows.
- *
- * Deliberately a hand-written, named-field interface rather than a
- * `Record<string, number>` generated from `LIFESTYLE_AXES`: it is the
- * tripwire that makes a new registry axis fail to compile in
- * `lifestyle-axis-describe.ts` until the metric it reads actually exists.
- * Each field name is an axis's `metricsKey` (or a describer's declared raw
- * column).
- */
 export interface LifestyleMetricsInput {
   readonly normAmenitySupermarket: number;
   readonly normAmenityRestaurant: number;
@@ -79,16 +44,9 @@ export interface LifestyleMetricsInput {
   readonly confidence: Confidence;
 }
 
-/**
- * One station area, fully assembled by the caller from
- * `station_groups`/`wards`, a `RentEstimateResult` (`@tokyo/shared`'s
- * `estimateRent`), a `CommuteEstimateResult` (`estimateCommute`, or `null`
- * when the station is unreachable from the requested destination — the
- * "disconnected" hard-filter case), and `LifestyleMetricsInput`.
- */
 export interface Candidate {
   readonly localityId?: string;
-  /** Retained only to make the legacy detail/API transition non-breaking. */
+
   readonly stationGroupId?: string;
   readonly nameEn: string;
   readonly nameJa: string;
@@ -106,18 +64,9 @@ export interface Candidate {
   readonly rent: RentEstimateResult;
   readonly commute: CommuteEstimateResult | null;
   readonly lifestyle: LifestyleMetricsInput;
-  /**
-   * True when this area's own station is one of the destination's access
-   * stations. Carried through scoring untouched — it changes no score, it
-   * is purely a label the response passes to the UI (see
-   * `NeighborhoodResult.isDestinationAccessStation`).
-   */
+
   readonly isDestinationAccessStation?: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// applyHardFilters
-// ---------------------------------------------------------------------------
 
 export interface HardFilterDiagnostics {
   readonly candidatesConsidered: number;
@@ -133,20 +82,6 @@ export interface HardFilterResult {
   readonly diagnostics: HardFilterDiagnostics;
 }
 
-/**
- * Applies the three hard filters in spec order — disconnected, then
- * commute, then rent — counting each candidate under the FIRST rule it
- * fails. This first-match-wins ordering is what makes
- * `excludedByDisconnected + excludedByCommute + excludedByRent +
- * feasibleCount === candidatesConsidered` hold unconditionally: every
- * candidate takes exactly one of the four `continue`/fall-through paths
- * below, never more than one.
- *
- * Preferences (lifestyle importance) never appear here — "essential" is a
- * *weight* used later by `scoreLifestyle`/`scoreCandidate`, not a filter.
- * A candidate can have essential-but-terrible lifestyle metrics and still
- * be `feasible`; it will simply score low.
- */
 export function applyHardFilters(
   candidates: readonly Candidate[],
   request: OptimizationRequest,
@@ -209,20 +144,6 @@ export function applyHardFilters(
   };
 }
 
-/**
- * Only called when `feasible.length === 0`. Names the exclusion rule that
- * removed the most candidates (ties broken by filter priority order:
- * disconnected, then commute, then rent — the same order the filters
- * themselves run in) and derives a concrete relaxation from the data
- * behind that rule, rather than a hard-coded guess:
- *   - rent: the 25th percentile of the excluded candidates' rent medians,
- *     rounded to the nearest ¥1,000.
- *   - commute: the 25th percentile of the excluded candidates' total
- *     commute minutes, rounded to the nearest minute.
- *   - disconnected: there is no numeric threshold to relax (no route
- *     exists at all), so the suggestion names the count and points at
- *     changing the destination/arrival time instead.
- */
 function buildSuggestion(input: {
   readonly candidatesConsidered: number;
   readonly disconnectedCount: number;
@@ -277,30 +198,10 @@ function buildSuggestion(input: {
   );
 }
 
-/**
- * Rounds to one decimal place. Used to round every `FactorEvidence`'s
- * `pointContribution` AT THE POINT IT'S STORED, so that `overallScore` (the
- * sum of those already-rounded contributions — see `scoreCandidate`) is
- * guaranteed to equal what a reader gets by adding up the displayed
- * contributions by hand. Rounding the total separately from its parts, as
- * an earlier version of this module did, only reconciles by coincidence
- * (when the unrounded total already happens to land on a 0.1 boundary) —
- * see the "point contributions sum to overallScore" tests for a
- * non-boundary counterexample.
- */
 function roundToOneDecimal(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-// ---------------------------------------------------------------------------
-// scoreAffordability
-// ---------------------------------------------------------------------------
-
-/**
- * 100 when `rentMedianYen` is at or below `AFFORDABILITY_FULL_SCORE_RATIO`
- * (0.6) of `budgetYen`, 0 when it is at or above `budgetYen`, linear
- * between.
- */
 export function scoreAffordability(rentMedianYen: number, budgetYen: number): number {
   const fullScoreThreshold = budgetYen * AFFORDABILITY_FULL_SCORE_RATIO;
 
@@ -310,14 +211,6 @@ export function scoreAffordability(rentMedianYen: number, budgetYen: number): nu
   return (100 * (budgetYen - rentMedianYen)) / (budgetYen - fullScoreThreshold);
 }
 
-// ---------------------------------------------------------------------------
-// scoreCommute
-// ---------------------------------------------------------------------------
-
-/**
- * 100 at or below `COMMUTE_FULL_SCORE_MINUTES` (15), 0 at or above
- * `maxCommuteMinutes`, linear between.
- */
 export function scoreCommute(totalMinutes: number, maxCommuteMinutes: number): number {
   if (totalMinutes <= COMMUTE_FULL_SCORE_MINUTES) return 100;
   if (totalMinutes >= maxCommuteMinutes) return 0;
@@ -327,56 +220,20 @@ export function scoreCommute(totalMinutes: number, maxCommuteMinutes: number): n
   );
 }
 
-// ---------------------------------------------------------------------------
-// scoreLifestyle
-// ---------------------------------------------------------------------------
-
 export interface LifestyleScoreResult {
   readonly score: number;
   readonly factors: readonly FactorEvidence[];
 }
 
-/**
- * Effective share for axis _i_ is
- * `IMPORTANCE_VALUES[pref_i] / sum(IMPORTANCE_VALUES[pref_j] for all SELECTED j)`
- * — "essential" (8) is the strongest possible weight, never a filter.
- * `score` is the weighted sum of the selected axes' normalized (0-100)
- * scores (`Σ componentScore_i * share_i`), so it stays on a 0-100 scale;
- * each factor's `effectiveWeight` is that same share scaled into the
- * OVERALL score (`OVERALL_WEIGHTS.lifestyle * share_i`), so
- * `Σ factors[].pointContribution === OVERALL_WEIGHTS.lifestyle * score`.
- *
- * An axis the request left out is OMITTED, not weighted zero: it produces
- * no `FactorEvidence`, so it can never surface in `factors` or in
- * `reasonsFor`/`reasonsAgainst`.
- *
- * Lifestyle stays `OVERALL_WEIGHTS.lifestyle` (40%) of the overall score no
- * matter how many axes are selected — the shares RENORMALIZE over the
- * selected axes and always sum to 1. Rating one axis instead of four does
- * not make lifestyle count for less; it concentrates the same 40% on that
- * one axis. (Writing this down because "fewer axes should count less" is a
- * plausible misreading, and "fixing" it would silently rescale every score.)
- */
 export function scoreLifestyle(
   metrics: LifestyleMetricsInput,
   preferences: OptimizationRequest["preferences"],
 ): LifestyleScoreResult {
-  // Registry order, so `factors` ordering is stable and independent of the
-  // key order of whatever object the caller built.
   const selected = LIFESTYLE_AXIS_IDS.flatMap((id) => {
     const importance = preferences[id];
     return importance === undefined ? [] : [{ id, importance }];
   });
 
-  // With nothing selected there is no share to compute: `importanceTotal`
-  // would be 0, every share `NaN`, and the `NaN` would propagate into
-  // `overallScore` and then into `rankCandidates`'s comparisons, which
-  // silently produce an arbitrary order. `optimizationRequestSchema`
-  // already requires at least one axis, but `/v1/neighborhoods` builds its
-  // own preferences object without going through the schema, so the guard
-  // is real rather than redundant. The honest answer for "no lifestyle
-  // axes rated" is that lifestyle contributes nothing and explains
-  // nothing — 0 points, no factors — NOT a fabricated neutral score.
   if (selected.length === 0) {
     return { score: 0, factors: [] };
   }
@@ -405,9 +262,7 @@ export function scoreLifestyle(
       pointContribution: roundToOneDecimal(componentScore * effectiveWeight),
       sourceDate: metrics.sourceDate,
       confidence: metrics.confidence,
-      // Deliberately does NOT restate `componentScore` in the same "X/100"
-      // form `rawValueLabel` already uses for quietness. The effective weight is new
-      // information `rawValueLabel` never carries, for every axis.
+
       explanation: `${rawValueLabel}, weighted at ${(effectiveWeight * 100).toFixed(1)}% of your overall score.`,
       direction: classifyDirection(componentScore),
     };
@@ -416,35 +271,12 @@ export function scoreLifestyle(
   return { score, factors };
 }
 
-// ---------------------------------------------------------------------------
-// direction classification (shared by scoreCandidate's factors and buildReasons)
-// ---------------------------------------------------------------------------
-
-/**
- * A factor's contribution "relative to what it could have contributed" is
- * `pointContribution / (100 * effectiveWeight)`. Since
- * `pointContribution === componentScore * effectiveWeight`, that ratio
- * algebraically reduces to `componentScore / 100` — the weight cancels
- * out (note: this uses the UNROUNDED `componentScore * effectiveWeight`
- * product, not the rounded `pointContribution` that gets stored — rounding
- * for display must never feed back into which bucket a factor lands in).
- * So classifying direction from `componentScore` alone, against
- * `REASON_POSITIVE_THRESHOLD`/`REASON_NEGATIVE_THRESHOLD` scaled onto the
- * 0-100 `componentScore` scale, is exactly the spec's formula, just
- * computed the numerically simpler way. `buildReasons` reuses this same
- * classification rather than recomputing the ratio.
- */
 function classifyDirection(componentScore: number): FactorEvidence["direction"] {
   if (componentScore > REASON_POSITIVE_THRESHOLD * 100) return "positive";
   if (componentScore < REASON_NEGATIVE_THRESHOLD * 100) return "negative";
   return "neutral";
 }
 
-// ---------------------------------------------------------------------------
-// legacy id / commute-shape compat (shared by scoreCandidate and rankCandidates)
-// ---------------------------------------------------------------------------
-
-/** See `Candidate.stationGroupId`'s doc comment: the legacy id fallback used wherever a `localityId` isn't set yet. */
 function resolveLocalityId(candidate: {
   readonly localityId?: string;
   readonly stationGroupId?: string;
@@ -453,14 +285,6 @@ function resolveLocalityId(candidate: {
   return candidate.localityId ?? `legacy:${candidate.stationGroupId ?? candidate.nameJa}`;
 }
 
-/**
- * `CommuteEstimateResult.path` is `readonly CommutePathHop[]` (the transit
- * domain's own invariant); `NeighborhoodResult["commute"]` (derived from
- * `commuteEstimateSchema` via `z.infer`) expects a plain mutable array and
- * defaulted `mode`/`rangeMinutes`. `.map()` always returns a fresh mutable
- * array regardless of the source's readonly-ness, so this is a type-shape
- * conversion only — no data is changed.
- */
 function normalizeCommute(commute: CommuteEstimateResult) {
   return {
     ...commute,
@@ -469,10 +293,6 @@ function normalizeCommute(commute: CommuteEstimateResult) {
     path: commute.path.map((hop) => ({ ...hop })),
   };
 }
-
-// ---------------------------------------------------------------------------
-// scoreCandidate
-// ---------------------------------------------------------------------------
 
 export type ScoredCandidate = Omit<
   NeighborhoodResult,
@@ -484,21 +304,6 @@ export type ScoredCandidate = Omit<
   readonly commute: CommuteEstimateResult;
 };
 
-/**
- * Scores one candidate that has already passed `applyHardFilters` (so
- * `candidate.commute` is non-null — this throws otherwise, since scoring a
- * disconnected candidate is a caller bug, not a data condition to handle
- * gracefully). `overallScore = 0.30*affordability + 0.30*commute +
- * 0.40*lifestyle`. Every `factors[].pointContribution` is rounded to one
- * decimal place AT THE POINT IT'S COMPUTED (see `roundToOneDecimal`), and
- * `overallScore` is the sum of those already-rounded contributions (passed
- * through `roundToOneDecimal` once more only to absorb floating-point
- * summation noise, e.g. `0.1 + 0.2`-style artifacts — not to re-round a
- * meaningfully different value). This is reconciliation BY CONSTRUCTION:
- * `factors[].pointContribution` summed by a caller always equals
- * `overallScore` exactly, for every input, not just ones whose raw total
- * happens to land on a 0.1 boundary.
- */
 export function scoreCandidate(
   candidate: Candidate,
   request: OptimizationRequest,
@@ -513,10 +318,7 @@ export function scoreCandidate(
 
   const affordabilityScore = scoreAffordability(candidate.rent.medianYen, request.monthlyBudgetYen);
   const commuteScore = scoreCommute(commute.totalMinutes, request.maxCommuteMinutes);
-  // Only `factors` is needed here — `overallScore` below is derived by
-  // summing every factor's `pointContribution` directly (which already
-  // includes the lifestyle axes' contributions), not by recombining
-  // `scoreLifestyle`'s own `score` a second time.
+
   const { factors: lifestyleFactors } = scoreLifestyle(candidate.lifestyle, request.preferences);
 
   const affordabilityFactor: FactorEvidence = {
@@ -541,8 +343,7 @@ export function scoreCandidate(
     componentScore: commuteScore,
     effectiveWeight: OVERALL_WEIGHTS.commute,
     pointContribution: roundToOneDecimal(commuteScore * OVERALL_WEIGHTS.commute),
-    // Commute is computed live from the current graph, not sourced from a
-    // dated table — there is no vintage to report.
+
     sourceDate: null,
     confidence: commute.confidence,
     explanation: `A ${Math.round(commute.totalMinutes)} min commute (${COMMUTE_LABEL}) against a ${request.maxCommuteMinutes} min cap scores ${Math.round(commuteScore)}/100 on commute.`,
@@ -551,16 +352,6 @@ export function scoreCandidate(
 
   const factors: FactorEvidence[] = [affordabilityFactor, commuteFactor, ...lifestyleFactors];
 
-  // Sum of the ALREADY-ROUNDED pointContributions (affordability, commute,
-  // and one per selected lifestyle axis) — see this function's doc comment
-  // for why this is reconciliation by construction rather than a
-  // coincidence of the inputs. Each pointContribution can carry up to ±0.05
-  // of rounding drift versus its true (unrounded) value, so the sum can
-  // overshoot 100 by up to half a decimal per factor even when every
-  // componentScore is exactly 100 (e.g. preferences low/low/high/essential
-  // with all four lifestyle axes at 100 sums to 100.1) — clamped here
-  // rather than in `roundToOneDecimal` itself, since that helper is also
-  // used for the individual (unclamped) factor contributions.
   const roundedContributionSum = factors.reduce((sum, factor) => sum + factor.pointContribution, 0);
   const overallScore = Math.min(100, roundToOneDecimal(roundedContributionSum));
 
@@ -590,21 +381,6 @@ export function scoreCandidate(
   };
 }
 
-// ---------------------------------------------------------------------------
-// buildReasons
-// ---------------------------------------------------------------------------
-
-/**
- * Selects up to three `reasonsFor` (from factors classified `"positive"`,
- * i.e. `componentScore > REASON_POSITIVE_THRESHOLD * 100`) and up to three
- * `reasonsAgainst` (from factors classified `"negative"`, i.e.
- * `componentScore < REASON_NEGATIVE_THRESHOLD * 100`) — see
- * `classifyDirection` for why that's equivalent to the spec's
- * `contribution / (100 * effectiveWeight)` formula. Candidates are sorted
- * by `effectiveWeight` descending first (a factor that carries more of the
- * overall score is a more important reason), then by "gap size" — how far
- * past the threshold the factor sits — descending as the tiebreaker.
- */
 export function buildReasons(factors: readonly FactorEvidence[]): {
   reasonsFor: string[];
   reasonsAgainst: string[];
@@ -633,15 +409,6 @@ export function buildReasons(factors: readonly FactorEvidence[]): {
   };
 }
 
-// ---------------------------------------------------------------------------
-// rankCandidates
-// ---------------------------------------------------------------------------
-
-/**
- * Sorts by `overallScore` descending; ties broken by commute
- * `totalMinutes` ascending, then by rent `medianYen` ascending. Assigns
- * `rank` starting at 1 in the resulting order.
- */
 export function rankCandidates(scored: readonly ScoredCandidate[]): NeighborhoodResult[] {
   const sorted = [...scored].sort((a, b) => {
     if (b.overallScore !== a.overallScore) return b.overallScore - a.overallScore;

@@ -128,10 +128,6 @@ describe("optimizationRequestSchema preferences", () => {
   });
 
   it("rejects selecting every registered axis when that exceeds the maximum allowed", () => {
-    // With nine registered axes and a max of five, submitting all of them
-    // (the app's own untouched default state before the frontend fix)
-    // must 400 rather than silently accept — this is exactly the guard
-    // MAX_SELECTED_LIFESTYLE_AXES exists to enforce as the axis set grows.
     expect(LIFESTYLE_AXIS_IDS.length).toBeGreaterThan(MAX_SELECTED_LIFESTYLE_AXES);
     const preferences = Object.fromEntries(LIFESTYLE_AXIS_IDS.map((id) => [id, "medium"]));
     const result = optimizationRequestSchema.safeParse({ ...validRequest(), preferences });
@@ -162,12 +158,7 @@ describe("optimizationRequestSchema preferences", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// The destination: exactly one of destinationStationGroupId / destinationPoint
-// ---------------------------------------------------------------------------
-
 describe("optimizationRequestSchema — destination", () => {
-  /** `validRequest()` minus its station id — the only valid base for a point request. */
   function withoutStationId() {
     const request: Record<string, unknown> = validRequest();
     delete request["destinationStationGroupId"];
@@ -226,9 +217,6 @@ describe("optimizationRequestSchema — destination", () => {
   });
 
   it("accepts a far-away but well-formed coordinate — out of range is the resolver's answer, not a validation error", () => {
-    // Deliberate: a point in the middle of the Pacific parses fine and is
-    // rejected later, by the route, as NO_ACCESS_STATIONS — which names the
-    // real problem. See destinationPointSchema's doc comment.
     const result = optimizationRequestSchema.safeParse(withPoint({ lat: 35.0, lon: 145.0 }));
     expect(result.success).toBe(true);
   });

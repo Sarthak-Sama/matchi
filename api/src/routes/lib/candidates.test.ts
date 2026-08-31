@@ -54,7 +54,7 @@ describe("localityCommute", () => {
       lookups,
     );
 
-    expect(commute?.mode).toBe("transit"); // median of [walk, transit, transit]
+    expect(commute?.mode).toBe("transit");
     expect(commute?.rangeMinutes?.min).toBeLessThan(commute?.rangeMinutes?.max ?? 0);
     expect(commute?.totalMinutes).toBe(25);
   });

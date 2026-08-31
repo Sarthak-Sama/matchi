@@ -21,19 +21,6 @@ export const metadata: Metadata = {
     "Find the Tokyo neighborhood that fits your life. Matchi compares commute, modeled rent, and everyday rhythm — and shows the compromise before you sign anything.",
 };
 
-/**
- * The landing page: the argument, made once, before the instrument.
- *
- * It is a server component on purpose. Only the plate and the section
- * reveals are client-side; the words, the numbers, and every link render
- * on the server, so the page is useful with JavaScript still in flight.
- *
- * Every figure on this page is either drawn from the generated plate data
- * (itself produced from the project's own database) or from the shared
- * scoring config. Nothing here is a marketing number.
- */
-
-/** What the guide will not do — stated plainly, because it matters. */
 const LIMITS = [
   {
     title: "These are not listings",
@@ -49,11 +36,6 @@ const LIMITS = [
   },
 ] as const;
 
-/**
- * Search links written before the tool moved to /find point at this route
- * and carry the whole search in the query string. Hand them on rather than
- * dropping someone who followed a shared link onto a page that ignores it.
- */
 export default async function Landing({
   searchParams,
 }: {

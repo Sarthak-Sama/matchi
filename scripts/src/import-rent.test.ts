@@ -1,18 +1,3 @@
-/**
- * Tests for `pnpm import:rent`.
- *
- * The pure-function tests below (Shift-JIS/BOM decoding, CSV parsing, ward
- * matching, range validation) never touch a database or the network —
- * every input comes from the small committed fixtures under
- * `fixtures/rent/` or from hand-built in-memory rows.
- *
- * The DB-guarded section at the bottom requires a real PostGIS database
- * reachable via `DATABASE_URL` — it skips with an explicit message when
- * unset, so a missing env var never reads as a silent pass. Run with:
- *
- *   DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test
- */
-
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -44,18 +29,12 @@ function fixturePath(name: string): string {
   return path.join(FIXTURES_DIR, name);
 }
 
-// The 4 wards seeded by scripts/src/fixtures/seed/wards.ts — the only
-// wards this repo's vertical-slice test database knows about.
 const SEED_WARDS = [
   { wardCode: "13113", nameJa: "渋谷区" },
   { wardCode: "13104", nameJa: "新宿区" },
   { wardCode: "13112", nameJa: "世田谷区" },
   { wardCode: "13110", nameJa: "目黒区" },
 ];
-
-// ---------------------------------------------------------------------------
-// Pure parsing / decoding / matching — no DB.
-// ---------------------------------------------------------------------------
 
 describe("e-Stat: Shift-JIS decoding", () => {
   it("decodes the committed Shift-JIS fixture into the correct Japanese ward names", () => {
@@ -200,8 +179,6 @@ describe("rent-unit: convertToPerSqm + --rent-unit", () => {
   });
 
   it("'tsubo' divides by TSUBO_TO_SQM (hand-computed literal: 3305.8 yen/tsubo -> 1000 yen/m²)", () => {
-    // 3305.8 = 1000 * 3.3058 (TSUBO_TO_SQM), chosen so the division comes
-    // out to a clean integer and the test doesn't need a tolerance.
     expect(convertToPerSqm(3305.8, "tsubo")).toBe(1000);
   });
 
@@ -216,12 +193,6 @@ describe("rent-unit: convertToPerSqm + --rent-unit", () => {
       const asSqm = mapEstatRows([shibuyaRaw], SEED_WARDS, "sqm")[0];
       const asTsubo = mapEstatRows([shibuyaRaw], SEED_WARDS, "tsubo")[0];
 
-      // Raw fixture value is 4300 (already a plausible per-m² figure). Read
-      // as "sqm" it passes through unchanged; read as "tsubo" it converts
-      // down to a DIFFERENT plausible-looking per-m² value instead of
-      // silently equalling itself — this is exactly why the range check
-      // alone can't catch a per-tsubo/per-m² mixup: both readings land
-      // inside [1000, 20000].
       expect(asSqm?.rentPerSqmYen).toBe(4300);
       expect(asTsubo?.rentPerSqmYen).toBe(Math.round(4300 / 3.3058));
       expect(asTsubo?.rentPerSqmYen).not.toBe(asSqm?.rentPerSqmYen);
@@ -248,10 +219,6 @@ describe("rent-unit: convertToPerSqm + --rent-unit", () => {
     );
   });
 });
-
-// ---------------------------------------------------------------------------
-// DB-guarded integration tests.
-// ---------------------------------------------------------------------------
 
 const databaseUrl = destructiveTestDatabaseUrl();
 
@@ -283,17 +250,13 @@ describe.runIf(Boolean(databaseUrl))("import:rent (DB integration)", () => {
     await runMigrations({ dryRun: false });
     await runSeed();
     pool = new Pool({ connectionString: databaseUrl });
-    // Clean slate for this script's own bookkeeping rows, independent of
-    // anything else that has run against this shared database.
+
     await pool.query(`DELETE FROM import_runs WHERE source = 'rent'`);
   });
 
   afterAll(async () => {
     if (!databaseUrl) return;
-    // Restore the pristine seed baseline for rent_stats (this suite
-    // overwrites the estat rows and adds/overwrites reins rows with its
-    // own fixture numbers), so this file doesn't leave the shared database
-    // in a mixed state for whatever runs next.
+
     await runSeed();
     await pool.end();
   });
@@ -348,9 +311,7 @@ describe.runIf(Boolean(databaseUrl))("import:rent (DB integration)", () => {
 
     const badFile = await mkdtemp(path.join(os.tmpdir(), "import-rent-bad-"));
     const badPath = path.join(badFile, "estat-bad.csv");
-    // Plain-ASCII, friendly-alias headers — Shift-JIS and UTF-8 agree on
-    // every byte below 0x80, so decodeEstatCsv's Shift-JIS path reads this
-    // correctly without needing a real Shift-JIS-encoded fixture here.
+
     await writeFile(badPath, "ward_code,ward_name,rent_per_sqm_yen\n13113,Shibuya,999\n", "utf8");
 
     await expect(
@@ -374,10 +335,6 @@ describe.runIf(Boolean(databaseUrl))("import:rent (DB integration)", () => {
 });
 
 describe("import:rent", () => {
-  // Sentinel test: passes (with an explicit explanatory title) only when
-  // DATABASE_URL is unset, so `pnpm test` output always makes clear *why*
-  // the real integration tests above were skipped rather than silently
-  // omitted. When DATABASE_URL is set, this sentinel itself is skipped.
   it.skipIf(Boolean(databaseUrl))(
     "SKIPPED integration tests above: DATABASE_URL is not set — set it to a PostGIS connection string to run them, e.g. DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test",
     () => {

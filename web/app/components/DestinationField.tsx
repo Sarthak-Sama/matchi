@@ -6,15 +6,6 @@ import type { PlaceSuggestion, StationSuggestion } from "@tokyo/shared";
 
 import { CloseIcon, DestinationMark } from "./icons";
 
-/**
- * The destination combobox — the strongest first interaction in the
- * product. ARIA 1.2 combobox pattern: `aria-activedescendant` keyboard
- * navigation (Arrows / Enter / Escape), mouse and touch selection, a
- * unified option list (places first, station fallback when places come
- * back empty), an honest failure state with retry, and an unmistakable
- * committed-selection bar that replaces the input once chosen.
- */
-
 interface DestinationFieldProps {
   readonly query: string;
   readonly selectedLabel: string | null;
@@ -101,7 +92,6 @@ export function DestinationField(props: DestinationFieldProps) {
         event.preventDefault();
         choose(options[activeIndex]);
       }
-      // Otherwise let the form submit normally.
     } else if (event.key === "Escape") {
       if (isOpen) {
         event.preventDefault();
@@ -117,7 +107,6 @@ export function DestinationField(props: DestinationFieldProps) {
       </label>
 
       {hasSelection ? (
-        /* Committed selection — unmistakable, one tap to change. */
         <div className="mt-2 flex min-h-12 items-center gap-3 border border-moss bg-paper-soft px-4 py-2.5">
           <span className="text-vermilion">
             <DestinationMark />
@@ -132,7 +121,7 @@ export function DestinationField(props: DestinationFieldProps) {
             type="button"
             onClick={() => {
               props.onClear();
-              // Focus returns after the input re-mounts.
+
               requestAnimationFrame(() => inputRef.current?.focus());
             }}
             className="label-utility flex min-h-11 shrink-0 items-center gap-1.5 px-2 text-ink-muted transition-colors hover:text-ink"
@@ -208,8 +197,7 @@ export function DestinationField(props: DestinationFieldProps) {
                 const primary = option.kind === "place" ? option.place.name : option.station.nameEn;
                 const nameJa =
                   option.kind === "place" ? option.place.nameJa : option.station.nameJa;
-                // Most MLIT records repeat the Japanese name in the English
-                // column; showing it twice reads as a bug, not as bilingual.
+
                 const secondary = nameJa && nameJa !== primary ? nameJa : null;
                 return (
                   <li key={key} role="presentation">
