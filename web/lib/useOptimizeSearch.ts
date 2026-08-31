@@ -232,6 +232,10 @@ export function useOptimizeSearch() {
   }, []);
 
   function editDestinationQuery(value: string): void {
+    if (value.trim().length > 0) {
+      setPlaceSuggestions([]);
+      setStationFallback([]);
+    }
     setDestQuery(value);
     setSelectedDestination(null);
     setCommittedQuery(null);
