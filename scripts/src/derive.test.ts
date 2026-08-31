@@ -1,16 +1,3 @@
-/**
- * Integration test for the derive script. Requires a real PostGIS database
- * reachable via `DATABASE_URL` — skips with an explicit message when unset,
- * so a missing env var never reads as a silent pass.
- *
- * Run with:
- *   DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test
- *
- * Runs against DATABASE_URL's real `public` schema (migrate + seed + derive
- * all operate there directly), same pattern as seed.test.ts — so
- * DATABASE_URL must point at a database you're fine having reset.
- */
-
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -23,18 +10,9 @@ import { destructiveTestDatabaseUrl } from "./test-support/database-url.js";
 
 const databaseUrl = destructiveTestDatabaseUrl();
 
-// π · 800² — the true area of an 800m-radius circle. station_areas.area_sqm
-// is computed from a polygonal buffer approximation, so a small (<1%)
-// shortfall is expected and fine; anything near two orders of magnitude off
-// (e.g. a degrees-vs-metres bug) fails this check hard.
 const EXPECTED_CATCHMENT_AREA_SQM = Math.PI * CATCHMENT_RADIUS_M * CATCHMENT_RADIUS_M;
 const AREA_TOLERANCE_FRACTION = 0.01;
 
-// Columns compared by the idempotence checksum. `derived_at` (a
-// wall-clock timestamp) is deliberately excluded — nothing else in this
-// row set derives from the clock or from randomness, so excluding just
-// that one column is sufficient for "running derive twice produces
-// byte-identical metric rows".
 const CHECKSUM_QUERY = `
   SELECT md5(string_agg(row_to_json(x)::text, '|')) AS checksum FROM (
     SELECT
@@ -162,14 +140,11 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
 
     const shibuya = byId.get("sg-shibuya");
     expect(shibuya, "sg-shibuya row").toBeDefined();
-    // fixtures/seed/pois.ts: 3 "Shibuya Health" POIs.
+
     expect(Number(shibuya?.health_count), "sg-shibuya health_count").toBe(3);
-    // 8 distinct restaurant cuisines (RESTAURANT_CUISINES) + 1 distinct
-    // cafe cuisine ("coffee_shop") = 9.
+
     expect(Number(shibuya?.cuisine_variety_count), "sg-shibuya cuisine_variety_count").toBe(9);
-    // 2 restaurants closing >=23:00, 2 bars at 24/7, 1 cafe at 24/7 = 5.
-    // The 3rd bar ("Mo-Su 18:00-02:00", open past 2am) is deliberately NOT
-    // counted — see amenities.ts's conservative-heuristic doc comment.
+
     expect(Number(shibuya?.late_night_count), "sg-shibuya late_night_count").toBe(5);
 
     const yoga = byId.get("sg-yoga");
@@ -210,12 +185,6 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
   });
 
   it("every norm_* column is within [0,100], with at least one 100 and one 0 per axis", async () => {
-    // Driven off the shared lifestyle-axes registry rather than hand-written
-    // literals: every axis's `normColumn` is checked, so a future axis added
-    // to the registry is automatically covered here too. This is what
-    // proves each axis was min-maxed against ITS OWN bounds — a copy-pasted
-    // bound type-checks, runs, and yields plausible wrong scores, but leaves
-    // no row at exactly 0 or 100.
     const axes = LIFESTYLE_AXIS_IDS.map((id) => LIFESTYLE_AXES[id].normColumn);
     const { rows } = await pool.query<Record<(typeof axes)[number], number>>(
       `SELECT ${axes.join(", ")} FROM neighborhood_metrics`,
@@ -249,25 +218,15 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
     expect(rows).toHaveLength(2);
 
     for (const row of rows) {
-      // sg-isolated-test: 0 land_prices points in its catchment.
-      // sg-toritsudaigaku: exactly 2 (< MIN_LAND_PRICE_POINTS = 3).
       expect(row.land_price_point_count, row.station_group_id).toBeLessThan(3);
       expect(Number(row.land_price_multiplier), row.station_group_id).toBe(1.0);
       expect(row.land_price_used_fallback, row.station_group_id).toBe(true);
-      // Both wards' only rent_stats row is the 2023 e-Stat row (baseConfidence
-      // "medium" per pickRentStat), so a confidence of "low" here proves the
-      // land-price fallback (and/or stale-source) lowering actually fired.
+
       expect(row.rent_confidence, row.station_group_id).toBe("low");
     }
   });
 
   it("land_price_used_fallback is false for a station with a genuinely computed (non-1.0) multiplier", async () => {
-    // sg-yoyogi has 3 land_prices points (>= MIN_LAND_PRICE_POINTS) and
-    // usable catchment/ward medians, so computeLandPriceMultiplier computes
-    // a real ratio rather than falling back — its multiplier is != 1.0,
-    // which land_price_point_count alone couldn't distinguish from a
-    // coincidental fallback-to-1.0 case (the exact ambiguity
-    // land_price_used_fallback exists to resolve).
     const { rows } = await pool.query<{
       land_price_point_count: number;
       land_price_multiplier: number;
@@ -307,10 +266,6 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
 });
 
 describe("derive", () => {
-  // Sentinel test: passes (with an explicit explanatory title) only when
-  // DATABASE_URL is unset, so `pnpm test` output always makes clear *why*
-  // the real integration tests above were skipped rather than silently
-  // omitted. When DATABASE_URL is set, this sentinel itself is skipped.
   it.skipIf(Boolean(databaseUrl))(
     "SKIPPED integration tests above: DATABASE_URL is not set — set it to a PostGIS connection string to run them, e.g. DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test",
     () => {

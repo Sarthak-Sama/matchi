@@ -1,8 +1,3 @@
-/**
- * `GET /v1/neighborhoods/:stationGroupId` route tests, `app.inject()`
- * against a fake pool — no real database involved.
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 import { buildApp } from "../app.js";

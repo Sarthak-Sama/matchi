@@ -1,61 +1,3 @@
-/**
- * `pnpm import:rent` — imports ward-level rent and management-fee
- * statistics into `rent_stats`, primarily from e-Stat's 2023 Housing and
- * Land Survey, with an optional REINS quarterly overlay.
- *
- *   pnpm import:rent --file data/estat-rent-2023.csv [--rent-unit sqm] \
- *     [--source-date 2023-10-01] \
- *     [--reins data/reins-2026q2.csv] [--reins-source-date 2026-07-01]
- *
- * When `--file` is omitted, this script tries to download from e-Stat —
- * which currently always fails, naming `ESTAT_APP_ID` and a manual
- * download URL, because no verified e-Stat download endpoint/table id
- * could be confirmed without live network access while building this
- * script (the same situation as MLIT). Passing `--file` is the
- * only supported path today. `--reins` has no download path at all — REINS
- * has no public API; a member exports their own quarterly report.
- *
- * e-Stat CSVs are Shift-JIS by default; `import-rent/estat.ts` decodes
- * explicitly with `iconv-lite` (this task's one permitted new dependency —
- * Node has no built-in Shift-JIS `TextDecoder`) and also accepts a UTF-8
- * byte-order-mark. `resolveSource` itself always reads/downloads as
- * `encoding: "latin1"` here specifically so no byte information is lost
- * before this script gets to choose the real decoding — see
- * `lib/source-file.ts`'s updated doc comment.
- *
- * `--rent-unit=sqm|tsubo` (default `sqm`) declares whether BOTH files'
- * rent column is already yen-per-m² or yen-per-tsubo — see
- * `import-rent/rent-unit.ts` and `@tokyo/shared`'s `RENT_PER_SQM_YEN_MIN`/
- * `MAX` doc comment for why this is a caller-declared choice rather than
- * something inferred from the numbers (a per-tsubo figure at realistic
- * Tokyo magnitudes lands inside the same "sane" range a per-m² figure
- * would, so guessing wrong would silently inflate every rent by ~3.3x).
- * The unit in effect is printed prominently at the start of every run.
- *
- * `rent_stats.source` names the data PROVIDER (`'estat'` | `'reins'`), not
- * this ingesting script — `pickRentStat` reads that column
- * directly to prefer a recent REINS row over e-Stat. Each provider's rows
- * are upserted by this table's natural key (`ward_code`, `period`,
- * `source`); a ward that disappears from one (source, period) file's
- * matched set is deleted, but ONLY within that exact (source, period) —
- * never across periods, so re-running e-Stat for the current survey year
- * cannot delete a REINS row, and a later REINS quarter cannot delete an
- * earlier quarter's history for the same reason (see `upsertRentStats`).
- * This script's own `import_runs` bookkeeping row uses `source = 'rent'`
- * (the ingesting script's identity), distinct from the provider values
- * written into `rent_stats.source`.
- *
- * Every dataset is parsed and validated (ward matching, then the sane
- * numeric ranges from `@tokyo/shared`'s `config/scoring.ts`) before any
- * write, following this repo's house pattern: all of it still runs inside
- * `runImport`'s transaction (from `scripts/src/lib/import-run.ts`), so a
- * bad file causes a harmless no-op rollback rather than a partial write.
- * An unmatched ward or an out-of-range value is a hard error naming the
- * offending value — never a silent skip (see `import-rent/ward-match.ts`'s
- * doc comment for why: `rent_stats.ward_code` is a real `NOT NULL` FK that
- * `import:mlit` now checks before dropping a ward).
- */
-
 import type { PoolClient } from "pg";
 
 import type { ImportResult } from "./lib/import-run.js";
@@ -74,11 +16,11 @@ const RUN_SOURCE = "rent";
 export interface ImportRentArgs {
   readonly estatPath?: string;
   readonly estatSourceDate?: Date;
-  /** @deprecated REINS is intentionally ignored until a licensed source exists. */
+
   readonly reinsPath?: string;
-  /** @deprecated REINS is intentionally ignored until a licensed source exists. */
+
   readonly reinsSourceDate?: Date;
-  /** Declares the unit BOTH files' rent column is in. Defaults to `"sqm"` when omitted. */
+
   readonly rentUnit?: RentUnit;
 }
 
@@ -86,8 +28,7 @@ async function loadEstat(localPath: string | undefined): Promise<string> {
   if (!localPath) throw new Error("loadEstat requires a local file");
   const { readFile } = await import("node:fs/promises");
   const raw = (await readFile(localPath)).toString("latin1");
-  // `raw` is a lossless byte-preserving string (see lib/source-file.ts);
-  // recover the exact original bytes before choosing the real decoding.
+
   return decodeEstatCsv(Buffer.from(raw, "latin1"));
 }
 
@@ -98,14 +39,6 @@ async function loadWards(client: PoolClient): Promise<WardLookupEntry[]> {
   return rows.map((r) => ({ wardCode: r.ward_code, nameJa: r.name_ja }));
 }
 
-/**
- * Upserts `rows` (all sharing `source`) by `rent_stats`'s natural key
- * (`ward_code`, `period`, `source`), then deletes any existing row for
- * that exact `(source, period)` pair whose ward isn't in this run's
- * matched set — scoped per period (not blanket per source) so this never
- * touches a different period's history. See this file's module doc
- * comment for why that scoping matters.
- */
 async function upsertRentStats(
   client: PoolClient,
   source: string,
@@ -149,7 +82,7 @@ async function upsertRentStats(
 
 export interface RentImportResult extends ImportResult {
   readonly estatRowsImported: number;
-  /** @deprecated always zero; retained temporarily for caller compatibility. */
+
   readonly reinsRowsImported: number;
 }
 
@@ -192,11 +125,6 @@ export async function runRentImport(
     ? mergeLiveEstatRows(live.rent, live.fee)
     : mapEstatRows(parseEstatCsv(await loadEstat(args.estatPath)), wards, rentUnit);
 
-  // "Every one of the [known] ward codes present" — checked dynamically
-  // against whatever `wards` currently holds, rather than a hardcoded 23,
-  // so this works both in production (all 23 special wards, once
-  // import:mlit has run) and in a partially-seeded environment (e.g. this
-  // repo's 4-ward vertical slice).
   const matchedWardCodes = new Set(estatRows.map((r) => r.wardCode));
   expectRowCount(matchedWardCodes.size, {
     min: wards.length,

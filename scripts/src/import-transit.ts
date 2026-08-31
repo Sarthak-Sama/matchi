@@ -1,70 +1,3 @@
-/**
- * `pnpm import:transit` — derives `rail_edges` (the commute engine's
- * entire routing graph, alongside `rail_lines`/`station_groups`) and any
- * new `station_source_refs` rows a GTFS feed's stops resolve to.
- *
- * Two input modes, mutually exclusive:
- *
- *   pnpm import:transit --gtfs <dir-or-zip>     # real GTFS feed
- *   pnpm import:transit --from-topology         # rail_lines geometry only
- *
- * GTFS mode (`import-transit/gtfs-*.ts`, `stop-matching.ts`,
- * `route-line-mapping.ts`, `travel-stats.ts`, `gtfs-plan.ts`): reads
- * `stops.txt`/`routes.txt`/`trips.txt`/`calendar.txt`/
- * `calendar_dates.txt` fully into memory (all small) and STREAMS
- * `stop_times.txt` (GTFS's largest file by far — see
- * `gtfs-stop-times.ts`). Selects weekday services only, maps GTFS stops to
- * existing `station_groups` (via `station_source_refs` first, then
- * normalized-name + `STATION_MERGE_RADIUS_M` proximity, recording new refs
- * with `source = 'gtfs'`), computes median adjacent-stop travel times
- * (peak/off-peak) and headway-derived expected wait per route direction,
- * and writes `confidence = 'high'`, `source = 'gtfs'` ride edges. A GTFS
- * route this run cannot map to an existing `rail_lines` row is SKIPPED
- * ENTIRELY (never written with a null `rail_line_id` — see
- * `route-line-mapping.ts`'s doc comment for why that guard matters to
- * the router) and named in a loud warning. Stops that end up
- * unmatched are reported the same way, UNLESS more than 20% of the feed's
- * distinct stations are unmatched, which aborts the whole run.
- *
- * Fallback mode (`import-transit/fallback-topology.ts`): derives
- * `confidence = 'low'`, `source = 'mlit-topology'` ride edges purely from
- * `rail_lines.geom` + `station_groups.point`, for when a real GTFS feed
- * isn't available (this repo's own tests, or a live environment with no
- * ODPT credentials — both true "at test time" per this task's
- * constraints).
- *
- * Both modes then run the SAME two final steps: `writeTransferEdges`
- * (bidirectional `travel_minutes = 0` transfer edges between any two
- * DIFFERENT `station_groups` within `STATION_MERGE_RADIUS_M` — the
- * `TRANSFER_PENALTY_MINUTES` is applied once, by the router, never stored
- * here) and `validateGraph` (aborts if the WHOLE `rail_edges` table's
- * graph is too sparse, or too many `station_groups` end up with no edge at
- * all — a check on the table as a whole, not this run's own contribution).
- * Before either of those runs, `runTransitImport` separately aborts if
- * THIS RUN ITSELF wrote zero ride edges: `validateGraph`'s whole-table
- * check alone would let a run that mapped zero usable lines/routes still
- * report success on the strength of leftover seed/prior-import data, even
- * though `writeRideEdges`'s delete-then-upsert-on-this-source pattern just
- * silently wiped this source's own prior edges and replaced them with
- * nothing.
- *
- * `rail_edges` ride rows are upserted on the table's own natural key
- * (`from_station_group_id, to_station_group_id, rail_line_id, edge_type`),
- * then any `edge_type = 'ride'` row for THIS run's `source` not seen this
- * run is deleted — the same upsert-then-delete-stale shape as
- * `import:mlit`'s wards/stations/rail_lines, scoped so a GTFS run never
- * touches `mlit-topology` rows or vice versa (and neither ever touches
- * `seed`-sourced rows). Following the house pattern (Tasks 11-13):
- * everything above happens inside the `fn` passed to `runImport`
- * (`lib/import-run.ts`), so a bad feed or a failed validation rolls the
- * whole transaction back rather than leaving a partial graph.
- *
- * Never persisted anywhere: GTFS `trips`, `calendar`/`calendar_dates`, or
- * the full `stop_times` table — this script derives aggregate
- * medians/headways from them in memory and writes only the derived
- * `rail_edges` rows and `station_source_refs`.
- */
-
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -93,7 +26,6 @@ import { validateGraph } from "./import-transit/validate-graph.js";
 const GTFS_SOURCE = "gtfs";
 const FALLBACK_SOURCE = "mlit-topology";
 
-/** Sanity floor only — catches an empty/broken run, not a coverage target. */
 const MIN_RAIL_EDGES = 1;
 
 const MANUAL_GTFS_URL =
@@ -119,12 +51,6 @@ interface RideEdgeInput {
   readonly confidence: Confidence;
 }
 
-/**
- * Upserts `edges` on the table's natural key, then deletes any
- * `edge_type = 'ride'` row for `source` not seen this run — the same
- * upsert-then-delete-stale shape `import:mlit` uses for wards/stations/
- * rail_lines (see this file's own module doc comment).
- */
 async function writeRideEdges(
   client: PoolClient,
   source: string,
@@ -350,22 +276,10 @@ export async function runTransitImport(
     warnings = result.warnings;
   }
 
-  // Print diagnostics BEFORE the zero-edges check below can abort — the
-  // per-line/per-route/per-stop warnings collected above are exactly what
-  // explains a zero-edge run, and should still reach the console even
-  // though the transaction is about to be rolled back.
   for (const warning of warnings) {
     console.warn(`import:transit — ${warning}`);
   }
 
-  // `validateGraph` below checks the WHOLE rail_edges table's health, not
-  // this run's own contribution — a run that maps zero usable lines/routes
-  // would otherwise still pass as long as leftover seed/prior-import data
-  // keeps the graph above MIN_RAIL_EDGES, and (combined with
-  // writeRideEdges's delete-then-upsert-on-this-source pattern) could wipe
-  // its own source's prior edges, contribute nothing, and still exit 0 as
-  // "complete". Treat a run's own zero-edge contribution as a hard failure
-  // instead, naming the likely cause and remedy for each mode.
   if (rideEdgesWritten === 0) {
     const causeAndRemedy =
       source === GTFS_SOURCE

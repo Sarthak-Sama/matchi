@@ -1,20 +1,3 @@
-/**
- * Rail lines dataset — MLIT's National Land Numerical Information railway
- * data (dataset code N02), railroad-section lines.
- *
- * ASSUMED property names (verify against a real download): `N02_004` (operator)
- * and `N02_003` (Japanese line name) are N02's real field codes; a
- * friendlier `operator` / `name_ja` is accepted too.
- *
- * IMPORTANT known gap: raw N02 data does not classify a line into this
- * schema's `mode` enum (`subway` | `local_rail` | `commuter_rail` |
- * `monorail` — a CHECK constraint on `rail_lines.mode`). This module
- * requires the input file to already carry an explicit `mode` property per
- * feature — i.e. that classification has to happen in a preprocessing
- * pass over the real download (by operator name or line type) before
- * feeding it to this script.
- */
-
 import { expectColumns } from "../lib/validate.js";
 import type { GeoJSONFeature } from "./geojson.js";
 import { lineGeometryToMultiLineStringWKT, pickProperty, slug } from "./geojson.js";

@@ -1,19 +1,3 @@
-/**
- * Rent estimator — pure functions, no database access, no dependency
- * beyond `@tokyo/shared`'s own config module (`config/scoring.ts`).
- *
- * Placement note: the original spec placed this under `api/`. It lives here
- * instead because the `derive` script (package `@tokyo/scripts`) must
- * call the exact same functions, and having `@tokyo/scripts` depend on
- * `@tokyo/api` would invert the dependency graph. Both `api` and `scripts`
- * import these functions from `@tokyo/shared`. Do not duplicate the formula
- * anywhere else.
- *
- * Formula (spec, verbatim):
- *   ward rent/m2 x assumed layout size x station land-price multiplier
- *     + ward management fee
- */
-
 import type { Confidence } from "../config/scoring.js";
 import {
   HIGH_ESTIMATE_FACTOR,
@@ -30,19 +14,13 @@ import {
   lowerConfidence,
 } from "../config/scoring.js";
 
-/** One of the layout ids defined in `LAYOUTS` (mirrors `Layout` in contracts/common.ts). */
 export type LayoutId = (typeof LAYOUT_IDS)[number];
 
-// ---------------------------------------------------------------------------
-// computeLandPriceMultiplier
-// ---------------------------------------------------------------------------
-
 export interface LandPriceMultiplierInput {
-  /** Median land price (yen/m²) across points inside the station's catchment. */
   readonly catchmentMedianLandPrice: number | null;
-  /** Median land price (yen/m²) across the whole ward. */
+
   readonly wardMedianLandPrice: number | null;
-  /** Number of land-price data points backing `catchmentMedianLandPrice`. */
+
   readonly pointCount: number;
 }
 
@@ -51,14 +29,6 @@ export interface LandPriceMultiplierResult {
   readonly usedFallback: boolean;
 }
 
-/**
- * `clamp((catchment / ward) ** LAND_PRICE_MULTIPLIER_EXPONENT,
- *   LAND_PRICE_MULTIPLIER_MIN, LAND_PRICE_MULTIPLIER_MAX)`.
- *
- * Falls back to an exact `1.0` multiplier (and reports `usedFallback: true`)
- * when there are too few land-price points to trust, or either median is
- * missing or non-positive.
- */
 export function computeLandPriceMultiplier(
   input: LandPriceMultiplierInput,
 ): LandPriceMultiplierResult {
@@ -81,39 +51,23 @@ export function computeLandPriceMultiplier(
   return { multiplier, usedFallback: false };
 }
 
-// ---------------------------------------------------------------------------
-// estimateRent
-// ---------------------------------------------------------------------------
-
 export interface RentEstimateInput {
   readonly layout: LayoutId;
   readonly wardRentPerSqmYen: number;
   readonly managementFeeYen: number;
-  /** The already-computed multiplier, e.g. from `computeLandPriceMultiplier`. */
+
   readonly landPriceMultiplier: number;
-  /** The point count backing `landPriceMultiplier`. Carried through to the output shape. */
+
   readonly landPricePointCount: number;
-  /**
-   * `computeLandPriceMultiplier`'s own `usedFallback` flag, threaded
-   * through by the caller. NOT re-derived from `landPricePointCount` here:
-   * `computeLandPriceMultiplier` also falls back to `1.0` when a median is
-   * missing or non-positive, which can happen even with
-   * `landPricePointCount >= MIN_LAND_PRICE_POINTS`, and `landPriceMultiplier`
-   * alone can't be told apart from a genuinely-computed `1.0` (e.g. when
-   * catchment and ward medians are equal).
-   */
+
   readonly landPriceUsedFallback: boolean;
   readonly source: string;
   readonly sourcePeriod: string;
   readonly baseConfidence: Confidence;
-  /**
-   * The current year, supplied by the caller. `estimateRent` never reads
-   * the clock itself, so results stay deterministic and testable.
-   */
+
   readonly currentYear: number;
 }
 
-/** Structurally matches `rentEstimateSchema` from `contracts/response.ts`. */
 export interface RentEstimateResult {
   readonly lowYen: number;
   readonly medianYen: number;
@@ -132,12 +86,6 @@ export interface RentEstimateResult {
   readonly label: typeof RENT_LABEL;
 }
 
-/**
- * `ward rent/m2 x assumed layout size x station land-price multiplier +
- * ward management fee`, rounded to the nearest yen. The management fee is
- * added to all three of low/median/high and is NOT scaled by the
- * multiplier or by layout area.
- */
 export function estimateRent(input: RentEstimateInput): RentEstimateResult {
   const {
     layout,
@@ -204,65 +152,19 @@ export function estimateRent(input: RentEstimateInput): RentEstimateResult {
   };
 }
 
-// ---------------------------------------------------------------------------
-// rentStatBaseConfidence
-// ---------------------------------------------------------------------------
-
-/**
- * Classifies the base confidence tier for a SINGLE already-identified
- * `(source, period)` pair, independent of `pickRentStat`'s row-SELECTION
- * logic (choosing among several candidate rows). `pickRentStat` calls this
- * for both its reins and estat branches below.
- *
- * Exported so a caller that already knows which stat backs a stored
- * estimate (e.g. `/v1/optimize` and `/v1/neighborhoods/:id`,
- * recomputing `estimateRent` for a user-chosen layout from a
- * `neighborhood_metrics` row's `rent_source` / `rent_source_period`) can
- * reconstruct the correct `baseConfidence` INPUT to `estimateRent`, rather
- * than passing that row's own already-adjusted `rent_confidence` column
- * back in as `baseConfidence`. The latter would double-apply
- * `estimateRent`'s fallback/staleness downgrades on every subsequent call
- * (each of which independently checks `landPriceUsedFallback` and
- * `sourcePeriod` age again), silently ratcheting confidence down every time
- * the same station is recomputed — e.g. an original `high` that was
- * downgraded once to `medium` would incorrectly become `low` on the very
- * next recompute of the same, unchanged data.
- */
 export function rentStatBaseConfidence(
   source: string,
   period: string,
   currentYear: number,
 ): Confidence {
   if (source === "reins") {
-    // `pickRentStat` only ever selects a reins row when it is at most
-    // `RENT_STAT_RECENT_MAX_AGE_YEARS` old, so the base confidence for a
-    // reins pick is unconditionally "high" here — `estimateRent`'s own
-    // staleness check independently re-evaluates freshness against
-    // whatever `currentYear` the caller supplies, which is what lets a
-    // reins-sourced estimate's confidence legitimately degrade further as
-    // it ages after being stored, without this function double-charging
-    // a downgrade that already happened once.
     return "high";
   }
 
-  // estat (or any other future source): a row older than
-  // RENT_STAT_OLD_MIN_AGE_YEARS is "low", otherwise "medium".
   const age = currentYear - extractYear(period);
   return age > RENT_STAT_OLD_MIN_AGE_YEARS ? "low" : "medium";
 }
 
-// ---------------------------------------------------------------------------
-// pickRentStat
-// ---------------------------------------------------------------------------
-
-/**
- * The subset of a `rent_stats` row that `pickRentStat` needs. Field names
- * mirror the `rent_stats` table columns exactly (see
- * `db/migrations/0001_init.sql`), so callers can pass rows straight from a
- * `SELECT * FROM rent_stats WHERE ward_code = $1` query without remapping.
- * Extra columns (e.g. `id`, `ward_code`, `sample_count`) pass through
- * untouched via the generic `T`.
- */
 export interface RentStatRow {
   readonly source: string;
   readonly period: string;
@@ -275,14 +177,6 @@ export interface PickRentStatResult<T extends RentStatRow> {
   readonly baseConfidence: Confidence;
 }
 
-/**
- * Given every `rent_stats` row for a single ward, prefer the most recent
- * `reins` row if one exists and is not older than
- * `RENT_STAT_RECENT_MAX_AGE_YEARS`; otherwise fall back to the most recent
- * `estat` row. Confidence: `high` for a qualifying REINS row, `medium` for
- * a recent-enough e-Stat row, `low` for an e-Stat row older than
- * `RENT_STAT_OLD_MIN_AGE_YEARS`.
- */
 export function pickRentStat<T extends RentStatRow>(
   stats: readonly T[],
   { currentYear }: { readonly currentYear: number },
@@ -315,23 +209,6 @@ export function pickRentStat<T extends RentStatRow>(
   );
 }
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Picks the row with the lexicographically greatest `period`.
- *
- * Only ever compares rows within a single source group (`pickRentStat`
- * filters by `source` before calling this), so the two period formats in
- * use never mix within one comparison: e-Stat periods are bare 4-digit
- * years (`"2023"` < `"2024"`), REINS periods are `YYYYQn` (`"2026Q1"` <
- * `"2026Q2"`). Both formats are fixed-width and left-to-right
- * most-significant-first, so plain string comparison agrees with
- * chronological order within each format. If a source ever starts mixing
- * period formats (e.g. REINS periods without a quarter), this needs to
- * change to parse an explicit (year, quarter) tuple instead.
- */
 function mostRecentByPeriod<T extends RentStatRow>(rows: readonly T[]): T | undefined {
   return rows.reduce<T | undefined>((best, row) => {
     if (!best || row.period > best.period) return row;
@@ -339,7 +216,6 @@ function mostRecentByPeriod<T extends RentStatRow>(rows: readonly T[]): T | unde
   }, undefined);
 }
 
-/** Extracts the leading 4-digit year from a period string like "2023" or "2026Q2". */
 function extractYear(period: string): number {
   const match = /^(\d{4})/.exec(period);
   if (!match) {

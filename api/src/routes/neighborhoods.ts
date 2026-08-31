@@ -1,18 +1,3 @@
-/**
- * `GET /v1/neighborhoods/:stationGroupId?layout=` — the station, its ward,
- * the catchment polygon as GeoJSON, its derived metrics restated as
- * structured factor evidence, a modeled rent estimate for the requested
- * layout (default `1LDK`), and the data's source dates.
- *
- * There is no dedicated shared Zod schema for this route's full response
- * envelope (`neighborhoodResultSchema` covers only `/v1/optimize`'s
- * ranked-result shape, which lacks the catchment GeoJSON and full metrics
- * this route exposes) — so the dev-mode response check
- * here validates the two REUSABLE shared sub-schemas this response embeds
- * (`rentEstimateSchema`, `factorEvidenceSchema`) rather than a
- * one-off envelope schema invented just for this check.
- */
-
 import type {
   FactorEvidence,
   Importance,
@@ -49,18 +34,6 @@ const querySchema = z
   .object({ layout: layoutSchema.default(NEIGHBORHOOD_DEFAULT_LAYOUT) })
   .strict();
 
-/**
- * A uniform "medium" importance on every axis — this route displays a
- * station's metrics independent of any particular user's preferences, so
- * `scoreLifestyle`'s `FactorEvidence[]` output is generated with an equal
- * split across the N registered axes (each `effectiveWeight` =
- * `OVERALL_WEIGHTS.lifestyle / N`) purely to reuse its already-tested
- * raw-value/label/direction assembly, not because these weights represent
- * anyone's real request.
- *
- * Note this object never passes through `optimizationRequestSchema` — which
- * is exactly why `scoreLifestyle` guards the zero-axis case itself.
- */
 const NEUTRAL_PREFERENCES: Record<LifestyleAxisId, Importance> = mapLifestyleAxes(() => "medium");
 
 const NEIGHBORHOOD_SQL = `
@@ -130,15 +103,10 @@ interface NeighborhoodDetailResponse {
   readonly catchment: {
     readonly radiusM: number | null;
     readonly label: string;
-    /** Parsed GeoJSON Polygon, or `null` when the catchment hasn't been derived yet. */
+
     readonly geoJson: unknown | null;
   };
-  /**
-   * `null` when this station's ward has no `rent_stats` row at all (see
-   * `routes/lib/rent.ts`) — the
-   * neighborhood itself IS derived and shown, it simply has no honest rent
-   * estimate to display, rather than a fabricated one.
-   */
+
   readonly rent: RentEstimateResult | null;
   readonly factors: readonly FactorEvidence[];
   readonly sourceDates: Record<string, string>;
@@ -158,12 +126,6 @@ export function registerNeighborhoodRoute(app: FastifyInstance, deps: AppDeps): 
 
     if (!row || row.derivedAt === null || normScores === null) {
       if (row && normScores === null) {
-        // Distinct from a genuinely unknown station: the row exists but has
-        // an incomplete normalized lifestyle bundle — almost always a
-        // migration that added `norm_*` columns without a `pnpm derive`
-        // re-run since (see `0004_lifestyle_metrics.sql`). One line per
-        // request is enough here since this route is already scoped to a
-        // single station.
         request.log.warn(
           { stationGroupId },
           "GET /v1/neighborhoods: excluding station with incomplete normalized lifestyle metrics — has `pnpm derive` been run since the last schema migration?",
@@ -205,13 +167,6 @@ export function registerNeighborhoodRoute(app: FastifyInstance, deps: AppDeps): 
       );
     }
 
-    // NOTE: these spreads alone do not catch a registry axis this route
-    // can't supply — excess-property checking doesn't apply to spread-only
-    // object literals, so an extra registry axis compiles fine here even if
-    // nothing populates it. The real tripwire is `LIFESTYLE_AXIS_DESCRIBERS`
-    // in `lifestyle-axis-describe.ts`, whose `satisfies Record<LifestyleAxisId,
-    // ...>` forces a `describe` for every axis, and each `describe` reads
-    // the `metrics.normX` this object needs to provide.
     const lifestyle: LifestyleMetricsInput = {
       ...normScores,
       ...readLifestyleRawCounts(row),

@@ -1,11 +1,5 @@
 "use client";
 
-/**
- * The compare tick. A real checkbox, so it reports its own state and
- * responds to Space without help; the visible box is the label. Kept out
- * of the row's main button — a checkbox nested inside a button would be
- * unreachable by keyboard and invalid HTML.
- */
 export function CompareToggle({
   checked,
   disabled,
@@ -16,10 +10,9 @@ export function CompareToggle({
   readonly checked: boolean;
   readonly disabled: boolean;
   readonly onChange: (checked: boolean) => void;
-  /** The neighborhood being compared, for the accessible name. */
+
   readonly name: string;
-  /** Shortlist rows cannot spare the width for the word, and the tick
-   *  is already explained by the featured card above them. */
+
   readonly showLabel?: boolean;
 }) {
   return (

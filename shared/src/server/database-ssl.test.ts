@@ -21,14 +21,10 @@ describe("databaseSslFor", () => {
   });
 
   it("fails closed on an unparseable connection string", () => {
-    // Better to demand a certificate from a string we cannot read than to
-    // quietly connect in the clear.
     expect(databaseSslFor("not a url")).toEqual({ rejectUnauthorized: true });
   });
 
   it("does not treat sslmode in the query string as the policy", () => {
-    // The whole point: libpq and node-postgres disagree about what
-    // `require` means, so the URL does not get a vote.
     expect(databaseSslFor("postgresql://u:p@db.example.com/x?sslmode=disable")).toEqual({
       rejectUnauthorized: true,
     });

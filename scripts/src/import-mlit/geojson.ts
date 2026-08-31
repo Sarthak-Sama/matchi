@@ -1,18 +1,3 @@
-/**
- * Small, dependency-free GeoJSON helpers shared by every `import:mlit`
- * dataset module. MLIT's own National Land Numerical Information downloads
- * ship as Shapefiles; this script expects them already converted to
- * GeoJSON (e.g. via `ogr2ogr -f GeoJSON out.geojson in.shp`).
- *
- * "Normalizes coordinates to SRID 4326": GeoJSON carries no SRID of its
- * own, so every geometry this module converts to WKT is later wrapped in
- * `ST_SetSRID(..., 4326)` at insert time by the caller. On top of that,
- * `assertJapanBounds` below catches the single most common real-world
- * mistake — a swapped lat/lon pair, or a source file left in a non-4326
- * projection — by rejecting any coordinate far outside Japan's bounding
- * box, rather than silently storing nonsense.
- */
-
 export interface GeoJSONFeature {
   readonly type: "Feature";
   readonly properties: Readonly<Record<string, unknown>> | null;
@@ -26,7 +11,6 @@ export interface GeoJSONGeometry {
 
 type Position = readonly [number, number];
 
-/** Parses `raw` as a GeoJSON `FeatureCollection` and returns its features. */
 export function parseFeatureCollection(raw: string, label: string): readonly GeoJSONFeature[] {
   let json: unknown;
   try {
@@ -48,12 +32,6 @@ export function parseFeatureCollection(raw: string, label: string): readonly Geo
   return (json as { features: readonly GeoJSONFeature[] }).features;
 }
 
-/**
- * Returns the first non-empty value found under any of `candidates` in
- * `properties`. Lets every dataset module accept both MLIT's own field
- * codes (e.g. `N03_007`) and a friendlier alias (e.g. `ward_code`) without
- * requiring the caller to pre-rename columns.
- */
 export function pickProperty(
   properties: Readonly<Record<string, unknown>>,
   candidates: readonly string[],
@@ -120,7 +98,6 @@ function polygonWKT(polygon: unknown, context: string): string {
   return `(${polygon.map((ring) => ringWKT(ring, context)).join(", ")})`;
 }
 
-/** Accepts a `Polygon` or `MultiPolygon` geometry, returns `MULTIPOLYGON(...)` WKT. */
 export function polygonGeometryToMultiPolygonWKT(
   geometry: GeoJSONGeometry,
   context: string,
@@ -149,7 +126,6 @@ function lineWKT(line: unknown, context: string): string {
   return `(${positions.map(([lon, lat]) => `${lon} ${lat}`).join(", ")})`;
 }
 
-/** Accepts a `LineString` or `MultiLineString` geometry, returns `MULTILINESTRING(...)` WKT. */
 export function lineGeometryToMultiLineStringWKT(
   geometry: GeoJSONGeometry,
   context: string,
@@ -174,12 +150,6 @@ export function pointWKT([lon, lat]: Position): string {
   return `POINT(${lon} ${lat})`;
 }
 
-/**
- * A conservative slug: NFKC-normalizes, lowercases, and collapses anything
- * that isn't a letter or digit into a single `-`. Used to synthesize a
- * deterministic natural key (rail line id, station group id) when the
- * source data doesn't carry one of its own.
- */
 export function slug(value: string): string {
   return value
     .normalize("NFKC")

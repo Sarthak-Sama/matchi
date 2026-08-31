@@ -1,17 +1,3 @@
-/**
- * Direct unit coverage of `lateNightConditionSql`'s conservative
- * `opening_hours` heuristic (see amenities.ts's module doc comment) against
- * a table of sample strings — including OSM's `off` rule modifier, which a
- * bare `-HH:MM` substring match would wrongly count as late-night.
- *
- * This runs the exact SQL fragment `runAmenitiesStep` embeds into its real
- * query (via a `VALUES` table, no `pois`/`station_groups` schema needed),
- * so it can't drift from production behavior the way a re-typed regex
- * would. Requires a real PostGIS/Postgres database reachable via
- * `DATABASE_URL` — skips with an explicit message when unset, mirroring
- * every other integration test in this package.
- */
-
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -26,20 +12,15 @@ const CASES: readonly { readonly openingHours: string | null; readonly expected:
   { openingHours: "11:00-23:45", expected: true },
   {
     openingHours: "Mo-Fr 09:00-18:00; Sa-Su 10:00-23:30",
-    expected: true, // any segment closing late is enough
+    expected: true,
   },
   { openingHours: "09:00-18:00", expected: false },
-  { openingHours: "Mo-Su 18:00-02:00", expected: false }, // cross-midnight false negative, by design
+  { openingHours: "Mo-Su 18:00-02:00", expected: false },
   {
-    // The false positive this task fixed: `off` marks the 22:00-23:30
-    // segment CLOSED, so this venue never opens past 22:00 — but its
-    // "-23:30" substring would otherwise match.
     openingHours: "Mo-Su 09:00-22:00; Tu 22:00-23:30 off",
     expected: false,
   },
   {
-    // `off` appearing inside an unrelated word must NOT trigger the
-    // exclusion — the word-boundary regex should still count this one.
     openingHours: "Standoff Bar 11:00-23:30",
     expected: true,
   },

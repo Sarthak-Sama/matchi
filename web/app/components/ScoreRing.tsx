@@ -1,9 +1,3 @@
-/**
- * The overall fit score as a circular dial — one of the few genuinely
- * circular concepts in the system. Vermilion arc on a hairline track,
- * tabular numeral, always paired with a "/100" context label nearby so
- * the number never floats without meaning.
- */
 export function ScoreRing({
   score,
   size = 64,

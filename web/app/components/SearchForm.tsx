@@ -12,20 +12,12 @@ import { DestinationField } from "./DestinationField";
 import { LifestylePicker } from "./LifestylePicker";
 import { SegmentedControl } from "./SegmentedControl";
 
-/**
- * The search composition: journey (destination + arrival + max commute),
- * home (budget + layout), and everyday priorities behind progressive
- * disclosure. Progressive disclosure here means the priorities section
- * starts open for a first-time visitor and folds itself away once results
- * are on screen — the form never becomes a wizard.
- */
 export function SearchForm({ search }: { search: OptimizeSearch }) {
   const [prioritiesOpen, setPrioritiesOpen] = useState(true);
   const selectedPriorityCount = Object.values(search.preferences).filter(
     (value) => value !== undefined,
   ).length;
 
-  // Fold the priorities section once results arrive; reopen on demand.
   useEffect(() => {
     if (search.response) setPrioritiesOpen(false);
   }, [search.response]);
@@ -34,7 +26,7 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
 
   return (
     <form role="search" aria-label="Neighborhood search" onSubmit={search.handleSubmit}>
-      {/* 01 — The journey */}
+      {}
       <fieldset id="search">
         <legend className="flex items-baseline gap-3">
           <span className="font-mono text-[11px] text-vermilion-deep">01</span>
@@ -99,7 +91,7 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
         </div>
       </fieldset>
 
-      {/* 02 — The home */}
+      {}
       <fieldset className="mt-8">
         <legend className="flex items-baseline gap-3">
           <span className="font-mono text-[11px] text-vermilion-deep">02</span>
@@ -148,7 +140,7 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
         </div>
       </fieldset>
 
-      {/* 03 — Everyday priorities (progressive disclosure) */}
+      {}
       <section className="mt-8" aria-labelledby="priorities-heading">
         <h3 id="priorities-heading">
           <button
@@ -213,12 +205,6 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
   );
 }
 
-/**
- * Plain-language rendering of API error codes, each paired with the one
- * thing worth doing next. The recovery line is per-code on purpose: a
- * blanket "check your connection" is wrong — and quietly misleading —
- * for a destination the data simply does not know about.
- */
 function describeApiError(error: ApiClientError): {
   readonly message: string;
   readonly recovery: string;

@@ -1,12 +1,3 @@
-/**
- * The 20 station groups of the vertical slice, plus the deliberately
- * disconnected 21st (`sg-isolated-test`). Coordinates are real approximate
- * WGS84 positions for each named station; three were nudged by a few
- * hundred metres (documented inline) purely so the simplified ward
- * rectangles in wards.ts can separate cleanly — each nudge stays inside the
- * station's real neighborhood.
- */
-
 import type { LonLat } from "./geo.js";
 
 export interface StationFixture {
@@ -19,7 +10,6 @@ export interface StationFixture {
 }
 
 export const STATIONS: readonly StationFixture[] = [
-  // ---- Shibuya-ku (13113) ----
   {
     station_group_id: "sg-shibuya",
     name_ja: "渋谷",
@@ -28,7 +18,7 @@ export const STATIONS: readonly StationFixture[] = [
     ward_code: "13113",
     aliases: ["Shibuya Station", "しぶや"],
   },
-  // Nudged ~150m north (35.6467 -> 35.6480) for clean separation from the Meguro-ku ward polygon.
+
   {
     station_group_id: "sg-ebisu",
     name_ja: "恵比寿",
@@ -64,7 +54,7 @@ export const STATIONS: readonly StationFixture[] = [
     point: [139.6873, 35.6788],
     ward_code: "13113",
   },
-  // Nudged ~700m south-east (35.6832,139.7021 -> 35.6790,139.7040) for clean separation from the Shinjuku-ku ward polygon.
+
   {
     station_group_id: "sg-yoyogi",
     name_ja: "代々木",
@@ -73,7 +63,6 @@ export const STATIONS: readonly StationFixture[] = [
     ward_code: "13113",
   },
 
-  // ---- Shinjuku-ku (13104) ----
   {
     station_group_id: "sg-shinjuku",
     name_ja: "新宿",
@@ -90,7 +79,6 @@ export const STATIONS: readonly StationFixture[] = [
     ward_code: "13104",
   },
 
-  // ---- Setagaya-ku (13112) ----
   {
     station_group_id: "sg-sangenjaya",
     name_ja: "三軒茶屋",
@@ -128,8 +116,6 @@ export const STATIONS: readonly StationFixture[] = [
     aliases: ["Shimokita"],
   },
 
-  // ---- Meguro-ku (13110) ----
-  // Nudged ~350m south-west (35.6438,139.6989 -> 35.6420,139.6960) for clean separation from the Shibuya-ku ward polygon.
   {
     station_group_id: "sg-nakameguro",
     name_ja: "中目黒",
@@ -174,7 +160,6 @@ export const STATIONS: readonly StationFixture[] = [
     ward_code: "13110",
   },
 
-  // ---- Deliberately disconnected fixture (hard-filter coverage) ----
   {
     station_group_id: "sg-isolated-test",
     name_ja: "テスト孤立駅",
@@ -184,8 +169,6 @@ export const STATIONS: readonly StationFixture[] = [
   },
 ];
 
-// `station_source_refs`: at least 4 rows mapping an upstream source's own
-// station identifier to the deduplicated station_group_id above.
 export interface StationSourceRefFixture {
   readonly station_group_id: string;
   readonly source: string;

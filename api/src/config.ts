@@ -1,9 +1,3 @@
-/**
- * Environment configuration for the API. Parsed and validated once at
- * startup with Zod so the process fails fast with a readable error instead
- * of surfacing a confusing runtime failure later.
- */
-
 import { z } from "zod";
 
 const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace", "silent"] as const;
@@ -19,13 +13,7 @@ const envSchema = z
     NODE_ENV: z.enum(NODE_ENVS).default("development"),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
     RATE_LIMIT_OPTIMIZE_MAX: z.coerce.number().int().positive().default(20),
-    /**
-     * Enable ONLY when the API actually runs behind a trusted proxy (Render,
-     * a load balancer). It makes Fastify read the client IP from
-     * `X-Forwarded-For`; without it every request behind a proxy shares the
-     * proxy's IP and therefore one rate-limit bucket. Enabling it when NOT
-     * behind a proxy lets a caller forge that header to evade the limit.
-     */
+
     TRUST_PROXY: z
       .enum(["true", "false"])
       .default("false")
@@ -39,11 +27,6 @@ const envSchema = z
 
 export type Config = z.infer<typeof envSchema>;
 
-/**
- * Parses `env` (defaults to `process.env`) into a validated `Config`.
- * Throws an `Error` whose message enumerates every missing or invalid
- * variable, one per line, when validation fails.
- */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = envSchema.safeParse(env);
   if (!parsed.success) {

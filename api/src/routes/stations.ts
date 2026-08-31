@@ -1,19 +1,3 @@
-/**
- * `GET /v1/stations?query=&limit=` — autocomplete over `station_groups`.
- *
- * Matches `name_en`, `name_ja`, or any entry in `aliases`, case-insensitive.
- * The match predicate and the similarity ranking themselves live in
- * `lib/text-ranking.ts` — `GET /v1/places` searches `station_groups` the
- * same way, and the two must not drift apart.
- * The `ILIKE` predicates against `name_en`/`name_ja` are index-supported by
- * the `gin_trgm_ops` trigram indexes from `db/migrations/0001_init.sql`
- * (pg_trgm registers operator support for `ILIKE`/`LIKE` pattern matching
- * directly on the base column — no `lower(...)` expression index needed,
- * unlike the `geography` cast case documented in `0002_geography_indexes.sql`).
- * `aliases` has no trigram index (it's a small `text[]`, matched via
- * `unnest` + `ILIKE`), which is fine at this dataset's scale.
- */
-
 import type { StationSuggestion } from "@tokyo/shared";
 import { STATIONS_DEFAULT_LIMIT, STATIONS_MAX_LIMIT, stationsResponseSchema } from "@tokyo/shared";
 import type { FastifyInstance } from "fastify";
@@ -29,17 +13,8 @@ import {
 } from "./lib/text-ranking.js";
 import { parseOrThrow } from "./lib/validation.js";
 
-// `.max(STATIONS_QUERY_MAX_LENGTH)`: same rationale as `/v1/places`' own
-// `PLACES_QUERY_MAX_LENGTH` — an autocomplete query is something a person
-// types into a box, so anything longer is a mistake or an attempt to make
-// the server do trigram work on a megabyte of text. Rejected outright
-// rather than truncated.
 const STATIONS_QUERY_MAX_LENGTH = 100;
 
-// `limit` is capped (not rejected) at `STATIONS_MAX_LIMIT` — see the route
-// handler below — rather than validated with `.max(STATIONS_MAX_LIMIT)`
-// here, so a caller asking for more than the cap gets a friendly,
-// silently-truncated autocomplete result instead of a 400.
 const stationsQuerySchema = z
   .object({
     query: z.string().min(1).max(STATIONS_QUERY_MAX_LENGTH),
@@ -85,9 +60,6 @@ export function registerStationsRoute(app: FastifyInstance, deps: AppDeps): void
     const { query, limit } = parseOrThrow(stationsQuerySchema, request.query);
     const effectiveLimit = Math.min(limit, STATIONS_MAX_LIMIT);
 
-    // Bound as a parameter AND escaped: the parameter stops injection, the
-    // escape stops a typed `%` from being read as "match everything" (see
-    // `/v1/places`, which has the same fix).
     const result = (await deps.pool.query(STATIONS_SQL, [
       escapeLikeWildcards(query),
       effectiveLimit,

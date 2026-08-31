@@ -1,17 +1,3 @@
-/**
- * Tests for `pnpm import:mlit`.
- *
- * The pure-function tests below (parsing, normalization, station merging,
- * validation) never touch a database or the network — every input comes
- * from the small committed fixtures under `fixtures/mlit/`.
- *
- * The DB-guarded section at the bottom requires a real PostGIS database
- * reachable via `DATABASE_URL` — it skips with an explicit message when
- * unset, so a missing env var never reads as a silent pass. Run with:
- *
- *   DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test
- */
-
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -44,10 +30,6 @@ function fixture(name: string): string {
 function fixturePath(name: string): string {
   return path.join(FIXTURES_DIR, name);
 }
-
-// ---------------------------------------------------------------------------
-// Pure parsing / normalization — no DB.
-// ---------------------------------------------------------------------------
 
 describe("wards parsing", () => {
   it("parses wards.geojson into the expected row shapes", () => {
@@ -107,7 +89,6 @@ describe("stations parsing + merging", () => {
     expect(merged?.members.map((m) => m.sourceId).sort()).toEqual(["mlit-st-1", "mlit-st-2"]);
     expect(separate?.members[0]?.sourceId).toBe("mlit-st-3");
 
-    // Representative point is the centroid of the merged members.
     expect(merged?.lat).toBeCloseTo((35.658 + 35.6583) / 2, 4);
     expect(merged?.lon).toBeCloseTo((139.7016 + 139.702) / 2, 4);
   });
@@ -198,10 +179,6 @@ describe("zoning parsing", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// DB-guarded integration tests.
-// ---------------------------------------------------------------------------
-
 const databaseUrl = destructiveTestDatabaseUrl();
 
 const GOOD_ARGS: ImportMlitArgs = {
@@ -217,7 +194,6 @@ const CORRUPT_ARGS: ImportMlitArgs = {
   landPricesPath: fixturePath("land-prices.corrupt.geojson"),
 };
 
-// wards(3) + stationGroups(2) + railLines(2) + landPrices(3) + zoning(3)
 const EXPECTED_ROWS_IMPORTED = 13;
 
 const MLIT_SOURCED_TABLES = [
@@ -247,8 +223,7 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
     if (!databaseUrl) return;
     await runMigrations({ dryRun: false });
     pool = new Pool({ connectionString: databaseUrl });
-    // Clean slate for mlit-sourced rows, independent of anything else that
-    // has run against this database.
+
     await pool.query(`DELETE FROM import_runs WHERE source = 'mlit'`);
     for (const table of MLIT_SOURCED_TABLES) {
       await pool.query(`DELETE FROM ${table} WHERE source = 'mlit'`);
@@ -257,13 +232,7 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
 
   afterAll(async () => {
     if (!databaseUrl) return;
-    // This import upserts wards by ward_code — the schema's only key for
-    // that table (see import-mlit.ts's module doc comment) — so a run
-    // against a database that also has seed data overwrites the seed rows
-    // whose ward_code happens to collide with a real Tokyo ward code
-    // (13113, 13104, 13110 in this suite's fixtures). Restore a pristine
-    // seed baseline afterward so this file doesn't leave the shared
-    // database in a mixed-source state for whatever runs next.
+
     await runSeed();
     await pool.end();
   });
@@ -291,13 +260,8 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
       zoning_areas: 3,
     });
 
-    // land-prices.geojson: 2 of 3 rows classify as 'residential' ("住宅" +
-    // "residential"); the third ("commercial") does not.
     expect((result as MlitImportResult).residentialLandPriceCount).toBe(2);
 
-    // Risk called out in the brief: every imported station must have a
-    // ward_code assigned via the spatial join (both fixture stations fall
-    // inside one of the three imported wards).
     const { rows: withoutWard } = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM station_groups WHERE source = 'mlit' AND ward_code IS NULL`,
     );
@@ -317,7 +281,7 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
     const { rows } = await pool.query<{ status: string; error: string | null }>(
       `SELECT status, error FROM import_runs WHERE source = 'mlit' ORDER BY started_at`,
     );
-    // The earlier success row, plus this run's failure.
+
     expect(rows).toHaveLength(2);
     expect(rows[0]?.status).toBe("success");
     expect(rows[1]?.status).toBe("failed");
@@ -325,19 +289,8 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
   });
 
   it("reports which ward codes were overwritten from a different source, and logs a warning about it", async () => {
-    // Force ward 13113 (Shibuya) to look like it came from somewhere else,
-    // simulating the seed-fixture collision this script's module doc
-    // comment describes.
     await pool.query(`UPDATE wards SET source = 'seed' WHERE ward_code = '13113'`);
 
-    // Assert on the structured result rather than captured console output:
-    // Vitest's own console interception makes `vi.spyOn(console, "warn")`
-    // (and even `process.stderr.write`) unreliable to spy on directly in
-    // this environment, even though the warning does print for real (see
-    // the visible `import:mlit — ... will be overwritten: 13113` line in
-    // this test's own console output above). `MlitImportResult` surfaces
-    // the exact same computed list `upsertWards` also logs a warning
-    // about, so this is testing the real mechanism, not a substitute.
     const result = (await runImport({ source: "mlit", pool }, (client) =>
       runMlitImport(client, GOOD_ARGS),
     )) as MlitImportResult;
@@ -360,11 +313,6 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
       runMlitImport(client, allCommercialArgs),
     )) as MlitImportResult;
 
-    // Asserted on the structured result rather than captured console
-    // output, for the same reason the ward-overwrite test above does —
-    // the warning does print for real (visible in this test's own console
-    // output), but Vitest's console interception makes spying on it
-    // unreliable in this environment.
     expect(result.residentialLandPriceCount).toBe(0);
   });
 
@@ -372,19 +320,8 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
     "aborts with a clear error naming the ward and blocking table when a NOT NULL FK " +
       "(rent_stats) still references a ward being removed, and leaves everything unchanged",
     async () => {
-      // Establish a clean baseline: ward 13113 exists with source='mlit'.
       await runImport({ source: "mlit", pool }, (client) => runMlitImport(client, GOOD_ARGS));
 
-      // rent_stats.ward_code is NOT NULL REFERENCES wards(ward_code) — this
-      // table already exists in the schema, so a real dependent row can be
-      // simulated directly without needing import:rent.
-      // (If this ever needs adjusting once import:rent lands,
-      // replace this raw INSERT with a real `pnpm import:rent` fixture run.)
-      // A distinct period/source that seed's own rent_stats fixture never
-      // uses (seed only writes 'estat'/2023 and 'reins'/2026Q2 for ward
-      // 13113 — see fixtures/seed/rent.ts) keeps this test's expected count
-      // exact regardless of whatever seed data this shared database
-      // already has.
       const { rows: rentBefore } = await pool.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM rent_stats WHERE ward_code = '13113'`,
       );
@@ -397,8 +334,6 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
 
       const before = await snapshotCounts(pool);
 
-      // This wards file drops 13113 entirely — it would otherwise be
-      // deleted as "no longer seen this run".
       const droppedArgs: ImportMlitArgs = {
         ...GOOD_ARGS,
         wardsPath: fixturePath("wards-dropped-shibuya.geojson"),
@@ -410,8 +345,6 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
         new RegExp(`ward 13113 still has ${expectedCount} rent_stats row\\(s\\)`),
       );
 
-      // The whole transaction rolled back: wards/stations/etc. are exactly
-      // as they were, and the rent_stats rows are untouched.
       const after = await snapshotCounts(pool);
       expect(after).toEqual(before);
       const { rows: rentAfter } = await pool.query<{ count: string }>(
@@ -432,10 +365,6 @@ describe.runIf(Boolean(databaseUrl))("import:mlit (DB integration)", () => {
 });
 
 describe("import:mlit", () => {
-  // Sentinel test: passes (with an explicit explanatory title) only when
-  // DATABASE_URL is unset, so `pnpm test` output always makes clear *why*
-  // the real integration tests above were skipped rather than silently
-  // omitted. When DATABASE_URL is set, this sentinel itself is skipped.
   it.skipIf(Boolean(databaseUrl))(
     "SKIPPED integration tests above: DATABASE_URL is not set — set it to a PostGIS connection string to run them, e.g. DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test",
     () => {

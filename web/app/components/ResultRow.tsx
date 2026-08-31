@@ -13,12 +13,6 @@ import {
 import { CompareToggle } from "./CompareToggle";
 import { ScoreRing } from "./ScoreRing";
 
-/**
- * A compact ranked row — the shortlist's scan pattern. Rank, name, the
- * three comparable numbers in fixed vertical columns, one positive and
- * one compromise, all readable without opening anything. The whole row
- * is the button that opens the neighborhood entry.
- */
 export function ResultRow({
   result,
   highlighted,

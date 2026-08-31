@@ -1,15 +1,3 @@
-/**
- * rail_lines + rail_edges: a connected graph over the 20 real stations
- * (sg-isolated-test is intentionally excluded from every line — it must
- * have zero rail_edges rows).
- *
- * Lines follow real adjacency (each line's station order matches the real
- * line in the direction it actually runs), so edge travel times are
- * plausible. `rail_edges` are emitted bidirectionally for every adjacent
- * pair on a line ("ride" edges), plus a same-station "transfer" self-loop
- * at each of the 4 named hubs (Shibuya, Shinjuku, Meguro, Nakameguro).
- */
-
 import { PEAK_WAIT_MINUTES, OFFPEAK_WAIT_MINUTES } from "@tokyo/shared";
 import type { Confidence } from "@tokyo/shared";
 
@@ -82,11 +70,7 @@ interface RideSegment {
   readonly confidence: Confidence;
 }
 
-// Ordered stop sequence per line -> consecutive pairs become bidirectional
-// ride edges. peak minutes are >= offpeak (a handful deliberately equal,
-// most peak-slower, matching real dwell/congestion effects).
 const RIDES: readonly RideSegment[] = [
-  // Tokyu Toyoko Line: Shibuya - Daikanyama - Nakameguro - Yutenji - Gakugei-daigaku - Toritsu-daigaku - Jiyugaoka
   {
     rail_line_id: "rl-toyoko",
     from: "sg-shibuya",
@@ -136,7 +120,6 @@ const RIDES: readonly RideSegment[] = [
     confidence: "high",
   },
 
-  // JR Yamanote Line: Shinjuku - Yoyogi - Shibuya - Ebisu - Meguro
   {
     rail_line_id: "rl-yamanote",
     from: "sg-shinjuku",
@@ -170,7 +153,6 @@ const RIDES: readonly RideSegment[] = [
     confidence: "high",
   },
 
-  // Keio Line: Shinjuku - Hatsudai - Hatagaya - Sasazuka
   {
     rail_line_id: "rl-keio",
     from: "sg-shinjuku",
@@ -196,8 +178,6 @@ const RIDES: readonly RideSegment[] = [
     confidence: "high",
   },
 
-  // Keio Inokashira Line: Shibuya - Shimokitazawa (a few real intermediate
-  // stops outside this slice are elided, hence lower confidence).
   {
     rail_line_id: "rl-inokashira",
     from: "sg-shibuya",
@@ -207,8 +187,6 @@ const RIDES: readonly RideSegment[] = [
     confidence: "low",
   },
 
-  // Tokyu Den-en-toshi Line: Shibuya - Sangenjaya - Komazawa-daigaku - Sakura-shinmachi - Yoga
-  // (Shibuya-Sangenjaya elides one real intermediate stop, hence medium confidence.)
   {
     rail_line_id: "rl-denentoshi",
     from: "sg-shibuya",
@@ -242,8 +220,6 @@ const RIDES: readonly RideSegment[] = [
     confidence: "high",
   },
 
-  // JR Chuo Line: Shinjuku - Nakano (rapid service, one real intermediate
-  // local-only stop elided, hence medium confidence).
   {
     rail_line_id: "rl-chuo",
     from: "sg-shinjuku",
@@ -253,8 +229,6 @@ const RIDES: readonly RideSegment[] = [
     confidence: "medium",
   },
 
-  // Tokyo Metro Fukutoshin Line: Shibuya - Shinjuku (approximates the real
-  // Shinjuku-sanchome stop as the Shinjuku station group, hence low confidence).
   {
     rail_line_id: "rl-fukutoshin",
     from: "sg-shibuya",
@@ -302,16 +276,6 @@ const rideEdges: RailEdgeFixture[] = RIDES.flatMap((seg): RailEdgeFixture[] => [
   },
 ]);
 
-// Same-station transfer edges (self-loops) at the 4 named hubs: the time
-// cost of switching lines within a station_group that dedupes multiple
-// physical platforms into one row. `travel_minutes` is 0, NOT
-// TRANSFER_PENALTY_MINUTES: the router (api/src/domain/transit/
-// dijkstra.ts's `relax`) already adds TRANSFER_PENALTY_MINUTES for every
-// `transfer`-type edge it walks, unconditionally, on top of whatever this
-// row's own travel_minutes says. Storing the penalty here too used to
-// double-charge it (10 minutes instead of 5) on every journey through one
-// of these hubs — see import-transit/transfer-edges.ts's identical note,
-// which is what this fixture should have matched from the start.
 const TRANSFER_HUBS = ["sg-shibuya", "sg-shinjuku", "sg-meguro", "sg-nakameguro"] as const;
 
 const transferEdges: RailEdgeFixture[] = TRANSFER_HUBS.map((hub) => ({

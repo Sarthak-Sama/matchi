@@ -1,14 +1,5 @@
 import Link from "next/link";
 
-/**
- * App masthead — compact wordmark, Japanese identifier, and at most two
- * links. Deliberately not a generic app navbar.
- *
- * Two variants because the two pages want opposite things from it. On the
- * landing page it is a quiet nameplate that keeps one way in; on the search
- * page it is sticky, so the way back to the form is always one scroll away
- * from the bottom of a long shortlist.
- */
 export function Masthead({ variant = "search" }: { readonly variant?: "search" | "landing" }) {
   const isLanding = variant === "landing";
 

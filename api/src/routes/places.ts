@@ -1,21 +1,3 @@
-/**
- * `GET /v1/places?query=` — destination autocomplete over named `pois` AND
- * `station_groups`, in one ranked list.
- *
- * `/v1/stations` answers "which station did you mean?". This answers
- * "where are you going?", which is a different question: a user commutes
- * to an office, a campus, a hospital — a PLACE — and making them work out
- * which station serves it is the guess this whole feature exists to
- * remove. So both tables are searched together and ranked against each
- * other by the same trigram similarity (`lib/text-ranking.ts`, shared with
- * `/v1/stations`), letting an exact station-name match outrank the dozens
- * of POIs that merely contain the same word.
- *
- * `pois` rows with a `NULL` name are excluded: an unnamed convenience
- * store is a real amenity for the derive step's density counts, but it is
- * not something a user can pick out of a list.
- */
-
 import type { PlaceSuggestion } from "@tokyo/shared";
 import { PLACES_LIMIT, placesResponseSchema } from "@tokyo/shared";
 import type { FastifyInstance } from "fastify";
@@ -31,11 +13,6 @@ import {
 } from "./lib/text-ranking.js";
 import { parseOrThrow } from "./lib/validation.js";
 
-// `.max(PLACES_QUERY_MAX_LENGTH)`: an autocomplete query is something a
-// person types into a box, so anything longer is a mistake or an attempt to
-// make the server do trigram work on a megabyte of text. Rejected outright
-// rather than truncated — silently searching for something other than what
-// was asked would be worse than saying no.
 const PLACES_QUERY_MAX_LENGTH = 100;
 
 const placesQuerySchema = z
@@ -44,17 +21,8 @@ const placesQuerySchema = z
   })
   .strict();
 
-// Both name columns: `pois.name` is the OSM `name` tag, which in Tokyo is
-// the Japanese name, and `pois.name_en` is `name:en`. Searching only the
-// former meant "University of Tokyo" returned nothing while 東京大学
-// returned its faculties. Each column has its own gin_trgm_ops index
-// (0005, 0006), so adding the second does not cost a sequential scan.
 const POI_MATCH_COLUMNS = { text: ["p.name", "p.name_en"] } as const;
 
-// One UNION ALL, ordered and limited ONCE over the combined set — not two
-// separate top-N queries stitched together, which would either pad the
-// list with poor POI matches when the station match is perfect or crowd
-// the station out when it isn't.
 const PLACES_SQL = `
   SELECT kind, id, name, "nameJa", category, lat, lon
   FROM (
@@ -109,8 +77,6 @@ export function registerPlacesRoute(app: FastifyInstance, deps: AppDeps): void {
   app.get("/v1/places", async (request, reply) => {
     const { query } = parseOrThrow(placesQuerySchema, request.query);
 
-    // Bound as a parameter AND escaped: the parameter stops injection, the
-    // escape stops a typed `%` from being read as "match everything".
     const result = (await deps.pool.query(PLACES_SQL, [
       escapeLikeWildcards(query),
       PLACES_LIMIT,

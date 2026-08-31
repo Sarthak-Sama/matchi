@@ -1,13 +1,3 @@
-/**
- * `lib/text-ranking.ts` builds SQL fragments, so these tests assert on the
- * generated SQL rather than on query results — the fragments' behaviour
- * against a real database is covered where they are used
- * (`stations.test.ts`, `places.test.ts`, both with DB integration suites).
- * What matters here is the structure `/v1/stations` and `/v1/places` both
- * depend on: every column contributes a term, array columns go through
- * `unnest`, and the user's input only ever appears as a bound placeholder.
- */
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -28,8 +18,7 @@ describe("similarityScoreSql", () => {
     expect(sql).toContain("similarity(lower(sg.name_en), lower($1))");
     expect(sql).toContain("similarity(lower(sg.name_ja), lower($1))");
     expect(sql).toContain("FROM unnest(sg.aliases) AS alias_0");
-    // A NULL-named row must not sort unpredictably — GREATEST of all-NULLs
-    // is NULL, so the whole expression is coalesced to 0.
+
     expect(sql.startsWith("COALESCE(GREATEST(")).toBe(true);
     expect(sql.endsWith("), 0)")).toBe(true);
   });
@@ -64,10 +53,6 @@ describe("textMatchSql", () => {
   });
 
   it("always parenthesises the fragment, so an AND at the call site cannot re-associate the OR", () => {
-    // The bug this prevents: `WHERE guard AND a OR b` parses as
-    // `(guard AND a) OR b`, silently dropping the guard for every column
-    // but the first. Callers compose this with AND, so the parentheses
-    // belong here rather than at each call site.
     for (const columns of [
       { text: ["p.name"] },
       { text: ["p.name", "p.name_ja"] },
@@ -80,8 +65,6 @@ describe("textMatchSql", () => {
   });
 
   it("composes safely under AND once a second column exists", () => {
-    // The concrete regression: places.ts guards `p.name IS NOT NULL AND
-    // <fragment>`. With two columns the guard must still apply to both.
     const sql = `p.name IS NOT NULL AND ${textMatchSql({ text: ["p.name", "p.alt_name"] }, "$1")}`;
     expect(sql).toContain("AND (p.name ILIKE");
     expect(sql.trimEnd().endsWith(")")).toBe(true);
@@ -94,9 +77,6 @@ describe("textMatchSql", () => {
 
 describe("escapeLikeWildcards", () => {
   it("escapes a bare % so it cannot match every row", () => {
-    // Without this, `?query=%` becomes `ILIKE '%' || '%' || '%'`, i.e. a
-    // full scan returning the whole table — not what the user asked for,
-    // and not something the trigram index can help with.
     expect(escapeLikeWildcards("%")).toBe("\\%");
   });
 
@@ -105,8 +85,6 @@ describe("escapeLikeWildcards", () => {
   });
 
   it("escapes backslashes FIRST, so its own escapes are not double-escaped", () => {
-    // Order matters: escaping % first and then \ would turn `%` into
-    // `\\%` — an escaped backslash followed by a live wildcard.
     expect(escapeLikeWildcards("\\")).toBe("\\\\");
     expect(escapeLikeWildcards("\\%")).toBe("\\\\\\%");
   });

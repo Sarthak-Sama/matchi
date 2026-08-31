@@ -1,11 +1,3 @@
-/**
- * Tests for the global error handler's public contract: every error
- * response is `{ error: { code, message, details? } }`, Zod validation
- * failures map to 400 `VALIDATION_ERROR` with flattened details, and no
- * response body ever leaks a stack trace — plus the security headers and
- * rate limits every response passes through.
- */
-
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -20,8 +12,7 @@ function testPool(): DbPool {
 describe("error handler", () => {
   it("maps a Zod validation failure to 400 VALIDATION_ERROR with flattened details and no stack trace", async () => {
     const app = buildApp({ config: testConfig(), pool: testPool(), graphs: emptyGraphs() });
-    // A real ZodError, thrown from a route handler exactly like a `/v1`
-    // route validating a request body would.
+
     app.get("/__test/zod-error", async () => {
       z.object({ name: z.string() }).parse({ name: 42 });
     });
@@ -76,9 +67,9 @@ describe("security headers", () => {
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
     expect(response.headers["referrer-policy"]).toBe("no-referrer");
     expect(response.headers["strict-transport-security"]).toContain("max-age=");
-    // `same-origin` (helmet's default) would break the web app entirely.
+
     expect(response.headers["cross-origin-resource-policy"]).toBe("cross-origin");
-    // Disabled deliberately: this API serves only JSON.
+
     expect(response.headers["content-security-policy"]).toBeUndefined();
   });
 });
@@ -111,7 +102,7 @@ describe("rate limiting", () => {
 
     const first = await app.inject({ method: "POST", url: "/v1/optimize", payload: {} });
     const second = await app.inject({ method: "POST", url: "/v1/optimize", payload: {} });
-    // Well under the global 100, so this proves the per-route limit applies.
+
     const health = await app.inject({ method: "GET", url: "/health" });
     await app.close();
 

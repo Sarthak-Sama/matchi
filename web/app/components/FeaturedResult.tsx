@@ -16,13 +16,6 @@ import { CompareToggle } from "./CompareToggle";
 import { ArrowRightIcon } from "./icons";
 import { ScoreRing } from "./ScoreRing";
 
-/**
- * The top recommendation — given materially more visual weight than the
- * rest of the shortlist: editorial serif name, Japanese identity, the
- * three decision-critical numbers (commute, rent, fit), the strongest
- * reason for, and the most important compromise. Score supports the
- * explanation; it never replaces it.
- */
 export function FeaturedResult({
   result,
   destinationLabel,

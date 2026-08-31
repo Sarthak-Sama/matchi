@@ -12,7 +12,6 @@ import {
   wardDisplayName,
 } from "./format";
 
-/** A factor with only the fields these helpers actually read. */
 function factor(overrides: Partial<FactorEvidence> & { key: string }): FactorEvidence {
   return {
     label: overrides.key,
@@ -84,8 +83,6 @@ function result(overrides: Partial<NeighborhoodResult> = {}): NeighborhoodResult
 
 describe("bilingualLabel", () => {
   it("shows one name when both columns carry the same string", () => {
-    // The MLIT dataset repeats the Japanese name in `name_en` for most
-    // stations; "渋谷 (渋谷)" reads as a rendering bug, not as bilingual.
     expect(bilingualLabel("渋谷", "渋谷")).toBe("渋谷");
   });
 
@@ -101,8 +98,6 @@ describe("bilingualLabel", () => {
 
 describe("pickStrength", () => {
   it("prefers a lifestyle factor over affordability and commute", () => {
-    // Rent and commute have their own columns; repeating them as the row's
-    // one stated strength makes every row say the same thing.
     const strength = pickStrength(
       result({
         factors: [
@@ -152,8 +147,6 @@ describe("pickCompromise", () => {
   });
 
   it("names the weakest component when the API states no reason against", () => {
-    // A strong shortlist routinely comes back with an empty reasonsAgainst.
-    // Showing nothing would hide the trade-off the reader most needs.
     const compromise = pickCompromise(
       result({
         factors: [
@@ -175,8 +168,6 @@ describe("pickCompromise", () => {
 
 describe("commuteDisplayTerms", () => {
   it("makes the legs sum exactly to the displayed total", () => {
-    // Each leg is rounded independently, so the residual is absorbed into
-    // the wait rather than left to show as a total that does not add up.
     const terms = commuteDisplayTerms(result().commute);
 
     expect(terms.accessWalk + terms.rail + terms.wait + terms.destinationWalk).toBe(terms.total);

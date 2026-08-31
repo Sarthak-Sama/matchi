@@ -1,17 +1,3 @@
-/**
- * Stations dataset — MLIT's National Land Numerical Information railway
- * data (dataset code N02), station points.
- *
- * ASSUMED property names (verify against a real download): `N02_005` (Japanese
- * station name) is the one field N02 reliably carries; this module also
- * accepts a friendlier `name_ja` / `station_name`. N02 has no stable
- * feature id and no English name field, so both `station_id` and
- * `name_en` fall back — id to a per-file positional id, name to the
- * Japanese name — when the source doesn't supply one. Every raw feature
- * is kept (not deduplicated) here; `station-merge.ts` collapses the ones
- * that represent the same physical station complex.
- */
-
 import { expectColumns } from "../lib/validate.js";
 import type { GeoJSONFeature } from "./geojson.js";
 import { pickProperty, pointGeometryToLonLat } from "./geojson.js";

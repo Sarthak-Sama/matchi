@@ -1,13 +1,3 @@
-/**
- * `GET /v1/places` tests.
- *
- * Query-shape and response-mapping tests use `app.inject()` against a fake
- * pool; the ranking itself — the part that actually decides whether a user
- * finds their office — is tested against the real seeded database, since a
- * fake pool cannot tell you that a station outranks the forty POIs whose
- * names contain the same word.
- */
-
 import { PLACES_LIMIT, placesResponseSchema } from "@tokyo/shared";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -95,7 +85,7 @@ describe("GET /v1/places", () => {
     await app.close();
 
     expect(pool.query).toHaveBeenCalledWith(expect.any(String), ["shibuya", PLACES_LIMIT]);
-    // The query text itself must never contain the user's input.
+
     const sql = (pool.query as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
     expect(sql).not.toContain("shibuya");
   });
@@ -143,10 +133,6 @@ describe("GET /v1/places", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Integration — real PostGIS, real seeded pois + station_groups.
-// ---------------------------------------------------------------------------
-
 const databaseUrl = process.env["DATABASE_URL"];
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -186,8 +172,6 @@ describe.runIf(Boolean(databaseUrl))("GET /v1/places (integration)", () => {
     expect(station).toBeDefined();
     expect(poi).toBeDefined();
 
-    // The station's id is directly usable as destinationStationGroupId;
-    // the POI's is opaque and its lat/lon are what a caller sends instead.
     expect(station?.id).toBe("sg-shibuya");
     expect(station?.nameJa).toBe("渋谷");
     expect(poi?.id).toMatch(/^poi:\d+$/);
@@ -220,7 +204,7 @@ describe.runIf(Boolean(databaseUrl))("GET /v1/places (integration)", () => {
 
   it("never returns more than PLACES_LIMIT suggestions", async () => {
     const app = buildApp({ config: testConfig(), pool, graphs: emptyGraphs() });
-    // "Shibuya" prefixes ~40 seeded POI names, well past the cap.
+
     const response = await app.inject({ method: "GET", url: "/v1/places?query=shibuya" });
     await app.close();
 
@@ -228,8 +212,6 @@ describe.runIf(Boolean(databaseUrl))("GET /v1/places (integration)", () => {
   });
 
   it("a bare % returns nothing, not the whole table", async () => {
-    // The abuse case the escaping exists for: unescaped, this is
-    // `ILIKE '%' || '%' || '%'` — every named POI in the database.
     const app = buildApp({ config: testConfig(), pool, graphs: emptyGraphs() });
     const response = await app.inject({ method: "GET", url: "/v1/places?query=%25" });
     await app.close();

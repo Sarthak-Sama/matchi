@@ -1,8 +1,3 @@
-/**
- * Tests for the guard that stands between `pnpm test` and a working
- * database. These are pure — they never open a connection.
- */
-
 import { describe, expect, it } from "vitest";
 
 import { databaseNameFrom, destructiveTestDatabaseUrl } from "./database-url.js";

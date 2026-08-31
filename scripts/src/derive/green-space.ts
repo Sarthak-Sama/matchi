@@ -1,23 +1,3 @@
-/**
- * Step 7 — parks and green space.
- *
- * `green_space_share`: share of the catchment intersecting the union of
- * every `green_spaces` polygon (OSM `leisure=park|garden`). Mirrors
- * zoning.ts's `residential_zoning_share` exactly: union first (so
- * overlapping parks can't push the share above 1 before the final clamp),
- * an `ST_Intersects` guard in a `CASE` (so a catchment that touches no
- * green space at all gets an explicit `0.0` rather than a `NULL` from an
- * empty intersection), `ST_Area(ST_Intersection(...)::geography) /
- * sa.area_sqm` for the true metres-based share, and a `LEAST`/`GREATEST`
- * clamp to `[0, 1]` to absorb floating-point overshoot at/near full
- * coverage.
- *
- * No buffering (unlike zoning.ts's `road_rail_exposure_share`, which
- * buffers roads/rail before measuring) — a park's own polygon boundary is
- * the thing that matters; there is no "buffer zone" around a park the way
- * there is around a noise source.
- */
-
 import type { Pool } from "pg";
 
 import { withTransaction } from "../lib/db.js";

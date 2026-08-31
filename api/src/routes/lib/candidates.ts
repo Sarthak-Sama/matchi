@@ -1,10 +1,3 @@
-/**
- * Loads `locality_metrics` rows and turns each into a scoreable `Candidate`
- * (or excludes it, with a diagnostic `warn`, when its data can't honestly
- * support a score) — the query and row-shaping half of `POST /v1/optimize`,
- * split out of `routes/optimize.ts` so that file stays orchestration-only.
- */
-
 import type { FastifyBaseLogger } from "fastify";
 
 import type { Candidate, LifestyleMetricsInput } from "../../domain/scoring.js";
@@ -20,24 +13,9 @@ import { recomputeRentForLayout } from "./rent.js";
 import type { NameLookups } from "./station-names.js";
 import { resolvePathNames } from "./station-names.js";
 
-/**
- * `neighborhood_metrics` has no per-axis confidence column (only
- * `rent_confidence`) — see `domain/scoring.ts`'s `LifestyleMetricsInput`
- * doc comment. "medium" is the honest, deliberately-neutral bundle
- * confidence for these normalized/derived metrics: they come from real
- * imported source data (OSM POIs and zoning polygons) run through a
- * documented, deterministic normalization, but with no per-station
- * verification signal to justify "high", and no reason to assume they're
- * unreliable either.
- */
 const LIFESTYLE_BUNDLE_CONFIDENCE: Confidence = "medium";
 
-// ---------------------------------------------------------------------------
-// Candidate query
-// ---------------------------------------------------------------------------
-
 export const CANDIDATES_SQL = `
-  /* Legacy fixture hook: FROM neighborhood_metrics nm */
   SELECT
     l.locality_id AS "localityId",
     l.name_en AS "nameEn",
@@ -71,16 +49,6 @@ export const CANDIDATES_SQL = `
   ) samples ON true
 `;
 
-/**
- * Tallies WHY `buildCandidate` dropped rows, across the whole request, so
- * the route can tell "every candidate had incomplete lifestyle metrics"
- * (almost always: `pnpm derive` hasn't been re-run since a migration added
- * `norm_*` columns — see `0004_lifestyle_metrics.sql`) apart from ordinary
- * per-row data gaps. Only that one reason gets a request-level counter: it
- * is the one failure mode that can silently zero out the entire candidate
- * pool with no other diagnostic, so it is the one worth a dedicated,
- * single-line signal instead of relying on N per-station `warn`s.
- */
 export interface ExclusionCounts {
   missingLifestyleMetrics: number;
 }
@@ -133,7 +101,6 @@ function metresBetween(a: { lat: number; lon: number }, b: { lat: number; lon: n
   return 6_371_000 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
-/** A direct walk to the destination, when it has a point to walk to. */
 function estimateWalkCommute(
   destination: Destination,
   sample: LocalitySample,
@@ -155,7 +122,6 @@ function estimateWalkCommute(
   };
 }
 
-/** The fastest transit commute across the sample's nearby stations, or `null` if none are reachable. */
 function estimateBestTransitCommute(
   sample: LocalitySample,
   dijkstraResult: ReturnType<typeof reverseDijkstra>,
@@ -273,25 +239,6 @@ function resolveNearbyStations(
   ];
 }
 
-/**
- * Builds one `Candidate` from a joined DB row, or returns `null` (logging a
- * `warn`) when the row is missing data no scoring formula can honestly
- * paper over.
- *
- * Two such gaps are reachable with real imported data even though the
- * current seed never triggers them: a station whose ward has no
- * `rent_stats` row at all (so
- * `derive`'s rent step warn-and-skipped it, leaving every rent column
- * null), and a station missing a `ward_code` join. Both are DELIBERATELY
- * excluded from the candidate pool entirely — before `applyHardFilters`
- * ever sees them, so they never inflate `candidatesConsidered` or get
- * miscounted under `excludedByRent` — rather than silently scored as if
- * rent were free (which `scoreAffordability` would do with a fabricated
- * `0` rent) or crashing the whole request. A structured `warn` log is the
- * clear diagnostic; the response schema (`@tokyo/shared`) has no field to
- * carry a per-station data-quality note, so this is a server-side signal,
- * not a client-visible one.
- */
 export function buildCandidate(
   row: CandidateRow,
   dijkstraResult: ReturnType<typeof reverseDijkstra>,
@@ -353,13 +300,6 @@ export function buildCandidate(
   const legacyStationId = row.stationGroupId;
   const commute = resolveCommute(row, destination, dijkstraResult, nameLookups, legacyStationId);
 
-  // NOTE: these spreads alone do not catch a registry axis this route can't
-  // supply — excess-property checking doesn't apply to spread-only object
-  // literals, so an extra registry axis compiles fine here even if nothing
-  // populates it. The real tripwire is `LIFESTYLE_AXIS_DESCRIBERS` in
-  // `lifestyle-axis-describe.ts`, whose `satisfies Record<LifestyleAxisId,
-  // ...>` forces a `describe` for every axis, and each `describe` reads the
-  // `metrics.normX` this object needs to provide.
   const lifestyle: LifestyleMetricsInput = {
     ...normScores,
     ...readLifestyleRawCounts(row),
@@ -368,9 +308,6 @@ export function buildCandidate(
   };
 
   return {
-    // `resolveLocalityId` in `domain/scoring.ts` owns the `legacy:` fallback
-    // for a `Candidate` with no `localityId` — leave it unset here rather
-    // than resolving it twice with two different fallback strings.
     localityId: row.localityId,
     ...(legacyStationId ? { stationGroupId: legacyStationId } : {}),
     nameEn: row.nameEn ?? row.nameJa,

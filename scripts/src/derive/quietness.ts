@@ -1,22 +1,3 @@
-/**
- * Step 5 — quietness raw.
- *
- * `quietness_raw` is the `QUIETNESS_WEIGHTS`-weighted combination of:
- *   - `residential_zoning_share` (higher = quieter)
- *   - `1 - road_rail_exposure_share` (less road/rail exposure = quieter)
- *   - `1 - normalized nightlife density`, where nightlife density is
- *     `nightlife_count / (area_sqm / 1_000_000)` (count per catchment km²),
- *     min-max normalized to `[0, 1]` across all station areas.
- *
- * Depends on step 2 (`nightlife_count`) and step 4
- * (`residential_zoning_share`, `road_rail_exposure_share`).
- *
- * Min-max edge case: when nightlife density is identical across every
- * station (min == max), normalized density is defined as exactly `0.5` for
- * every station rather than dividing by zero / producing NaN. This mirrors
- * the same rule step 7 applies to the final 0-100 `norm_*` columns.
- */
-
 import type { Pool } from "pg";
 
 import { QUIETNESS_WEIGHTS } from "@tokyo/shared";

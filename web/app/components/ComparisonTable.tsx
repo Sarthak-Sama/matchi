@@ -13,24 +13,9 @@ import {
 } from "../../lib/format";
 import { CloseIcon } from "./icons";
 
-/**
- * Side-by-side comparison of two or three shortlisted neighborhoods.
- *
- * It exists because a good shortlist is the hard case: when every
- * candidate clears the budget and the commute cap, the overall scores
- * bunch within a point or two and the rows stop discriminating. Laid out
- * in columns, the lifestyle components that actually differ become
- * obvious.
- *
- * Only differences worth acting on are marked. A three-minute commute
- * gap is a real difference; a one-point difference in a modeled score is
- * noise, and flagging it would imply a precision the data does not have.
- */
-
-/** How far apart values must be before the spread means anything. */
 const MATERIAL_SPREAD = {
   score: 3,
-  /** Fraction of the smallest value — rent is modeled, so relative. */
+
   rentRatio: 0.05,
   minutes: 3,
   transfers: 1,
@@ -39,10 +24,6 @@ const MATERIAL_SPREAD = {
 
 type Better = "lower" | "higher";
 
-/**
- * The index of the standout value, or null when the spread is too small
- * to be meaningful or when two entries tie for best.
- */
 function standoutIndex(
   values: readonly number[],
   better: Better,
@@ -61,12 +42,11 @@ function standoutIndex(
 }
 
 interface Row {
-  /** Stable across renders and unique even if two factors share a label. */
   readonly id: string;
   readonly label: string;
   readonly values: readonly string[];
   readonly standout: number | null;
-  /** Long prose wraps; short figures stay on one line. */
+
   readonly prose?: boolean;
 }
 
@@ -133,11 +113,6 @@ function buildRows(results: readonly NeighborhoodResult[]): readonly Row[] {
     },
   ];
 
-  // Lifestyle components only — affordability and commute already have
-  // rows above, and repeating them as component scores made the table read
-  // as if it were measuring the commute twice. Restricted further to axes
-  // every column actually scored: a blank cell would look like a zero
-  // rather than like "not measured here".
   const sharedFactorKeys = (results[0]?.factors ?? [])
     .map((factor) => factor.key)
     .filter(

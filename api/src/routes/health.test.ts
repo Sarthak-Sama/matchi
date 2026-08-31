@@ -1,9 +1,3 @@
-/**
- * `GET /health` tests. Uses `app.inject()` with an injected fake pool —
- * no real database involved, by design (see `buildApp`'s dependency
- * injection).
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 import { buildApp } from "../app.js";

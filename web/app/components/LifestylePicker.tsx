@@ -1,14 +1,5 @@
 "use client";
 
-/**
- * Two-step lifestyle picker, restyled for the Field Guide: SELECT which
- * axes matter (chips, up to `MAX_SELECTED_LIFESTYLE_AXES`), then RATE each
- * selected axis on a Low → Essential segmented row. Kept two-step because
- * the request contract has no "selected but unrated" state — selecting an
- * axis assigns `DEFAULT_IMPORTANCE` immediately, deselecting clears it to
- * `undefined` (omitted from the request entirely).
- */
-
 import type { Importance, LifestyleAxisId } from "@tokyo/shared";
 import {
   IMPORTANCE_OPTIONS,

@@ -1,17 +1,3 @@
-/**
- * zoning_areas: a mix of residential and non-residential categories,
- * deliberately arranged so residential-zoning share is unambiguously
- * different between two named stations:
- *
- *  - sg-shibuya's 800m catchment sits entirely inside the Z1 commercial
- *    rectangle and touches no residential polygon -> ~0% residential share.
- *  - sg-yoga's 800m catchment sits entirely inside the Z4 Setagaya
- *    residential rectangle and touches no commercial polygon -> ~100%
- *    residential share.
- *
- * (Verified for real post-seed with an ST_Intersects/ST_Area query.)
- */
-
 import type { LonLat } from "./geo.js";
 
 export interface ZoningAreaFixture {
@@ -22,8 +8,6 @@ export interface ZoningAreaFixture {
 
 export const ZONING_AREAS: readonly ZoningAreaFixture[] = [
   {
-    // Fully covers sg-shibuya's 800m catchment; no residential polygon
-    // reaches into this rectangle.
     category: "commercial",
     is_residential: false,
     ring: [
@@ -54,8 +38,6 @@ export const ZONING_AREAS: readonly ZoningAreaFixture[] = [
     ],
   },
   {
-    // Fully covers sg-yoga's 800m catchment; no non-residential polygon
-    // reaches into this rectangle.
     category: "category1_low_rise_residential",
     is_residential: true,
     ring: [

@@ -1,43 +1,14 @@
-/**
- * Generates `web/app/components/tokyo-wards.ts` — the static SVG plate the
- * landing hero and the search hero draw.
- *
- * The hero needs Tokyo's real shape, but the frontend must not pay for it:
- * fetching boundaries at runtime would put a megabyte of geometry and a
- * round trip in front of the first paint, for a graphic that never changes.
- * So the geometry is simplified, projected, and frozen into a source file
- * here — a build-time step run by hand whenever the ward import changes,
- * not part of `data:refresh`.
- *
- * The projection is deliberately the same equirectangular-with-cos(latitude)
- * one `ResultsMap` applies at runtime, so the hero plate and the results map
- * share a cartography rather than merely a palette.
- *
- * Usage: pnpm build:ward-plate
- */
-
 import { writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { createPool } from "./lib/db.js";
 
-/** Douglas–Peucker tolerance in degrees (~140 m). Keeps every ward's
- *  silhouette legible at hero size while cutting the payload ~50x. */
 const SIMPLIFY_TOLERANCE_DEG = 0.0016;
 
 const VIEW_WIDTH = 620;
 const VIEW_HEIGHT = 560;
 const PADDING = 14;
 
-/**
- * The anchors most readers already hold in their head.
- *
- * The romanizations are supplied here rather than read from the database
- * on purpose: MLIT ships no English station names (`name_en` repeats
- * `name_ja`), and a hero whose six labels all read "新宿 / 新宿" orients
- * nobody. These six are editorial labelling of six named landmarks, not
- * data — which is why they live in this script and never reach a result.
- */
 const REFERENCE_STATIONS = [
   { nameJa: "新宿", romanized: "Shinjuku" },
   { nameJa: "池袋", romanized: "Ikebukuro" },
@@ -47,30 +18,12 @@ const REFERENCE_STATIONS = [
   { nameJa: "品川", romanized: "Shinagawa" },
 ] as const;
 
-/**
- * Two files, not one. The ward outlines and reference stations are drawn by
- * both heroes; the 937 locality points and the worked example are drawn
- * only by the landing plate. Emitting them separately keeps roughly fifteen
- * kilobytes of coordinates out of the search page's bundle — this repo
- * disables webpack's module concatenation (see web/next.config.ts), so
- * unused exports from a shared module are not reliably shaken out.
- */
 const WARDS_PATH = new URL("../../web/app/components/tokyo-wards.ts", import.meta.url);
 const LOCALITIES_PATH = new URL(
   "../../web/app/components/landing/tokyo-localities.ts",
   import.meta.url,
 );
 
-/**
- * The worked example the landing page animates: a real request, sent to a
- * real `/v1/optimize`, whose real winners are frozen into the plate. The
- * landing page states these parameters on screen beside the result, so the
- * reader is looking at output from the actual engine rather than at a
- * designer's guess about what output might look like.
- *
- * If the API is unreachable when this script runs, generation fails loudly
- * rather than emitting a plate with an invented shortlist.
- */
 const EXAMPLE_REQUEST = {
   destinationNameJa: "渋谷",
   arrivalTime: "08:30",
@@ -127,16 +80,10 @@ interface OptimizeDiagnostics {
   readonly excludedByRent: number;
   readonly excludedByCommute: number;
   readonly excludedByDisconnected: number;
-  /** Authoritative: the engine's own count of what cleared every filter. */
+
   readonly feasibleCount: number;
 }
 
-/**
- * Counts of the evidence behind each lifestyle axis. Each axis rests on a
- * different kind of record — points of interest, distinct cuisine tags,
- * park polygons, zoning and rail geometry — so the landing page states the
- * unit rather than pretending they are all the same measurement.
- */
 const AXIS_EVIDENCE_SQL = `
   SELECT
     (SELECT count(*) FROM pois WHERE category IN ('supermarket','grocery')) AS supermarkets,
@@ -159,10 +106,6 @@ function ringsOf(geometry: GeoJsonPolygon): Ring[] {
     : (geometry.coordinates as Ring[]);
 }
 
-/**
- * A fixed, seedless shuffle: the same input always produces the same
- * output, so regenerating the plate does not churn the file for no reason.
- */
 function shuffleDeterministically(items: readonly string[]): string[] {
   const out = [...items];
   let seed = 20260830;
@@ -179,11 +122,6 @@ function shuffleDeterministically(items: readonly string[]): string[] {
   return out;
 }
 
-/**
- * The fields the landing page shows from the top recommendation. Pulled
- * apart here rather than in the page so the generated module carries the
- * engine's output verbatim and the page does no interpreting of its own.
- */
 function describeTopResult(results: readonly OptimizeResult[]): unknown {
   const top = results[0];
   if (top === undefined) throw new Error("no top result to describe");
@@ -209,7 +147,6 @@ function describeTopResult(results: readonly OptimizeResult[]): unknown {
   };
 }
 
-/** Groups emitted literals so the generated array is not one line per number. */
 function chunk(items: readonly string[], perLine: number): string[] {
   const lines: string[] = [];
   for (let index = 0; index < items.length; index += perLine) {
@@ -218,11 +155,6 @@ function chunk(items: readonly string[], perLine: number): string[] {
   return lines;
 }
 
-/**
- * Runs `EXAMPLE_REQUEST` against a live API and returns the shortlist it
- * produced. Throws rather than falling back: a plate that animates an
- * invented shortlist would be worse than no plate at all.
- */
 async function fetchExampleShortlist(pool: {
   query: <T>(sql: string, values?: unknown[]) => Promise<{ rows: T[] }>;
 }): Promise<{
@@ -303,8 +235,6 @@ export async function buildWardPlate(): Promise<PlateSources> {
       [REFERENCE_STATIONS.map((station) => station.nameJa)],
     );
 
-    // Every area the engine weighs, so the plate can draw the real
-    // candidate set rather than a decorative scatter.
     const { rows: localities } = await pool.query<LocalityRow>(
       `SELECT locality_id, ST_Y(centroid) AS lat, ST_X(centroid) AS lon
          FROM localities
@@ -318,9 +248,6 @@ export async function buildWardPlate(): Promise<PlateSources> {
     const evidence = evidenceRows[0];
     if (evidence === undefined) throw new Error("axis evidence query returned no rows");
 
-    // A spread of real place names for the index band. Ordered by a hash of
-    // the id rather than alphabetically, so the band reads as a cross-section
-    // of the city instead of a run of one ward's neighbours.
     const { rows: nameRows } = await pool.query<{ name_ja: string }>(
       `SELECT DISTINCT ON (name_ja) name_ja
          FROM localities
@@ -338,9 +265,6 @@ export async function buildWardPlate(): Promise<PlateSources> {
     const minLat = Math.min(...lats);
     const maxLat = Math.max(...lats);
 
-    // One cos(latitude) factor for the whole plate: over 30 km of latitude
-    // the error is far below a pixel at this scale, and a constant keeps the
-    // projection invertible and identical to the runtime map's.
     const lonScale = Math.cos(((minLat + maxLat) / 2) * (Math.PI / 180));
     const spanX = (maxLon - minLon) * lonScale;
     const spanY = maxLat - minLat;
@@ -517,9 +441,7 @@ export async function buildWardPlate(): Promise<PlateSources> {
             excludedByCommute: example.diagnostics.excludedByCommute,
             excludedByRent: example.diagnostics.excludedByRent,
             excludedByDisconnected: example.diagnostics.excludedByDisconnected,
-            // The engine's own figure, not `considered` minus the exclusion
-            // counts: a candidate can fail two filters at once, and
-            // subtracting would count it twice and understate the result.
+
             qualified: example.diagnostics.feasibleCount,
             shortlisted: example.results.length,
           },

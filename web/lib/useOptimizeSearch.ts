@@ -26,17 +26,6 @@ import {
 import { getJson, postJson } from "./api";
 import { bilingualLabel } from "./format";
 
-/**
- * Owns every piece of search state for the Field Guide frontend:
- * destination autocomplete, form fields, query-string hydration, the
- * optimize request lifecycle, and shareable-URL writing. Extracted from
- * the page so components stay presentational; the behavior (debouncing,
- * hydration, auto-run, fallback station search) is unchanged from the
- * previous frontend except where noted.
- */
-
-/** A destination the user has actually committed to, in whichever of the
- *  two mutually-exclusive forms `POST /v1/optimize` accepts. */
 export type SelectedDestination =
   | { readonly kind: "station"; readonly stationGroupId: string; readonly label: string }
   | { readonly kind: "point"; readonly lat: number; readonly lon: number; readonly label: string };
@@ -53,64 +42,43 @@ const QUERY_KEYS = {
 } as const;
 
 export function useOptimizeSearch() {
-  // Destination + arrival + max commute.
   const [destQuery, setDestQuery] = useState("");
   const [selectedDestination, setSelectedDestination] = useState<SelectedDestination | null>(null);
-  // The `destQuery` value that was just SET alongside a real selection
-  // (from hydration or from picking a suggestion), so the autocomplete
-  // effect below can tell "this text already represents a committed
-  // choice, don't search for it" apart from "the user is typing." This is
-  // plain state (not a ref) specifically so it updates in the SAME render
-  // pass as `destQuery` itself.
+
   const [committedQuery, setCommittedQuery] = useState<string | null>(null);
 
-  // `/v1/places` results — named POIs and stations, ranked together.
   const [placeSuggestions, setPlaceSuggestions] = useState<PlaceSuggestion[]>([]);
   const [placesLoading, setPlacesLoading] = useState(false);
-  // Fallback station-only search, populated ONLY when `/v1/places` comes
-  // back empty for the current query.
+
   const [stationFallback, setStationFallback] = useState<StationSuggestion[]>([]);
   const [stationFallbackLoading, setStationFallbackLoading] = useState(false);
-  // True when BOTH the places search and the station fallback failed — the
-  // autocomplete then shows a retry action instead of silently giving up.
+
   const [autocompleteFailed, setAutocompleteFailed] = useState(false);
-  // Bumped by the retry action to re-run the debounced search effect.
+
   const [retryToken, setRetryToken] = useState(0);
 
   const [arrivalTime, setArrivalTime] = useState("08:30");
   const [maxCommuteMinutes, setMaxCommuteMinutes] = useState(45);
 
-  // Budget + layout.
   const [monthlyBudgetYen, setMonthlyBudgetYen] = useState(200_000);
   const [layout, setLayout] = useState<Layout>("1LDK");
 
-  // Lifestyle importance — one entry per registered axis; `undefined`
-  // means "axis not selected" (left out of scoring entirely).
   const [preferences, setPreferences] = useState<Record<LifestyleAxisId, Importance | undefined>>(
     () => mapLifestyleAxes(() => undefined),
   );
 
-  // Request lifecycle.
   const [hydrated, setHydrated] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [response, setResponse] = useState<OptimizeResponse | null>(null);
-  // The destination label as of the request that PRODUCED `response` —
-  // captured at submit time so editing the destination field afterwards
-  // can't blank out the "walk to X" wording on on-screen results.
+
   const [resultDestinationLabel, setResultDestinationLabel] = useState<string | null>(null);
 
-  // The destination's coordinates, for the results map's marker. Known
-  // immediately for point destinations and autocomplete selections (both
-  // suggestion types carry lat/lon); for a station hydrated from a shared
-  // link, looked up once against `/v1/stations` (see effect below). Null
-  // means the map simply renders without the destination nail.
   const [destinationCoords, setDestinationCoords] = useState<{
     readonly lat: number;
     readonly lon: number;
   } | null>(null);
 
-  // Hydrate the form from the query string on load (shareable links).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const stationId = params.get(QUERY_KEYS.dest);
@@ -162,26 +130,13 @@ export function useOptimizeSearch() {
     setHydrated(true);
   }, []);
 
-  // Auto-run once, right after hydration, if the URL already named a
-  // destination — otherwise a "shareable" link would just reopen a blank
-  // form. Also requires at least one selected lifestyle axis: an older
-  // shared link may carry lifestyle params under axis ids that no longer
-  // exist, which hydrates to all-`undefined` and would fail client-side
-  // validation as the user's first sight of the page.
   useEffect(() => {
     const hasSelectedAxis = LIFESTYLE_AXIS_IDS.some((id) => preferences[id] !== undefined);
     if (hydrated && selectedDestination && hasSelectedAxis) {
       void runOptimize();
     }
-    // Deliberately depends on `hydrated` alone: this must run exactly
-    // once, right after hydration has populated form state, not on every
-    // subsequent field change.
   }, [hydrated]);
 
-  // Debounced destination autocomplete against `/v1/places`. Skipped
-  // entirely while `destQuery` still equals `committedQuery` — i.e. the
-  // text on screen already came from a real selection and the user hasn't
-  // edited it since.
   useEffect(() => {
     if (committedQuery !== null && destQuery === committedQuery) {
       return;
@@ -226,9 +181,6 @@ export function useOptimizeSearch() {
     return () => clearTimeout(handle);
   }, [destQuery, committedQuery, retryToken]);
 
-  // Resolve coordinates for a station destination hydrated from a shared
-  // link: one lookup by label, matched back to the exact station group id.
-  // Failure is silent — the map just renders without the destination nail.
   useEffect(() => {
     if (
       !hydrated ||
@@ -247,7 +199,6 @@ export function useOptimizeSearch() {
         if (match) setDestinationCoords({ lat: match.lat, lon: match.lon });
       })
       .catch(() => {});
-    // Runs once per hydrated station destination, not on every edit.
   }, [hydrated]);
 
   const retryAutocomplete = useCallback(() => {
@@ -387,7 +338,6 @@ export function useOptimizeSearch() {
     placeSuggestions.length === 0;
 
   return {
-    // Destination field
     destQuery,
     selectedDestination,
     placeSuggestions,
@@ -402,20 +352,20 @@ export function useOptimizeSearch() {
     selectPlace,
     selectFallbackStation,
     retryAutocomplete,
-    // Commute fields
+
     arrivalTime,
     setArrivalTime,
     maxCommuteMinutes,
     setMaxCommuteMinutes,
-    // Budget fields
+
     monthlyBudgetYen,
     setMonthlyBudgetYen,
     layout,
     setLayout,
-    // Lifestyle
+
     preferences,
     setPreferences,
-    // Request lifecycle
+
     hydrated,
     isLoading,
     error,

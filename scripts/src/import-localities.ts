@@ -1,4 +1,3 @@
-/** Imports official e-Stat 2020 town/chome boundaries and dissolves chome names per ward. */
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -26,7 +25,6 @@ function value(
   return null;
 }
 
-/** `初台１丁目`, `初台1丁目`, and `初台一丁目` all become the authoritative `初台`. */
 export function normalizeLocalityName(name: string): string {
   return name
     .normalize("NFKC")
@@ -51,8 +49,7 @@ export async function importLocalities(
   for (const feature of parsed.features) {
     if (!feature.geometry || !["Polygon", "MultiPolygon"].includes(feature.geometry.type)) continue;
     const rawWardCode = value(feature.properties, ["ward_code", "N03_007", "KEY_CODE", "CITYCODE"]);
-    // e-Stat's KEY_CODE identifies a town/chome and begins with the five
-    // digit municipality code; MLIT ward files already provide five digits.
+
     const wardCode = rawWardCode?.slice(0, 5) ?? null;
     const rawName = value(feature.properties, ["name_ja", "S_NAME", "MOJI", "町丁名", "NAME"]);
     if (!wardCode || !/^131(?:0[1-9]|1[0-9]|2[0-3])$/.test(wardCode) || !rawName) continue;

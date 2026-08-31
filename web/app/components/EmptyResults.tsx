@@ -1,10 +1,5 @@
 import type { OptimizeResponse } from "@tokyo/shared";
 
-/**
- * The no-results state — an actionable editorial response, not a dead
- * end. Names what excluded the candidates (from the API's own
- * diagnostics) and suggests the most effective adjustment first.
- */
 export function EmptyResults({
   response,
   headingRef,
@@ -14,7 +9,6 @@ export function EmptyResults({
 }) {
   const { diagnostics } = response;
 
-  // Order the adjustments by what actually excluded the most candidates.
   const adjustments: string[] = [];
   const rentTip = "Raise the monthly budget, or try a smaller layout.";
   const commuteTip = "Increase the maximum commute — even 10 minutes opens new ground.";

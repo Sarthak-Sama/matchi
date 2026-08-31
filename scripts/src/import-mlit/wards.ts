@@ -1,18 +1,3 @@
-/**
- * Wards dataset — MLIT's National Land Numerical Information administrative
- * boundary data (dataset code N03), one polygon per municipality.
- *
- * ASSUMED property names (verify against a real download): the MLIT field codes
- * `N03_007` (5-digit JIS administrative code) and `N03_004` (Japanese
- * name) are tried first; a friendlier `ward_code` / `name_ja` is accepted
- * as a fallback so hand-built or pre-renamed fixtures work too.
- *
- * N03 carries no English name field. Since `wards.name_en` is `NOT NULL`,
- * this module falls back to a static lookup for Tokyo's 23 special wards
- * (`TOKYO_WARD_NAME_EN`) when the source doesn't supply `name_en` itself,
- * and only errors when neither is available.
- */
-
 import { expectColumns } from "../lib/validate.js";
 import type { GeoJSONFeature } from "./geojson.js";
 import { pickProperty, polygonGeometryToMultiPolygonWKT } from "./geojson.js";
@@ -23,10 +8,6 @@ const WARD_CODE_KEYS = ["N03_007", "ward_code"];
 const NAME_JA_KEYS = ["N03_004", "name_ja"];
 const NAME_EN_KEYS = ["name_en"];
 
-/**
- * English names for Tokyo's 23 special wards, keyed by their 5-digit JIS
- * administrative code. MLIT's N03 data has no English field of its own.
- */
 export const TOKYO_WARD_NAME_EN: Readonly<Record<string, string>> = {
   "13101": "Chiyoda",
   "13102": "Chuo",

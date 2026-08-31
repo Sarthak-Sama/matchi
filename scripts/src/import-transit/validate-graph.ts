@@ -1,16 +1,3 @@
-/**
- * Final sanity check on the whole `rail_edges` graph (not just this run's
- * own rows — a station reachable only via a DIFFERENT source's edges is
- * still connected), run once at the end of `import:transit` regardless of
- * which mode produced this run's edges.
- *
- * Aborts (throwing, so `runImport` rolls the whole transaction back) if:
- *   - the total edge count is below `minEdges`, or
- *   - more than 10% of `station_groups` rows have no edge touching them
- *     at all (neither `from_station_group_id` nor `to_station_group_id`
- *     in any `rail_edges` row) — naming which ones.
- */
-
 import type { PoolClient } from "pg";
 
 const ORPHAN_SHARE_MAX = 0.1;

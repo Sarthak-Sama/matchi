@@ -1,35 +1,3 @@
-/**
- * Step 6 — rent.
- *
- * For each station group: median residential land price inside its 800m
- * catchment (`land_prices` where `use_category = 'residential'`), median
- * residential land price for its whole ward, then
- * `computeLandPriceMultiplier`, `pickRentStat`, and `estimateRent` from
- * `@tokyo/shared` — the exact same tested functions. The
- * rent formula itself is NOT reimplemented here or in SQL.
- *
- * Layout choice: `neighborhood_metrics` stores one rent estimate per
- * station, not one per layout (per-layout estimates are recomputed at
- * request time by the API, which reuses `rent_per_sqm_yen`,
- * `land_price_multiplier`, etc. stored here). "1LDK" is used as the
- * precomputed baseline layout because it matches the API's own default
- * layout.
- *
- * `landPriceUsedFallback` is threaded straight from
- * `computeLandPriceMultiplier`'s own return value into `estimateRent` — it
- * is NOT re-derived from `pointCount < MIN_LAND_PRICE_POINTS`, because
- * `computeLandPriceMultiplier` also reports `usedFallback: true` when a
- * median is missing or non-positive even with enough points. Re-deriving
- * from the count alone was a real bug.
- *
- * That same flag is also persisted verbatim to
- * `neighborhood_metrics.land_price_used_fallback` (added in
- * `0003_land_price_used_fallback.sql`) — the API needs it to recompute a
- * per-layout rent estimate honestly, and re-deriving it from
- * `land_price_point_count` alone at that call site would reintroduce the
- * exact same bug.
- */
-
 import type { Pool } from "pg";
 
 import {
@@ -45,7 +13,6 @@ import { withTransaction } from "../lib/db.js";
 import { assertCatchmentsDerived } from "./prerequisites.js";
 import type { StepResult } from "./types.js";
 
-/** The precomputed baseline layout stored on `neighborhood_metrics` — see module doc comment. */
 const BASELINE_LAYOUT: LayoutId = "1LDK";
 
 interface CatchmentLandPriceRow {
@@ -64,16 +31,9 @@ interface RentStatDbRow extends RentStatRow {
   readonly ward_code: string;
 }
 
-/**
- * `runRentStep`'s result, widened beyond the shared `StepResult` summary
- * row with the facts needed to report skipped stations honestly (see the
- * module doc comment's note on `landPriceUsedFallback`/skip reporting).
- * Still assignable wherever `StepResult` is expected.
- */
 export interface RentStepResult extends StepResult {
-  /** Stations skipped for lack of a ward assignment or ward rent_stats data — see the loop below. */
   readonly skippedStationGroupIds: readonly string[];
-  /** Of the stations actually written, how many hit the land-price fallback (multiplier forced to 1.0). */
+
   readonly usedFallbackCount: number;
 }
 
@@ -84,8 +44,6 @@ export async function runRentStep(pool: Pool): Promise<RentStepResult> {
   const { written, skippedStationGroupIds, usedFallbackCount } = await withTransaction(
     pool,
     async (client) => {
-      // A single `pg` client can only run one query at a time, so these are
-      // awaited sequentially rather than via Promise.all.
       const catchmentRes = await client.query<CatchmentLandPriceRow>(
         `
       SELECT
@@ -209,11 +167,7 @@ export async function runRentStep(pool: Pool): Promise<RentStepResult> {
             rentResult.managementFeeYen,
             rentResult.landPriceMultiplier,
             rentResult.landPricePointCount,
-            // `estimateRent` doesn't echo `landPriceUsedFallback` back on its
-            // result shape (it only feeds the confidence step-down), so this
-            // reads straight from computeLandPriceMultiplier's own output —
-            // not re-derived from pointCount, for the same reason described
-            // in the module doc comment above.
+
             usedFallback,
           ],
         );

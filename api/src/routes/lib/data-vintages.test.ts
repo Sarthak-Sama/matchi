@@ -1,24 +1,3 @@
-/**
- * `loadLatestImportRuns` / `loadLatestSuccessfulImportRuns` tests.
- *
- * Requires a real database reachable via `DATABASE_URL` — skips with an
- * explicit message when unset, mirroring `scripts/src/derive.test.ts`'s
- * pattern. Only `import_runs` is touched directly (no migrate/seed/derive
- * needed): a fresh `import_runs` row set is inserted per test run so this
- * suite doesn't depend on — or interfere with — any other suite's data.
- *
- * This test exists because a real (non-seed) failure mode only shows up
- * once a `failed` import run is newer than the last `success`ful one for
- * the same source: `runImport` records the failed row's `finished_at`
- * AFTER rolling its own writes back, so naively picking "the latest row
- * per source" (no status filter) reports a failed run's timestamps as if
- * they described the data currently on disk. `loadLatestSuccessfulImportRuns`
- * (used by `POST /v1/optimize`'s `dataVintages`) must not do that;
- * `loadLatestImportRuns` (used by `GET /v1/data-status`) deliberately still
- * does, since that route exists to surface the latest outcome regardless of
- * status.
- */
-
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -47,7 +26,6 @@ describe.runIf(Boolean(databaseUrl))(
     it("a failed run newer than a successful one: loadLatestSuccessfulImportRuns still reports the successful run's timestamps; loadLatestImportRuns reports the failed one", async () => {
       await pool.query("DELETE FROM import_runs WHERE source = $1", [TEST_SOURCE]);
 
-      // Older, successful run — this is what's actually reflected on disk.
       const successSourceUpdatedAt = new Date("2026-01-01T00:00:00Z");
       await pool.query(
         `INSERT INTO import_runs (source, status, source_updated_at, started_at, finished_at, rows_imported)
@@ -60,9 +38,6 @@ describe.runIf(Boolean(databaseUrl))(
         ],
       );
 
-      // Newer run that FAILED — its own finished_at is set (runImport records
-      // this after rolling its writes back) but the underlying data was never
-      // updated.
       await pool.query(
         `INSERT INTO import_runs (source, status, source_updated_at, started_at, finished_at, error)
        VALUES ($1, 'failed', $2, $3, $4, $5)`,

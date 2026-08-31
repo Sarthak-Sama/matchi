@@ -1,5 +1,3 @@
-/** Minimal inline icon set — 1.5px strokes, square caps, no decoration. */
-
 export function ArrowRightIcon({ className = "size-4" }: { className?: string }) {
   return (
     <svg
@@ -52,7 +50,6 @@ export function ChevronDownIcon({ className = "size-4" }: { className?: string }
   );
 }
 
-/** The destination marker: a vermilion survey nail, not a teardrop pin. */
 export function DestinationMark({ className = "size-3" }: { className?: string }) {
   return (
     <svg aria-hidden="true" viewBox="0 0 12 12" className={className}>

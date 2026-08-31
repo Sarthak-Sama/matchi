@@ -14,31 +14,6 @@ import {
   rentStatBaseConfidence,
 } from "./rent.js";
 
-// ---------------------------------------------------------------------------
-// estimateRent — worked example per layout
-//
-// Fixed inputs for every layout below: wardRentPerSqmYen = 3600,
-// managementFeeYen = 7000, landPriceMultiplier = 1 (neutral),
-// landPricePointCount = 5 (>= MIN_LAND_PRICE_POINTS, no fallback),
-// sourcePeriod = "2025", currentYear = 2026 (age 1, not stale),
-// baseConfidence = "high" (expect no downgrade).
-//
-// Formula: medianYen = round(rent * mid * mult + fee)
-//          lowYen    = round(rent * min * 0.9 * mult + fee)
-//          highYen   = round(rent * max * 1.1 * mult + fee)
-//
-// Worked by hand (mult = 1 so it drops out):
-//   1R:     mid=21 -> 3600*21=75600  +7000 = 82600   (median)
-//           min=18 -> 3600*18*0.9=58320 +7000 = 65320 (low)
-//           max=25 -> 3600*25*1.1=99000 +7000 = 106000 (high)
-//   1K:     mid=24 -> 86400+7000=93400 | min=20 -> 64800+7000=71800 | max=28 -> 110880+7000=117880
-//   1DK:    mid=30 -> 108000+7000=115000 | min=25 -> 81000+7000=88000 | max=35 -> 138600+7000=145600
-//   1LDK:   mid=38 -> 136800+7000=143800 | min=32 -> 103680+7000=110680 | max=45 -> 178200+7000=185200
-//   2K_2DK: mid=43 -> 154800+7000=161800 | min=35 -> 113400+7000=120400 | max=50 -> 198000+7000=205000
-//   2LDK:   mid=55 -> 198000+7000=205000 | min=45 -> 145800+7000=152800 | max=65 -> 257400+7000=264400
-//   3LDK:   mid=70 -> 252000+7000=259000 | min=60 -> 194400+7000=201400 | max=80 -> 316800+7000=323800
-// ---------------------------------------------------------------------------
-
 const FIXED_INPUT_BASE = {
   wardRentPerSqmYen: 3600,
   managementFeeYen: 7000,
@@ -115,10 +90,6 @@ describe("estimateRent — worked example per layout", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// estimateRent — low <= median <= high invariant, every layout
-// ---------------------------------------------------------------------------
-
 describe("estimateRent — low <= median <= high invariant", () => {
   it("holds for every layout under normal (non-adversarial) inputs", () => {
     for (const layout of LAYOUT_IDS) {
@@ -129,12 +100,6 @@ describe("estimateRent — low <= median <= high invariant", () => {
   });
 
   it("throws a descriptive error when bad inputs (negative rent) flip the ordering", () => {
-    // Hand-computed with wardRentPerSqmYen = -1000, fee = 0, mult = 1, layout 1R
-    // (min=18, mid=21, max=25):
-    //   low    = round(-1000 * 18 * 0.9) = -16200
-    //   median = round(-1000 * 21)       = -21000
-    //   high   = round(-1000 * 25 * 1.1) = -27500
-    // -16200 <= -21000 is false, so the invariant is violated and must throw.
     expect(() =>
       estimateRent({
         ...FIXED_INPUT_BASE,
@@ -146,16 +111,8 @@ describe("estimateRent — low <= median <= high invariant", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// estimateRent — management fee is added, not scaled
-// ---------------------------------------------------------------------------
-
 describe("estimateRent — management fee handling", () => {
   it("fee is added unscaled to low, median, and high (differencing two runs)", () => {
-    // wardRentPerSqmYen = 4000, layout = 1LDK, multiplier = 1.05, same
-    // land-price/source inputs in both runs — only managementFeeYen differs
-    // (5000 vs 9000, a difference of 4000). If the fee were scaled by the
-    // multiplier or by area, the resulting deltas would not equal 4000.
     const runLowFee = estimateRent({
       ...FIXED_INPUT_BASE,
       layout: "1LDK",
@@ -177,15 +134,8 @@ describe("estimateRent — management fee handling", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// estimateRent — confidence downgrades
-// ---------------------------------------------------------------------------
-
 describe("estimateRent — confidence downgrades", () => {
   it("landPriceUsedFallback: true (threaded from computeLandPriceMultiplier's pointCount fallback) lowers confidence by one step", () => {
-    // Realistic wiring: pointCount = 2 < MIN_LAND_PRICE_POINTS (3), so
-    // computeLandPriceMultiplier falls back, and estimateRent is given
-    // its multiplier AND its usedFallback flag (not re-derived from pointCount).
     expect(MIN_LAND_PRICE_POINTS).toBe(3);
     const landPrice = computeLandPriceMultiplier({
       catchmentMedianLandPrice: 550_000,
@@ -201,16 +151,10 @@ describe("estimateRent — confidence downgrades", () => {
       landPriceMultiplier: landPrice.multiplier,
       landPriceUsedFallback: landPrice.usedFallback,
     });
-    expect(result.confidence).toBe("medium"); // high -> medium
+    expect(result.confidence).toBe("medium");
   });
 
   it("landPricePointCount >= MIN_LAND_PRICE_POINTS but landPriceUsedFallback: true (median-missing case) still lowers confidence by one step", () => {
-    // This is the plumbing gap the review caught: pointCount alone can't
-    // tell estimateRent a fallback happened, because
-    // computeLandPriceMultiplier also falls back to 1.0 when a median is
-    // missing/non-positive, independent of pointCount. Here pointCount = 5
-    // (well above MIN_LAND_PRICE_POINTS = 3) but the caller still threads
-    // usedFallback: true through, because the ward median came back null.
     const landPrice = computeLandPriceMultiplier({
       catchmentMedianLandPrice: 550_000,
       wardMedianLandPrice: null,
@@ -225,7 +169,7 @@ describe("estimateRent — confidence downgrades", () => {
       landPriceMultiplier: landPrice.multiplier,
       landPriceUsedFallback: landPrice.usedFallback,
     });
-    expect(result.confidence).toBe("medium"); // high -> medium, exactly one step
+    expect(result.confidence).toBe("medium");
   });
 
   it("landPriceUsedFallback: false does not trigger the land-price downgrade, regardless of pointCount", () => {
@@ -235,16 +179,16 @@ describe("estimateRent — confidence downgrades", () => {
       landPricePointCount: 3,
       landPriceUsedFallback: false,
     });
-    expect(result.confidence).toBe("high"); // no downgrade
+    expect(result.confidence).toBe("high");
   });
 
   it("a source period more than 2 years older than currentYear lowers confidence by one step", () => {
     const result = estimateRent({
       ...FIXED_INPUT_BASE,
       layout: "1R",
-      sourcePeriod: "2020", // currentYear 2026 - 2020 = 6 > 2
+      sourcePeriod: "2020",
     });
-    expect(result.confidence).toBe("medium"); // high -> medium
+    expect(result.confidence).toBe("medium");
   });
 
   it("both downgrades combined step confidence down twice (high -> medium -> low)", () => {
@@ -271,14 +215,8 @@ describe("estimateRent — confidence downgrades", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// computeLandPriceMultiplier
-// ---------------------------------------------------------------------------
-
 describe("computeLandPriceMultiplier", () => {
   it("clamps to LAND_PRICE_MULTIPLIER_MAX (1.15) when the raw ratio exceeds it", () => {
-    // ratio = 1,600,000 / 100,000 = 16; 16 ** 0.25 = 2.0 exactly (2^4 = 16).
-    // 2.0 > 1.15, so it clamps to the max.
     expect(LAND_PRICE_MULTIPLIER_MAX).toBe(1.15);
     const result = computeLandPriceMultiplier({
       catchmentMedianLandPrice: 1_600_000,
@@ -290,8 +228,6 @@ describe("computeLandPriceMultiplier", () => {
   });
 
   it("clamps to LAND_PRICE_MULTIPLIER_MIN (0.85) when the raw ratio is below it", () => {
-    // ratio = 100,000 / 1,600,000 = 0.0625; 0.0625 ** 0.25 = 0.5 exactly (0.5^4 = 0.0625).
-    // 0.5 < 0.85, so it clamps to the min.
     expect(LAND_PRICE_MULTIPLIER_MIN).toBe(0.85);
     const result = computeLandPriceMultiplier({
       catchmentMedianLandPrice: 100_000,
@@ -303,9 +239,6 @@ describe("computeLandPriceMultiplier", () => {
   });
 
   it("applies the exact 0.25 exponent for an in-range ratio (no clamping)", () => {
-    // ratio = 550,000 / 500,000 = 1.1; 1.1 ** 0.25 = 1.0241136890844451
-    // (computed once with `node -e "console.log(1.1 ** 0.25)"`), which is
-    // within [0.85, 1.15] so it passes through unclamped.
     const result = computeLandPriceMultiplier({
       catchmentMedianLandPrice: 550_000,
       wardMedianLandPrice: 500_000,
@@ -371,10 +304,6 @@ describe("computeLandPriceMultiplier", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// pickRentStat
-// ---------------------------------------------------------------------------
-
 describe("pickRentStat", () => {
   const estat2023 = {
     source: "estat",
@@ -402,23 +331,18 @@ describe("pickRentStat", () => {
   };
 
   it("prefers a recent REINS row over an e-Stat row for the same ward", () => {
-    // currentYear 2026 - reins period 2026 = age 0, within 2 years -> high.
     const result = pickRentStat([estat2023, reins2026Q2], { currentYear: 2026 });
     expect(result.stat).toBe(reins2026Q2);
     expect(result.baseConfidence).toBe("high");
   });
 
   it("falls back to the most recent e-Stat row when REINS is missing", () => {
-    // currentYear 2026 - estat period 2024 = age 2, not older than 5 -> medium.
     const result = pickRentStat([estat2024], { currentYear: 2026 });
     expect(result.stat).toBe(estat2024);
     expect(result.baseConfidence).toBe("medium");
   });
 
   it("falls back to e-Stat when the only REINS row is older than 2 years", () => {
-    // reins period 2020Q1 -> year 2020; currentYear 2026 - 2020 = age 6 > 2,
-    // so REINS is skipped and the (more recent) e-Stat row 2024 is used.
-    // age for estat: 2026 - 2024 = 2, not older than 5 -> medium.
     const result = pickRentStat([reinsStale2020Q1, estat2023, estat2024], {
       currentYear: 2026,
     });
@@ -427,9 +351,6 @@ describe("pickRentStat", () => {
   });
 
   it("downgrades to low confidence when the chosen e-Stat row is older than 5 years", () => {
-    // currentYear 2026 - estat period 2023 = age 3 -> NOT low yet (test above already
-    // covers a fresh case at age 2 = medium); use an older row to cross the 5-year line.
-    // estat period 2018 -> age = 2026 - 2018 = 8 > 5 -> low.
     const estatStale2018 = {
       source: "estat",
       period: "2018",
@@ -446,43 +367,16 @@ describe("pickRentStat", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// rentStatBaseConfidence
-//
-// Extracted from `pickRentStat`'s two branches specifically so a caller that
-// already knows which (source, period) backs a STORED estimate (the
-// `/v1/optimize` and `/v1/neighborhoods/:id`, recomputing `estimateRent` for
-// a user-chosen layout) can reconstruct the correct `baseConfidence` INPUT,
-// rather than feeding a row's own already fallback/staleness-ADJUSTED
-// `rent_confidence` column back in as `baseConfidence` — which would
-// double-apply those downgrades on every recompute. These are the same
-// (source, period, currentYear) combinations `pickRentStat`'s own tests
-// above already exercise indirectly; this describes the classification
-// function directly and in isolation.
-// ---------------------------------------------------------------------------
-
 describe("rentStatBaseConfidence", () => {
   it("a reins source is always 'high', regardless of age", () => {
-    // Mirrors pickRentStat's reins branch: it only ever SELECTS a reins row
-    // when age <= RENT_STAT_RECENT_MAX_AGE_YEARS, so the base confidence
-    // for a reins pick is unconditionally "high" — staleness is instead
-    // re-evaluated independently by estimateRent's own age check, using
-    // whatever currentYear the caller supplies at recompute time.
     expect(rentStatBaseConfidence("reins", "2026Q2", 2026)).toBe("high");
   });
 
   it("a reins source is 'high' even when its period is old (age 11)", () => {
-    // Deliberately calling this with an old reins period some caller might
-    // still be recomputing from (e.g. a station whose stored rent_source
-    // predates a recent pickRentStat run) — rentStatBaseConfidence itself
-    // does not gate on age for reins; estimateRent's separate staleness
-    // check is what would still downgrade the FINAL confidence in that
-    // case.
     expect(rentStatBaseConfidence("reins", "2015Q1", 2026)).toBe("high");
   });
 
   it("an estat source at age 2 (not older than 5) is 'medium'", () => {
-    // currentYear 2026 - period 2024 = age 2.
     expect(rentStatBaseConfidence("estat", "2024", 2026)).toBe("medium");
   });
 
@@ -491,11 +385,6 @@ describe("rentStatBaseConfidence", () => {
   });
 
   it("an estat source at exactly age 5 (the boundary) is still 'medium'", () => {
-    // RENT_STAT_OLD_MIN_AGE_YEARS is 5; the check is "age > 5", so age
-    // exactly 5 does NOT cross into "low" — matches pickRentStat's own
-    // "downgrades to low confidence when...older than 5 years" test, which
-    // uses age 8 (unambiguously past the boundary) rather than the
-    // boundary itself.
     expect(rentStatBaseConfidence("estat", "2021", 2026)).toBe("medium");
   });
 
@@ -504,10 +393,6 @@ describe("rentStatBaseConfidence", () => {
   });
 
   it("pickRentStat's own results are unchanged by delegating to this function (regression check)", () => {
-    // Re-asserts the exact same (stat, baseConfidence) pairs as the
-    // describe("pickRentStat", ...) block above, confirming the refactor
-    // that extracted rentStatBaseConfidence did not alter pickRentStat's
-    // observable behavior.
     const reins2026Q2 = {
       source: "reins",
       period: "2026Q2",

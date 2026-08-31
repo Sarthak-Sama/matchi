@@ -1,33 +1,3 @@
-/**
- * Derive script — turns raw imported/seeded geodata into the precomputed
- * `neighborhood_metrics` rows the scoring engine and API read directly.
- *
- * Eight steps, each in its own transaction, each idempotent
- * (delete-and-rebuild for `station_areas`; deterministic UPDATE for
- * `neighborhood_metrics` columns otherwise) so re-running produces
- * byte-identical results:
- *
- *   1. catchments    — station_areas (800m buffers)
- *   2. amenities     — POI counts + amenity_supermarket_equiv
- *   3. zoning        — residential_zoning_share + road_rail_exposure_share
- *   4. quietness     — quietness_raw
- *   5. rent          — rent_* / land_price_* via @tokyo/shared's rent.ts
- *   6. green-space   — green_space_share
- *   7. normalization — norm_* (0-100) + source_dates
- *   8. localities    — locality samples and aggregate metrics
- *
- * Steps 2-8 depend on step 1 having run at least once (a neighborhood_metrics
- * row must exist to UPDATE); quietness depends on amenities + zoning;
- * normalization depends on amenities + zoning + quietness + rent +
- * green-space. Each step asserts its own prerequisites and fails with a
- * clear message naming the step to run first, rather than silently writing
- * nulls.
- *
- * Usage:
- *   DATABASE_URL=postgresql://... pnpm derive
- *   DATABASE_URL=postgresql://... pnpm derive --only=amenities
- */
-
 import { fileURLToPath } from "node:url";
 
 import type { Pool } from "pg";
@@ -57,7 +27,6 @@ const STEPS: readonly { readonly key: string; readonly run: StepRunner }[] = [
 const STEP_KEYS = STEPS.map((s) => s.key);
 
 export interface RunDeriveOptions {
-  /** Run only this step (must be one of STEP_KEYS). Runs the full pipeline in order when omitted. */
   readonly only?: string;
 }
 

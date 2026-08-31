@@ -6,29 +6,11 @@ import type { NeighborhoodResult } from "@tokyo/shared";
 
 import { formatYenCompact, wardDisplayName } from "../../lib/format";
 
-/**
- * The spatial canvas: real locality polygons (GeoJSON from the API)
- * drawn as a quiet editorial map — sage fills, hairline boundaries, ink
- * pins numbered by rank, a vermilion survey nail for the destination.
- *
- * Pins are HTML buttons overlaid on the SVG (not SVG <g> elements) so
- * focus rings, touch targets, and screen-reader labels are native. The
- * SVG geometry itself is aria-hidden; everything the map communicates is
- * also in the ranked list, which is the non-map route to the same
- * information.
- */
-
 const VIEW_W = 1000;
 const VIEW_H = 720;
 
-/**
- * How many pins the compact mobile preview draws. Twenty numbered discs
- * inside a 300px-wide frame overlap into an unreadable clump; the preview
- * shows the strongest matches and says so, and expanding draws them all.
- */
 const PREVIEW_PIN_LIMIT = 8;
 
-/** Pin stacking order — see the `zIndex` note on the rank pins below. */
 const MAX_PIN_Z = 100;
 const DESTINATION_Z = 120;
 const HIGHLIGHT_Z = 140;
@@ -96,13 +78,12 @@ function buildProjection(
   }
   if (destination) extend(destination.y, destination.x);
   if (!Number.isFinite(minLon)) {
-    // No geometry at all — degenerate; project everything to center.
     return { project: () => ({ x: VIEW_W / 2, y: VIEW_H / 2 }) };
   }
 
   const midLat = (minLat + maxLat) / 2;
   const lonScale = Math.cos((midLat * Math.PI) / 180);
-  // Pad the window so edge polygons don't kiss the frame.
+
   const spanLon = Math.max((maxLon - minLon) * lonScale, 0.001);
   const spanLat = Math.max(maxLat - minLat, 0.001);
   const padX = spanLon * 0.09;
@@ -186,9 +167,6 @@ export function ResultsMap({
   const hiddenPinCount = shapes.length - pinned.length;
 
   return (
-    // The SVG letterboxes when the frame is wider than the projection's
-    // aspect; painting the frame itself keeps that as one ground rather
-    // than two pale bands beside a sage rectangle.
     <figure className="relative h-full w-full bg-sage">
       <svg
         viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
@@ -273,11 +251,7 @@ export function ResultsMap({
             style={{
               left: `${(pin.x / VIEW_W) * 100}%`,
               top: `${(pin.y / VIEW_H) * 100}%`,
-              // Central Tokyo puts twenty candidates inside a couple of
-              // kilometres, so pins genuinely overlap. Rather than nudge
-              // them off their real positions — which would make the map
-              // lie — stack them: better ranks sit above worse ones, and
-              // whatever the reader is pointing at comes to the very top.
+
               zIndex: isHighlighted ? HIGHLIGHT_Z : Math.max(1, MAX_PIN_Z - result.rank),
             }}
           >

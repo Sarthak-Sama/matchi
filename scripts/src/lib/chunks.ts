@@ -1,5 +1,3 @@
-/** Executes a callback over bounded slices, keeping large imports below
- * Postgres parameter and statement-size limits. */
 export async function inChunks<T>(
   values: readonly T[],
   size: number,

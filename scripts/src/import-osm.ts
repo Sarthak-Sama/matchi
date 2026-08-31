@@ -1,71 +1,3 @@
-/**
- * `pnpm import:osm` — imports points of interest and major roads from
- * OpenStreetMap (via the Overpass API) into `pois` and `major_roads`.
- *
- *   pnpm import:osm --file data/tokyo.osm.json
- *   pnpm import:osm --download   # queries Overpass directly; needs network
- *
- * Unlike `import:mlit`/`import:rent`, Overpass needs no credential — it is
- * a public API — so this script's input precedence is simpler and
- * explicit rather than auto-falling-back to a download attempt:
- *   1. `--file <path>` — read a previously saved (or hand-fetched) Overpass
- *      JSON response directly. This is the only path exercised by tests
- *      (see `scripts/src/fixtures/osm/` and this repo's no-network-at-
- *      test-time rule).
- *   2. `--download` — build the query in code (`import-osm/query.ts`,
- *      bounded to `TOKYO_23_WARDS_BBOX` from `@tokyo/shared`) and send it
- *      to the public Overpass API (`import-osm/download.ts`), politely:
- *      one request, a descriptive `User-Agent`, and a clear, specific
- *      error on 429 (rate-limited) or 504 (overloaded) rather than a raw
- *      failed-fetch exception.
- *   3. Neither flag: a clear error naming both options and a manual
- *      fallback (query Overpass yourself, e.g. via overpass-turbo.eu, and
- *      pass the saved response via --file).
- *
- * Parsing (`import-osm/parse.ts`) is pure and DB-free: it classifies every
- * element's tags against the brief's exact mapping (see that file's doc
- * comment for the full table), resolves coordinates (a node's own lat/lon;
- * a way/relation's `center`), and resolves road geometry (a highway way's
- * `geometry` array, kept as real linework — never a centroid, since
- * `derive`'s road-exposure metric needs genuine geometry to intersect
- * against). An element with no mapped tag is skipped, counted, and
- * reported — never an error. An element that DOES match a mapped tag but
- * is missing the coordinates/geometry its kind needs is a hard error that
- * aborts the whole run.
- *
- * An element can genuinely carry more than one mapped tag in a real
- * `--download` response — e.g. `shop=bakery` + `amenity=cafe` is a common,
- * legitimate OSM pattern, and Overpass returns each matched element's full
- * tag set regardless of which of our query's filters found it (see
- * `import-osm/parse.ts`'s doc comment for why). `shop` wins over `amenity`
- * by deliberate choice in that case, not because the situation is rare or
- * unreachable; `highway` always wins over both, which genuinely IS
- * unreachable from our own query (`highway` is a way-only tag in real OSM).
- * Every dual-tag resolution prints a warning naming both tags and the one
- * that won — worth reading after a live import, not noise.
- *
- * Following this repo's house pattern (Tasks 11-12): loading and parsing
- * happen inside the `fn` passed to `runImport` (`scripts/src/lib/
- * import-run.ts`), so a bad file/response causes a harmless no-op
- * rollback rather than a partial write.
- *
- * `pois` is upserted on its `(osm_type, osm_id)` unique constraint (now
- * also carrying the OSM `cuisine`/`opening_hours` tags verbatim, when
- * present), then any `source = 'openstreetmap'` row whose `(osm_type,
- * osm_id)` wasn't seen this run is deleted. `major_roads` and `green_spaces`
- * both have no natural key in the schema (surrogate `id` only), so —
- * following `import:mlit`'s land_prices/zoning precedent — every
- * `source = 'openstreetmap'` row is deleted and this run's roads/green
- * spaces are freshly inserted, which is equivalent (delete-stale + upsert
- * reduces to delete-all + insert-all when there is no key to upsert
- * against). All deletes/upserts are scoped to `source = 'openstreetmap'`
- * only, so seeded and other-source rows are untouched.
- *
- * `OSM_ATTRIBUTION` (`@tokyo/shared`) is printed on every invocation of
- * `runOsmImport`, success or failure — this is an ODbL licence obligation,
- * not a nicety, so it is not gated behind a successful write.
- */
-
 import type { PoolClient } from "pg";
 
 import { OSM_ATTRIBUTION, TOKYO_23_WARDS_BBOX } from "@tokyo/shared";
@@ -81,7 +13,6 @@ import { buildOverpassQuery } from "./import-osm/query.js";
 
 const SOURCE = "openstreetmap";
 
-/** Sanity floor only — catches an empty/truncated response, not a coverage target. */
 const MIN_OSM_ELEMENTS = 1;
 
 const MANUAL_DOWNLOAD_URL =
@@ -118,13 +49,6 @@ async function loadOverpassRaw(args: ImportOsmArgs): Promise<string> {
   );
 }
 
-/**
- * Upserts `pois` on `(osm_type, osm_id)`, then deletes any existing
- * `source = 'openstreetmap'` row whose `(osm_type, osm_id)` pair wasn't
- * seen this run. The delete uses a parallel `unnest` of two arrays (rather
- * than a composite-array membership test) to express "not one of these
- * (type, id) pairs" cleanly in plain SQL.
- */
 async function upsertPois(
   client: PoolClient,
   pois: readonly ParsedPoi[],
@@ -175,11 +99,6 @@ async function upsertPois(
   return pois.length;
 }
 
-/**
- * `major_roads` has no natural key (surrogate `id` only) — see this file's
- * module doc comment for why delete-all-then-insert-all is the correct,
- * equivalent replacement for upsert-then-delete-stale here.
- */
 async function replaceRoads(
   client: PoolClient,
   roads: readonly ParsedRoad[],
@@ -196,12 +115,6 @@ async function replaceRoads(
   return roads.length;
 }
 
-/**
- * `green_spaces` has no natural key (surrogate `id` only) — mirrors
- * `replaceRoads` above exactly; see this file's module doc comment for why
- * delete-all-then-insert-all is the correct, equivalent replacement for
- * upsert-then-delete-stale here.
- */
 async function replaceGreenSpaces(
   client: PoolClient,
   greenSpaces: readonly ParsedGreenSpace[],
@@ -229,8 +142,6 @@ export async function runOsmImport(
   client: PoolClient,
   args: ImportOsmArgs,
 ): Promise<OsmImportResult> {
-  // Licence obligation — printed unconditionally, even if parsing or the
-  // write below goes on to fail this run.
   console.log(OSM_ATTRIBUTION);
 
   const raw = await loadOverpassRaw(args);

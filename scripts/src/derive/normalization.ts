@@ -1,59 +1,3 @@
-/**
- * Step 8 — normalization (and `source_dates`).
- *
- * Min-max normalizes across ALL station areas to 0-100:
- *   - `norm_amenity_supermarket` from `amenity_supermarket_equiv`
- *   - `norm_amenity_restaurant` from `restaurant_count + cafe_count`
- *   - `norm_quietness` from `quietness_raw`
- *   - `norm_amenity_convenience` from `convenience_count` (raw column
- *     already populated by amenities.ts; this step's only new work for
- *     konbini is the min-max itself).
- *   - `norm_amenity_cuisine_variety` from `cuisine_variety_count`.
- *   - `norm_green_space` from `green_space_share` (written by the new
- *     green-space step, 7).
- *   - `norm_amenity_late_night` from `late_night_count`. Like the other
- *     four new axes, this is a plain (non-inverted) min-max — but see
- *     derive/amenities.ts's module doc for why `late_night_count` itself is
- *     only an approximation of real closing times, and note the tension
- *     below.
- *   - `norm_amenity_health` from `health_count`.
- *
- * All five new axes are plain min-max (higher raw -> higher score), the
- * same shape as `norm_amenity_supermarket`/`norm_amenity_restaurant` — none
- * of them are inverted.
- *
- * Tension a future reader will meet here, surfaced rather than hidden:
- * `norm_quietness` (just above) is computed from `quietness_raw`, which
- * factors in `nightlife_count` (bars) negatively (derive/quietness.ts). A
- * station with many late-closing bars/restaurants therefore tends to score
- * well on `norm_amenity_late_night` immediately below and *worse* on
- * `norm_quietness` — the same underlying venues pulling two axes in
- * opposite directions. That is a deliberate product tradeoff (late-night
- * food access and residential quiet genuinely compete), not a
- * double-count: the two axes measure different things that happen to share
- * a source.
- *
- * Min-max edge case (mandated by the brief): when every station has the
- * same value on an axis (min == max), that axis's `norm_*` is exactly `50`
- * for every station rather than dividing by zero / producing `NaN`. Values
- * are additionally clamped to `[0, 100]` to absorb floating-point overshoot
- * at the exact min/max stations.
- *
- * `source_dates` records, per contributing source table, the freshest
- * `source_updated_at` among rows that plausibly fed that station's metrics
- * (POIs/land prices within the catchment radius, zoning polygons
- * intersecting the catchment, roads/rail lines within the road/rail buffer
- * of the catchment, the station's own row, and the exact `rent_stats` row
- * `pickRentStat` chose in step 6). Keys with no known date are omitted
- * (`jsonb_strip_nulls`) rather than stored as an explicit `null`, since the
- * seed fixtures don't set `source_updated_at` anywhere yet — real imports
- * will. `green_spaces` is intentionally not added to this lookup here —
- * out of scope here.
- *
- * Depends on every earlier step: amenities, zoning, quietness, rent (for
- * the `source_dates` rent lookup), and green-space.
- */
-
 import type { Pool } from "pg";
 
 import { CATCHMENT_RADIUS_M, ROAD_RAIL_BUFFER_M } from "@tokyo/shared";
@@ -83,14 +27,7 @@ export async function runNormalizationStep(pool: Pool): Promise<StepResult> {
     "normalization",
     "the full pipeline up through `--only=green-space`",
   );
-  // rent_source is checked separately (not folded into the generic
-  // assertColumnsPopulated call above): the source_dates rent lookup below
-  // joins rent_stats on nm.rent_source / nm.rent_source_period, both
-  // written by step 6, but rent.ts itself legitimately and permanently
-  // leaves rent_source null for a station with no ward assignment or no
-  // ward rent data — that's not "rent hasn't run yet", so it must not
-  // block normalization. See assertRentSourcePopulatedForRankableStations's
-  // own doc comment for why this needs its own scoped check.
+
   await assertRentSourcePopulatedForRankableStations(pool);
 
   const rowsWritten = await withTransaction(pool, async (client) => {

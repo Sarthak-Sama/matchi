@@ -1,4 +1,3 @@
-/** Locality samples, sample-to-station walks, and locality-level median metrics. */
 import type { Pool } from "pg";
 
 import {
@@ -20,7 +19,6 @@ import type { RentStatRow } from "@tokyo/shared";
 import { withTransaction } from "../lib/db.js";
 import type { StepResult } from "./types.js";
 
-/** The bounded, sufficiency-first scale used for all count metrics. */
 export function sufficiencyScore(value: number, target: number): number {
   return Math.min(100, (100 * Math.log1p(Math.max(0, value))) / Math.log1p(target));
 }
@@ -36,8 +34,6 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
     );
   }
   const rowsWritten = await withTransaction(pool, async (client) => {
-    // A seeded ST_GeneratePoints call is deterministic, while PointOnSurface
-    // would create nine identical and unrepresentative samples.
     await client.query("DELETE FROM locality_samples");
     await client.query(
       `WITH raw_areas AS (
@@ -102,8 +98,6 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
       [WALK_DETOUR_FACTOR, WALK_SPEED_M_PER_MIN, LOCALITY_STATION_RADIUS_M, LOCALITY_STATION_LIMIT],
     );
 
-    // Build each 800m sample catchment once, derive every metric on that
-    // same footprint, then aggregate the nine sample values by median.
     const { rowCount } = await client.query(
       `WITH sample_catchments AS MATERIALIZED (
         SELECT ls.locality_id, ls.sample_number, ls.point,

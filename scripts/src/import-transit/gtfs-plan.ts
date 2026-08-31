@@ -1,12 +1,3 @@
-/**
- * Combines route->line mapping, stop matching, and the travel-time/headway
- * statistics into the final list of `ride` `rail_edges` rows GTFS mode
- * writes. Pure — no I/O, no database — so the whole GTFS pipeline (short
- * of the actual DB write and the transfer-edge/validation steps that need
- * a live `station_groups` table) is unit-testable against the committed
- * fixture with no `DATABASE_URL`.
- */
-
 import type { Confidence } from "@tokyo/shared";
 import { OFFPEAK_WAIT_MINUTES, PEAK_WAIT_MINUTES } from "@tokyo/shared";
 
@@ -87,8 +78,6 @@ export function buildGtfsPlan(input: GtfsPlanInput): GtfsPlan {
       continue;
     }
     if (fromGroup === toGroup) {
-      // Two GTFS stop_ids (e.g. platform-level children) collapsed to the
-      // same station_group — no meaningful ride edge to write.
       skippedSelfLoopEdges++;
       continue;
     }
@@ -109,9 +98,6 @@ export function buildGtfsPlan(input: GtfsPlanInput): GtfsPlan {
       );
     }
     if (peakMinutes === undefined || offpeakMinutes === undefined) {
-      // Unreachable in practice (a pair only exists with >= 1 sample in
-      // some period), but keeps this function total rather than writing
-      // a NaN into the database if it ever were.
       continue;
     }
 

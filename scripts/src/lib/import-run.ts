@@ -1,31 +1,10 @@
-/**
- * Shared `import_runs` bookkeeping harness used by every import script
- * (`import:mlit` in this task; `import:rent`, `import:osm`, `import:transit`
- * in Tasks 12-14).
- *
- * `runImport` records one `import_runs` row per invocation: `running` when
- * it starts, `success` (with `finished_at`, `rows_imported`,
- * `source_updated_at`) when `fn` resolves, `failed` (with `finished_at` and
- * `error`) when `fn` throws. `fn` itself runs inside exactly one
- * transaction via `withTransaction`, so a thrown error rolls back every
- * table the import touched.
- *
- * The bookkeeping writes (`INSERT ... status='running'` and the later
- * `UPDATE ... status='success'|'failed'`) deliberately do NOT happen on the
- * same client/transaction as `fn` — each goes through `pool.query`, which
- * checks out its own connection from the pool and releases it immediately.
- * If they shared `fn`'s transaction, a rollback on failure would erase the
- * `running` row along with the data, leaving no record that the run ever
- * happened or why it failed.
- */
-
 import type { Pool, PoolClient } from "pg";
 
 import { withTransaction } from "./db.js";
 
 export interface ImportResult {
   readonly rowsImported: number;
-  /** The upstream source's own "as of" date/vintage, when known. */
+
   readonly sourceUpdatedAt?: Date;
 }
 
@@ -34,11 +13,6 @@ export interface RunImportOptions {
   readonly pool: Pool;
 }
 
-/**
- * Runs `fn` (the actual import work, given a transactional client) under
- * `import_runs` bookkeeping. Rethrows whatever `fn` throws after recording
- * the failure.
- */
 export async function runImport(
   options: RunImportOptions,
   fn: (client: PoolClient) => Promise<ImportResult>,

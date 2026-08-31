@@ -2,14 +2,6 @@
 
 import { useId } from "react";
 
-/**
- * A segmented choice row for categorical values (importance ratings,
- * apartment layouts). Built on native radio inputs so arrow-key movement,
- * form semantics, and screen-reader announcements come free; the visual
- * segments are the labels. Square corners, hairline dividers — one
- * continuous instrument, not a pile of pills.
- */
-
 interface SegmentedControlProps<T extends string> {
   readonly legend: string;
   readonly value: T;

@@ -1,8 +1,3 @@
-/**
- * `GET /v1/stations` route tests, `app.inject()` against a fake pool — no
- * real database involved.
- */
-
 import { describe, expect, it, vi } from "vitest";
 
 import { buildApp } from "../app.js";
@@ -115,8 +110,6 @@ describe("GET /v1/stations", () => {
   });
 
   it("a bare % returns nothing, not the whole station table", async () => {
-    // Matches the equivalent /v1/places test: a bare `%` must not fall
-    // through to `ILIKE '%' || '%' || '%'`, i.e. every row.
     const pool = fakePool([]);
     const app = buildTestApp(pool);
 

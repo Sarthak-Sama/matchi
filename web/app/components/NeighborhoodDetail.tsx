@@ -19,17 +19,6 @@ import {
 import { CloseIcon } from "./icons";
 import { ScoreRing } from "./ScoreRing";
 
-/**
- * The neighborhood entry — opening a result reads like opening a
- * carefully edited page in the guide: identity, the key recommendation,
- * rent and commute as an editorial data strip, why it fits, the
- * trade-offs (prominent, never buried), lifestyle evidence with
- * confidence and provenance, and methodology notes.
- *
- * Presented as a drawer dialog: Escape closes, the backdrop closes,
- * focus moves inside on open and returns to the invoking row on close.
- */
-
 interface NeighborhoodDetailProps {
   readonly result: NeighborhoodResult;
   readonly destinationLabel: string | null;
@@ -51,10 +40,7 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
         onClose();
         return;
       }
-      // `aria-modal` tells assistive tech the rest of the page is inert
-      // but does nothing to the Tab order, so the loop is kept by hand:
-      // without it, tabbing past the last control lands silently on the
-      // shortlist behind the drawer.
+
       if (event.key !== "Tab" || !panelRef.current) return;
       const focusable = panelRef.current.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
@@ -86,7 +72,7 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
 
   return (
     <div className="fixed inset-0 z-50" role="presentation">
-      {/* Backdrop */}
+      {}
       <div
         aria-hidden="true"
         onClick={onClose}
@@ -99,7 +85,7 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
         aria-labelledby="neighborhood-entry-title"
         className="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l border-line-strong bg-paper shadow-[-24px_0_60px_rgba(40,36,31,0.25)]"
       >
-        {/* Identity header */}
+        {}
         <div className="border-b border-line px-5 pt-5 pb-5 sm:px-8">
           <div className="flex items-center justify-between gap-3">
             <p className="label-utility text-vermilion-deep">
@@ -383,7 +369,6 @@ function MetricCell({
   );
 }
 
-/** Proportional composition of the door-to-door minutes. */
 function CommuteBar({ result }: { readonly result: NeighborhoodResult }) {
   const terms = commuteDisplayTerms(result.commute);
   const segments = [
@@ -434,7 +419,6 @@ function CommuteLeg({
   );
 }
 
-/** One factor's evidence: human-readable explanation first, score supporting. */
 function FactorRow({ factor }: { readonly factor: FactorEvidence }) {
   const score = Math.round(factor.componentScore);
   const barClass =

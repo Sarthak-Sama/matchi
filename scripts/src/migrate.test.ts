@@ -1,16 +1,3 @@
-/**
- * Integration test for the migration runner. Requires a real PostGIS
- * database reachable via `DATABASE_URL` — skips with an explicit message
- * when unset, so a missing env var never reads as a silent pass.
- *
- * Run with:
- *   DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test
- *
- * The test runs migrations inside a dedicated scratch Postgres schema
- * (created and dropped per run) so it never touches whatever tables
- * already exist in the target database's `public` schema.
- */
-
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -175,22 +162,14 @@ const EXPECTED_GIST_INDEXES = [
   "zoning_areas_geom_gist_idx",
   "pois_point_gist_idx",
   "major_roads_geom_gist_idx",
-  // Added in 0002_geography_indexes.sql : expression indexes on
-  // `(point::geography)`, needed because a plain geometry GiST index isn't
-  // used by the planner for a geography-cast ST_DWithin predicate.
+
   "pois_point_geog_gist_idx",
   "land_prices_point_geog_gist_idx",
-  // Added in 0004_lifestyle_metrics.sql.
+
   "green_spaces_geom_gist_idx",
   "station_groups_point_geog_gist_idx",
 ];
 
-/**
- * Every migration file, in apply order. Single source of truth for both
- * the "recorded in schema_migrations" test and the idempotence test's
- * count — a new migration should require editing ONE list, not one list
- * plus a hardcoded number in an unrelated assertion.
- */
 const EXPECTED_MIGRATION_FILENAMES = [
   "0001_init.sql",
   "0002_geography_indexes.sql",
@@ -200,28 +179,12 @@ const EXPECTED_MIGRATION_FILENAMES = [
   "0006_poi_name_en.sql",
 ];
 
-/**
- * Every `gin_trgm_ops` index in the schema, across ALL tables.
- *
- * Deliberately schema-wide rather than per-table: this list is the drift
- * check for text search the same way EXPECTED_GIST_INDEXES is for geometry.
- * A route that starts matching `ILIKE '%...%'` against a newly-searched
- * column works perfectly on seed data whether or not the column is indexed
- * — the only symptom of the missing index is a sequential scan that shows
- * up at import scale. Listing them all here means adding such a route
- * forces an explicit decision about its index instead of leaving one to be
- * discovered in production. (The `pois` entry was added after finding the
- * gap exactly this way.)
- */
 const EXPECTED_TRGM_INDEXES = [
-  // 0001_init.sql — back GET /v1/stations.
   "station_groups_name_en_trgm_idx",
   "station_groups_name_ja_trgm_idx",
-  // 0005_poi_name_trigram_index.sql — backs the POI half of
-  // GET /v1/places.
+
   "pois_name_trgm_idx",
-  // 0006_poi_name_en.sql — backs the same search against the OSM name:en
-  // column, so English queries are indexed too.
+
   "pois_name_en_trgm_idx",
 ];
 
@@ -237,10 +200,6 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
     adminPool = new Pool({ connectionString: databaseUrl });
     await adminPool.query(`CREATE SCHEMA "${scratchSchema}"`);
 
-    // search_path lists the scratch schema first (so unqualified CREATE
-    // TABLE lands there) and keeps `public` after it, since postgis and
-    // pg_trgm are already installed into `public` and their types/operators
-    // (e.g. `geometry`) must stay resolvable without schema-qualifying them.
     const url = new URL(databaseUrl);
     url.searchParams.set("options", `-c search_path=${scratchSchema},public`);
     scratchDatabaseUrl = url.toString();
@@ -333,9 +292,6 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
       process.env["DATABASE_URL"] = originalDatabaseUrl;
     }
 
-    // Assert on the recorded calls before restoring — `mockRestore()` also
-    // clears the call history (it does everything `mockReset()` does), so
-    // asserting after restoring would always see zero calls.
     expect(logSpy).toHaveBeenCalledWith("up to date");
     logSpy.mockRestore();
 
@@ -347,10 +303,6 @@ describe.runIf(Boolean(databaseUrl))("migrate", () => {
 });
 
 describe("migrate", () => {
-  // Sentinel test: passes (with an explicit explanatory title) only when
-  // DATABASE_URL is unset, so `pnpm test` output always makes clear *why*
-  // the real integration tests above were skipped rather than silently
-  // omitted. When DATABASE_URL is set, this sentinel itself is skipped.
   it.skipIf(Boolean(databaseUrl))(
     "SKIPPED integration tests above: DATABASE_URL is not set — set it to a PostGIS connection string to run them, e.g. DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo_test pnpm test",
     () => {

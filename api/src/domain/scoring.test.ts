@@ -15,10 +15,6 @@ import {
   scoreLifestyle,
 } from "./scoring.js";
 
-// ---------------------------------------------------------------------------
-// Fixture factories
-// ---------------------------------------------------------------------------
-
 function makeRent(overrides: Partial<RentEstimateResult> = {}): RentEstimateResult {
   return {
     lowYen: 100_000,
@@ -130,8 +126,7 @@ function makeScored(overrides: {
     centroid: { lat: 35.6, lon: 139.7 },
     overallScore: overrides.overallScore,
     rent: makeRent({ medianYen: overrides.medianYen }),
-    // See the matching comment in scoring.ts: convert the readonly `path`
-    // array to a plain mutable one to match `NeighborhoodResult["commute"]`.
+
     commute: {
       ...makeCommute({ totalMinutes: overrides.totalMinutes }),
       path: [] as {
@@ -149,7 +144,6 @@ function makeScored(overrides: {
   };
 }
 
-/** Minimal but schema-complete FactorEvidence, for buildReasons unit tests. */
 function makeFactor(
   overrides: Partial<FactorEvidence> & Pick<FactorEvidence, "key">,
 ): FactorEvidence {
@@ -167,10 +161,6 @@ function makeFactor(
     ...overrides,
   };
 }
-
-// ---------------------------------------------------------------------------
-// scoreAffordability
-// ---------------------------------------------------------------------------
 
 describe("scoreAffordability", () => {
   const budget = 200_000;
@@ -192,10 +182,6 @@ describe("scoreAffordability", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// scoreCommute
-// ---------------------------------------------------------------------------
-
 describe("scoreCommute", () => {
   const maxCommuteMinutes = 45;
 
@@ -208,15 +194,9 @@ describe("scoreCommute", () => {
   });
 
   it("scores exactly 50 at the midpoint between 15 and max", () => {
-    // By hand: midpoint of [15, 45] is 30.
-    // 100*(45-30)/(45-15) = 100*15/30 = 50.
     expect(scoreCommute(30, maxCommuteMinutes)).toBe(50);
   });
 });
-
-// ---------------------------------------------------------------------------
-// scoreLifestyle — weight normalization
-// ---------------------------------------------------------------------------
 
 describe("scoreLifestyle weight normalization", () => {
   it("all four preferences 'low' -> each effective lifestyle share is exactly 0.25 (0.10 of overall)", () => {
@@ -225,8 +205,6 @@ describe("scoreLifestyle weight normalization", () => {
 
     expect(factors).toHaveLength(4);
     for (const f of factors) {
-      // share = 1/4 = 0.25 exactly (multiplying by the power-of-two 0.25
-      // introduces no additional floating-point rounding).
       expect(f.effectiveWeight).toBe(0.1);
     }
   });
@@ -241,14 +219,6 @@ describe("scoreLifestyle weight normalization", () => {
     const { factors } = scoreLifestyle(makeLifestyle(), preferences);
     const byKey = Object.fromEntries(factors.map((f) => [f.key, f]));
 
-    // By hand: total importance = 8 + 1 + 1 + 1 = 11.
-    //   konbini share = 8/11 = 0.7272727272727273; effectiveWeight = 0.4 * 8/11 = 0.290909...
-    //   the other three shares = 1/11 = 0.09090909090909091; effectiveWeight = 0.4 * 1/11 = 0.036363...
-    // Verified two independent ways: a literal hand-computed decimal, and
-    // cross-multiplication (effectiveWeight * 11 === 0.4 * importance),
-    // which uses a different arithmetic path than the implementation
-    // (division then multiplication) so it isn't just re-deriving the
-    // same expression.
     expect(byKey["konbini"]!.effectiveWeight).toBeCloseTo(0.290909090909, 10);
     expect(byKey["konbini"]!.effectiveWeight * 11).toBeCloseTo(0.4 * 8, 10);
 
@@ -258,10 +228,6 @@ describe("scoreLifestyle weight normalization", () => {
     }
   });
 });
-
-// ---------------------------------------------------------------------------
-// scoreLifestyle — axis selection
-// ---------------------------------------------------------------------------
 
 describe("scoreLifestyle axis selection", () => {
   it("omits an unrated axis entirely rather than weighting it zero", () => {
@@ -274,9 +240,6 @@ describe("scoreLifestyle axis selection", () => {
   });
 
   it("keeps lifestyle at the full 40% when only one axis is rated", () => {
-    // The shares renormalize over the SELECTED axes, so a single rated axis
-    // carries the whole lifestyle weight — rating fewer axes concentrates
-    // the 40%, it does not shrink it.
     const { score, factors } = scoreLifestyle(makeLifestyle({ normQuietness: 70 }), {
       quietness: "low",
     });
@@ -288,11 +251,6 @@ describe("scoreLifestyle axis selection", () => {
   });
 
   it("returns a zero score and no factors when no axis is rated (never NaN)", () => {
-    // `/v1/neighborhoods` builds its own preferences object without going
-    // through `optimizationRequestSchema`, so this guard is reachable
-    // independently of request validation. The failure it prevents is
-    // silent: importanceTotal 0 -> NaN shares -> NaN overallScore -> a
-    // ranking whose comparisons are all false.
     const { score, factors } = scoreLifestyle(makeLifestyle(), {});
 
     expect(score).toBe(0);
@@ -321,34 +279,7 @@ describe("scoreLifestyle axis selection", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// scoreCandidate — fully worked example (point contributions sum to overallScore)
-// ---------------------------------------------------------------------------
-
 describe("scoreCandidate — fully worked example", () => {
-  // By hand, all six factors:
-  //
-  //   affordability: rent 140,000 vs budget 200,000.
-  //     threshold = 0.6*200000 = 120000; 140000 is between 120000 and 200000.
-  //     componentScore = 100*(200000-140000)/(200000-120000) = 100*60000/80000 = 75
-  //     effectiveWeight = 0.3 -> contribution = 75*0.3 = 22.5
-  //
-  //   commute: 30 min vs cap 45 min.
-  //     componentScore = 100*(45-30)/(45-15) = 100*15/30 = 50
-  //     effectiveWeight = 0.3 -> contribution = 50*0.3 = 15
-  //
-  //   preferences: konbini=medium(2), supermarkets=high(4), restaurants=low(1), quietness=low(1)
-  //     total importance = 2+4+1+1 = 8
-  //     shares: konbini=2/8=0.25, supermarkets=4/8=0.5, restaurants=1/8=0.125, quietness=1/8=0.125
-  //     effectiveWeights (0.4*share): konbini=0.1, supermarkets=0.2, restaurants=0.05, quietness=0.05
-  //
-  //   konbini: norm=80 -> contribution = 80*0.1 = 8
-  //   supermarkets: norm=90 -> contribution = 90*0.2 = 18
-  //   restaurants: norm=40 -> contribution = 40*0.05 = 2
-  //   quietness: norm=60 -> contribution = 60*0.05 = 3
-  //
-  //   overallScore = 22.5 + 15 + 8 + 18 + 2 + 3 = 68.5
-
   const request = makeRequest({
     monthlyBudgetYen: 200_000,
     maxCommuteMinutes: 45,
@@ -410,16 +341,6 @@ describe("scoreCandidate — fully worked example", () => {
   });
 
   it("wires buildReasons(factors) end-to-end with weighted lifestyle reasons", () => {
-    // Directions (componentScore vs the 66/34 thresholds): affordability
-    // (75), supermarkets (90), and konbini (80) are all > 66 ->
-    // positive. commute (50), restaurants (40), and quietness (60) all
-    // fall in [34, 66] -> neutral. Nothing is < 34, so reasonsAgainst is
-    // empty. The three positives, sorted by effectiveWeight descending
-    // (0.3, 0.2, 0.1), are affordability, supermarkets, then konbini —
-    // this is `scoreCandidate`'s REAL output, not a synthetic factors
-    // array handed straight to `buildReasons`, so it proves the wiring
-    // (not just `buildReasons`'s own selection logic, already covered by
-    // the dedicated `buildReasons` describe block below).
     expect(result.reasonsFor).toEqual([
       "Affordability is a strength: ¥140,000 modeled area rent.",
       "Supermarkets is a strength: 12 supermarkets within 800 m.",
@@ -441,12 +362,6 @@ describe("scoreCandidate — fully worked example", () => {
 });
 
 describe("scoreCandidate — point contributions sum to overallScore across several candidates", () => {
-  // Preferences deliberately chosen so importance total = 2+2+2+1 = 7 —
-  // shares of 2/7 and 1/7 are non-terminating in decimal, so (unlike an
-  // all-"low" request, where every share is a clean 0.25) these
-  // candidates' raw per-factor contributions are NOT already 1-decimal
-  // numbers. That's what makes the reconciliation assertion below
-  // meaningful rather than coincidental.
   const request = makeRequest({
     monthlyBudgetYen: 300_000,
     maxCommuteMinutes: 90,
@@ -499,57 +414,13 @@ describe("scoreCandidate — point contributions sum to overallScore across seve
     (_id, candidate) => {
       const result = scoreCandidate(candidate, request);
       const sum = result.factors.reduce((s, f) => s + f.pointContribution, 0);
-      // Reconciliation holds BY CONSTRUCTION now (each pointContribution
-      // is rounded when stored; overallScore is the sum of those same
-      // rounded values). The only possible remaining discrepancy is
-      // floating-point summation noise on the order of 1e-13 — nowhere
-      // near the ~0.05 a real double-rounding bug would produce — so a
-      // 1e-9 tolerance is float-representation-only, not a hidden gap.
+
       expect(sum).toBeCloseTo(result.overallScore, 9);
     },
   );
 });
 
 describe("scoreCandidate — reconciliation on a non-boundary score", () => {
-  // A candidate whose TRUE (unrounded) overallScore is nowhere near a
-  // clean 0.1 boundary — every one of the six raw contributions below is
-  // a non-terminating decimal. Under the OLD (broken) implementation,
-  // `factors[].pointContribution` stored the RAW unrounded values while
-  // `overallScore` rounded their sum separately, so this exact candidate
-  // would have exposed the bug: summing the six raw contributions gives
-  // 65.64206349206349, which is 0.042 away from the naively-rounded
-  // 65.6 — a real, non-float-noise discrepancy. The fixed implementation
-  // rounds each contribution to one decimal AT CONSTRUCTION, so the sum
-  // of the (rounded, displayed) contributions is exactly what
-  // `overallScore` is built from.
-  //
-  // By hand:
-  //   affordability: rent 205,000 vs budget 300,000.
-  //     threshold = 0.6*300000 = 180000; 205000 is between 180000 and 300000.
-  //     componentScore = 100*(300000-205000)/(300000-180000) = 100*95000/120000
-  //                     = 9500000/120000 = 475/6 = 79.16666666666667
-  //     raw contribution = (475/6)*0.3 = 142.5/6 = 23.75 -> rounds to 23.8
-  //
-  //   commute: 27 min vs cap 50 min.
-  //     componentScore = 100*(50-27)/(50-15) = 100*23/35 = 2300/35 = 460/7
-  //                     = 65.71428571428571
-  //     raw contribution = (460/7)*0.3 = 138/7 = 19.714285714285714 -> rounds to 19.7
-  //
-  //   preferences: konbini=high(4), supermarkets=medium(2),
-  //                restaurants=medium(2), quietness=low(1); total = 9
-  //     shares: konbini=4/9, supermarkets=2/9, restaurants=2/9, quietness=1/9
-  //     effectiveWeights (0.4*share): konbini=8/45, supermarkets=4/45,
-  //                                   restaurants=4/45, quietness=2/45
-  //
-  //   konbini: norm=55 -> raw = 55*8/45 = 440/45 = 9.777... -> rounds to 9.8
-  //   supermarkets: norm=77 -> raw = 77*4/45 = 308/45 = 6.844... -> rounds to 6.8
-  //   restaurants: norm=32 -> raw = 32*4/45 = 128/45 = 2.844... -> rounds to 2.8
-  //   quietness: norm=61 -> raw = 61*2/45 = 122/45 = 2.711... -> rounds to 2.7
-  //
-  //   sum of ROUNDED contributions = 23.8+19.7+9.8+6.8+2.8+2.7 = 65.6
-  //   (sum of the RAW/unrounded contributions is 65.64206349206349 — the
-  //   old, buggy relationship — confirmed separately in the comment above)
-
   const request = makeRequest({
     monthlyBudgetYen: 300_000,
     maxCommuteMinutes: 50,
@@ -588,16 +459,9 @@ describe("scoreCandidate — reconciliation on a non-boundary score", () => {
     expect(result.overallScore).toBe(71.8);
 
     const sum = result.factors.reduce((s, f) => s + f.pointContribution, 0);
-    // Exact equality (not toBeCloseTo): overallScore is LITERALLY
-    // `roundToOneDecimal` of this same sum, computed from the same
-    // stored values in the same order, so there is no room for even
-    // floating-point noise to appear between them.
+
     expect(sum).toBe(result.overallScore);
 
-    // The old (buggy) relationship, for contrast: summing the RAW
-    // (unrounded) component*weight products gives 65.64206349206349,
-    // which is 0.042+ away from 65.6 — far beyond any float-noise
-    // tolerance. This is the discrepancy the fix eliminates.
     const rawSum =
       (475 / 6) * 0.3 +
       (460 / 7) * 0.3 +
@@ -610,21 +474,6 @@ describe("scoreCandidate — reconciliation on a non-boundary score", () => {
 });
 
 describe("scoreCandidate — overallScore never exceeds 100 despite per-factor rounding drift", () => {
-  // preferences (konbini=low, supermarkets=low, restaurants=high,
-  // quietness=essential) => importance total = 1+1+4+8 = 14, shares
-  // 1/14, 1/14, 4/14, 8/14 — none terminate in decimal. With every
-  // componentScore (affordability, commute, and all four lifestyle axes)
-  // pegged at exactly 100, each pointContribution still carries its own
-  // rounding drift:
-  //   affordability: 100*0.3 = 30 (exact)
-  //   commute: 100*0.3 = 30 (exact)
-  //   konbini: 100*(0.4/14) = 2.857142... -> rounds to 2.9
-  //   supermarkets: 100*(0.4/14) = 2.857142... -> rounds to 2.9
-  //   restaurants: 100*(1.6/14) = 11.428571... -> rounds to 11.4
-  //   quietness: 100*(3.2/14) = 22.857142... -> rounds to 22.9
-  //   sum = 30 + 30 + 2.9 + 2.9 + 11.4 + 22.9 = 100.1
-  // Without a clamp, overallScore (and the schema bound of max 100) would
-  // be violated by exactly this 0.1 of accumulated rounding drift.
   const request = makeRequest({
     monthlyBudgetYen: 200_000,
     maxCommuteMinutes: 60,
@@ -696,10 +545,6 @@ describe("scoreCandidate — overallScore stays within [0, 100] generally", () =
   });
 });
 
-// ---------------------------------------------------------------------------
-// applyHardFilters
-// ---------------------------------------------------------------------------
-
 describe("applyHardFilters", () => {
   it("excludes an over-budget candidate and counts it under rent", () => {
     const request = makeRequest({ monthlyBudgetYen: 200_000, maxCommuteMinutes: 60 });
@@ -733,8 +578,6 @@ describe("applyHardFilters", () => {
   it("a disconnected candidate is counted under disconnected and NOT double-counted, even when it would also fail commute/rent", () => {
     const request = makeRequest({ monthlyBudgetYen: 200_000, maxCommuteMinutes: 60 });
     const candidate = makeCandidate({
-      // Would also fail rent if it were ever checked — proves disconnected
-      // truly short-circuits before the other two rules run.
       rent: makeRent({ medianYen: 999_999 }),
       commute: null,
     });
@@ -757,13 +600,13 @@ describe("applyHardFilters", () => {
       }),
       makeCandidate({
         stationGroupId: "commute-excluded",
-        // Also over budget, to prove commute wins the first-match race.
+
         rent: makeRent({ medianYen: 300_000 }),
         commute: makeCommute({ totalMinutes: 90 }),
       }),
       makeCandidate({
         stationGroupId: "disconnected",
-        // Also over budget, to prove disconnected wins the first-match race.
+
         rent: makeRent({ medianYen: 999_999 }),
         commute: null,
       }),
@@ -798,8 +641,7 @@ describe("applyHardFilters", () => {
         quietness: "essential",
       },
     });
-    // Worst possible lifestyle metrics — an essential preference must not
-    // turn into a filter no matter how bad the underlying data is.
+
     const candidate = makeCandidate({
       rent: makeRent({ medianYen: 100_000 }),
       commute: makeCommute({ totalMinutes: 30 }),
@@ -834,11 +676,6 @@ describe("applyHardFilters", () => {
 
       const { diagnostics } = applyHardFilters(candidates, request);
 
-      // By hand: sorted medians = [140000, 150000, 155000, 160000].
-      // 25th percentile (linear interpolation, n=4): idx = 0.25*(4-1) = 0.75
-      //   lower=140000 (index 0), upper=150000 (index 1), weight=0.75
-      //   value = 140000 + (150000-140000)*0.75 = 140000 + 7500 = 147500
-      // Rounded to the nearest ¥1,000 -> 148,000 (Math.round(147.5) = 148).
       expect(diagnostics.feasibleCount).toBe(0);
       expect(diagnostics.excludedByRent).toBe(4);
       expect(diagnostics.suggestion).toBe(
@@ -859,9 +696,6 @@ describe("applyHardFilters", () => {
 
       const { diagnostics } = applyHardFilters(candidates, request);
 
-      // By hand: sorted minutes = [40, 45, 50, 60].
-      // 25th percentile: idx = 0.25*3 = 0.75, lower=40, upper=45, weight=0.75
-      //   value = 40 + (45-40)*0.75 = 40 + 3.75 = 43.75 -> rounds to 44.
       expect(diagnostics.feasibleCount).toBe(0);
       expect(diagnostics.excludedByCommute).toBe(4);
       expect(diagnostics.suggestion).toBe(
@@ -886,10 +720,6 @@ describe("applyHardFilters", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// rankCandidates
-// ---------------------------------------------------------------------------
-
 describe("rankCandidates", () => {
   it("sorts by overallScore desc, then commute asc, then rent median asc, assigning rank from 1", () => {
     const a = makeScored({
@@ -899,22 +729,18 @@ describe("rankCandidates", () => {
       medianYen: 100_000,
     });
     const b = makeScored({
-      // Same score as a, shorter commute -> ranks above a.
       stationGroupId: "b",
       overallScore: 80,
       totalMinutes: 20,
       medianYen: 90_000,
     });
     const c = makeScored({
-      // Same score and commute as b, cheaper rent -> ranks above b.
       stationGroupId: "c",
       overallScore: 80,
       totalMinutes: 20,
       medianYen: 80_000,
     });
     const d = makeScored({
-      // Highest score wins regardless of the (deliberately terrible)
-      // commute/rent tiebreaker values.
       stationGroupId: "d",
       overallScore: 90,
       totalMinutes: 999,
@@ -927,14 +753,6 @@ describe("rankCandidates", () => {
     expect(ranked.map((r) => r.rank)).toEqual([1, 2, 3, 4]);
   });
 });
-
-// ---------------------------------------------------------------------------
-// buildReasons
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// direction classification boundaries (exercised through scoreLifestyle)
-// ---------------------------------------------------------------------------
 
 describe("factor direction thresholds", () => {
   it("is neutral exactly at the 66 boundary, positive just above it", () => {
@@ -968,10 +786,6 @@ describe("factor direction thresholds", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// scoreCandidate defensive guard
-// ---------------------------------------------------------------------------
-
 describe("scoreCandidate", () => {
   it("throws when handed a disconnected candidate (a caller bug — applyHardFilters should have removed it)", () => {
     const request = makeRequest();
@@ -982,10 +796,6 @@ describe("scoreCandidate", () => {
 
 describe("buildReasons", () => {
   it("selects up to three reasonsFor and reasonsAgainst, sorted by effective weight then gap size", () => {
-    // Positive factors (componentScore > 66): Delta has the smallest gap
-    // above 66 but the largest weight, so it must still rank first.
-    // Bravo has the largest gap but the smallest weight, so it must be
-    // DROPPED (only 3 of the 4 positive factors fit).
     const alpha = makeFactor({
       key: "alpha",
       label: "Alpha",
@@ -1015,9 +825,6 @@ describe("buildReasons", () => {
       rawValueLabel: "delta raw",
     });
 
-    // Negative factors (componentScore < 34): Golf has the highest weight
-    // and wins outright; Foxtrot and Echo tie on weight (0.3) and are
-    // broken by gap size (Foxtrot's gap of 0.29 beats Echo's 0.24).
     const echo = makeFactor({
       key: "echo",
       label: "Echo",
@@ -1043,7 +850,6 @@ describe("buildReasons", () => {
       direction: "negative",
     });
 
-    // A neutral factor must appear in neither list.
     const hotel = makeFactor({
       key: "hotel",
       label: "Hotel",

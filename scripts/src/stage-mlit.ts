@@ -1,47 +1,3 @@
-/**
- * `pnpm stage:mlit` — turns the raw MLIT N02 railway export into the two
- * files `pnpm import:mlit` expects.
- *
- *   pnpm stage:mlit \
- *     --stations-in  data/staged/mlit/n02-25-stations-centroids.geojson \
- *     --rail-in      data/staged/mlit/n02-25-rail-sections.geojson \
- *     --stations-out data/stations.geojson \
- *     --rail-out     data/rail-lines.geojson
- *
- * Two gaps between what MLIT publishes and what the importers require,
- * both documented in the importers themselves:
- *
- * 1. **Stations arrive as LineStrings.** MLIT models a station as the
- *    short segment of track inside it, but `import-mlit/stations.ts` needs
- *    a Point. Each segment collapses to its centroid. The input this
- *    script reads has already had that conversion applied; this script
- *    verifies it rather than assuming it, because a LineString slipping
- *    through would fail deep inside the import with a less obvious message.
- *
- * 2. **Rail sections carry no `mode`.** `import-mlit/rail-lines.ts`
- *    requires one and says so explicitly. `stage-mlit/rail-mode.ts`
- *    derives it from `N02_001`/`N02_002`/`N02_004`.
- *
- * 3. **N02 ships rail SECTIONS; `rail_lines` wants one row per LINE.** Each
- *    N02 feature is a short segment of track, and 1,737 Tokyo segments
- *    share just 68 operator+line names. Because `import-mlit/rail-lines.ts`
- *    derives its natural key from exactly that pair, importing the raw
- *    sections upserts all of them onto 68 rows and each line ends up
- *    holding one arbitrary 1-5 km stub instead of its full length. That is
- *    not a cosmetic loss: `import:transit --from-topology` orders stations
- *    along a line's geometry, so with stub geometry 76% of station groups
- *    got no rail edges at all and the graph validator rejected the import.
- *    Sections are therefore dissolved here into one MultiLineString per
- *    line, which is the shape `lineGeometryToMultiLineStringWKT` expects.
- *
- * Both datasets are nationwide — 10,234 stations and 21,933 rail sections
- * covering all of Japan, including Kagoshima and Okinawa. Both are
- * filtered to `TOKYO_23_WARDS_BBOX`, the same bounding box `import:osm`
- * uses, so the two imports describe the same area.
- *
- * This script writes files and touches no database.
- */
-
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -93,7 +49,6 @@ export function parseArgs(argv: readonly string[]): StageMlitArgs {
   return { stationsIn, railIn, wardsIn, stationsOut, railOut };
 }
 
-/** First coordinate pair of any geometry, used for the bounding-box test. */
 export function firstLonLat(coordinates: unknown): readonly [number, number] | null {
   let cursor: unknown = coordinates;
   while (Array.isArray(cursor) && Array.isArray(cursor[0])) cursor = cursor[0];
@@ -171,7 +126,6 @@ function ringBounds(
   return Number.isFinite(west) ? { west, south, east, north } : null;
 }
 
-/** Every ring-set (Polygon: one; MultiPolygon: one per part) a geometry contains, or none for any other geometry type. */
 function polygonRingSets(geometry: Feature["geometry"]): unknown {
   if (geometry?.type === "Polygon") return [geometry.coordinates];
   if (geometry?.type === "MultiPolygon") return geometry.coordinates;
@@ -190,9 +144,6 @@ function pointInPolygon(point: Point, polygon: WardPolygon): boolean {
   );
 }
 
-/** Precomputes polygon envelopes once. N03 has thousands of components, so
- * repeatedly walking every ring for every nationwide N02 station is not
- * acceptable in a manual refresh. */
 function createWardContains(wards: FeatureCollection): (point: Point) => boolean {
   const polygons: WardPolygon[] = [];
   for (const feature of wards.features) {
@@ -283,7 +234,7 @@ interface LineGroup {
   operator: string;
   nameJa: string;
   mode: string;
-  /** Every section's LineString, accumulated into one MultiLineString. */
+
   parts: unknown[];
   sections: number;
 }
@@ -297,8 +248,7 @@ export function stageRailLines(
   readonly sectionsDissolved: number;
 } {
   const unclassified = new Set<string>();
-  // Keyed by operator + line name, the same pair
-  // `import-mlit/rail-lines.ts` builds its natural key from.
+
   const groups = new Map<string, LineGroup>();
   const wardContains = createWardContains(wards);
   let sectionsDissolved = 0;
@@ -377,8 +327,6 @@ async function main(): Promise<void> {
       `(dissolved from ${String(result.railSectionsDissolved)} sections) -> ${args.railOut}`,
   );
 
-  // Per the plan: report any line that cannot be classified, rather than
-  // bucketing it into a mode it does not belong to.
   if (result.unclassified.length > 0) {
     console.warn(
       `stage:mlit — ${String(result.unclassified.length)} operator/class combination(s) could not ` +
