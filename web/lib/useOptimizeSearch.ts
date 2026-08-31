@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type {
   Importance,
@@ -25,6 +25,7 @@ import {
 
 import { getJson, postJson } from "./api";
 import { bilingualLabel } from "./format";
+import { createRequestGeneration } from "./requestGeneration";
 
 export type SelectedDestination =
   | { readonly kind: "station"; readonly stationGroupId: string; readonly label: string }
@@ -42,6 +43,9 @@ const QUERY_KEYS = {
 } as const;
 
 export function useOptimizeSearch() {
+  const autocompleteRequestGeneration = useRef(createRequestGeneration());
+  const optimizationRequestGeneration = useRef(createRequestGeneration());
+
   const [destQuery, setDestQuery] = useState("");
   const [selectedDestination, setSelectedDestination] = useState<SelectedDestination | null>(null);
 
@@ -138,10 +142,17 @@ export function useOptimizeSearch() {
   }, [hydrated]);
 
   useEffect(() => {
+    const generation = autocompleteRequestGeneration.current.begin();
+    const isCurrent = () => autocompleteRequestGeneration.current.isCurrent(generation);
+
     if (committedQuery !== null && destQuery === committedQuery) {
+      setPlacesLoading(false);
+      setStationFallbackLoading(false);
       return;
     }
     const trimmed = destQuery.trim();
+    setPlacesLoading(false);
+    setStationFallbackLoading(false);
     if (trimmed.length === 0) {
       setPlaceSuggestions([]);
       setStationFallback([]);
@@ -150,21 +161,29 @@ export function useOptimizeSearch() {
     }
 
     function searchStationFallback(): void {
+      if (!isCurrent()) return;
       setStationFallbackLoading(true);
       getJson<StationsResponse>(`/v1/stations?query=${encodeURIComponent(trimmed)}&limit=8`)
-        .then((data) => setStationFallback(data.results))
+        .then((data) => {
+          if (isCurrent()) setStationFallback(data.results);
+        })
         .catch(() => {
+          if (!isCurrent()) return;
           setStationFallback([]);
           setAutocompleteFailed(true);
         })
-        .finally(() => setStationFallbackLoading(false));
+        .finally(() => {
+          if (isCurrent()) setStationFallbackLoading(false);
+        });
     }
 
     const handle = setTimeout(() => {
+      if (!isCurrent()) return;
       setPlacesLoading(true);
       setAutocompleteFailed(false);
       getJson<PlacesResponse>(`/v1/places?query=${encodeURIComponent(trimmed)}`)
         .then((data) => {
+          if (!isCurrent()) return;
           setPlaceSuggestions(data.results);
           if (data.results.length === 0) {
             searchStationFallback();
@@ -173,12 +192,18 @@ export function useOptimizeSearch() {
           }
         })
         .catch(() => {
+          if (!isCurrent()) return;
           setPlaceSuggestions([]);
           searchStationFallback();
         })
-        .finally(() => setPlacesLoading(false));
+        .finally(() => {
+          if (isCurrent()) setPlacesLoading(false);
+        });
     }, 300);
-    return () => clearTimeout(handle);
+    return () => {
+      clearTimeout(handle);
+      if (isCurrent()) autocompleteRequestGeneration.current.begin();
+    };
   }, [destQuery, committedQuery, retryToken]);
 
   useEffect(() => {
@@ -258,7 +283,11 @@ export function useOptimizeSearch() {
   }
 
   async function runOptimize(): Promise<void> {
+    const generation = optimizationRequestGeneration.current.begin();
+    const isCurrent = () => optimizationRequestGeneration.current.isCurrent(generation);
+
     if (!selectedDestination) {
+      setIsLoading(false);
       setError(new Error("Choose a destination from the suggestions list first."));
       return;
     }
@@ -267,10 +296,12 @@ export function useOptimizeSearch() {
       (id) => preferences[id] !== undefined,
     ).length;
     if (selectedAxisCount < MIN_SELECTED_LIFESTYLE_AXES) {
+      setIsLoading(false);
       setError(new Error("Select at least one lifestyle priority before searching."));
       return;
     }
     if (selectedAxisCount > MAX_SELECTED_LIFESTYLE_AXES) {
+      setIsLoading(false);
       setError(new Error(`Select at most ${MAX_SELECTED_LIFESTYLE_AXES} lifestyle priorities.`));
       return;
     }
@@ -316,12 +347,14 @@ export function useOptimizeSearch() {
     setResponse(null);
     try {
       const data = await postJson<OptimizeResponse>("/v1/optimize", request);
+      if (!isCurrent()) return;
       setResponse(data);
       setResultDestinationLabel(selectedDestination.label);
     } catch (err) {
+      if (!isCurrent()) return;
       setError(err instanceof Error ? err : new Error("Unknown error"));
     } finally {
-      setIsLoading(false);
+      if (isCurrent()) setIsLoading(false);
     }
   }
 
