@@ -68,8 +68,6 @@ export function ResultRow({
               </span>
             </span>
 
-            {/* Positive + compromise, always visible, never color-only:
-                the +/− glyphs carry the same distinction as the colors. */}
             <span className="mt-1.5 flex flex-col gap-0.5 text-[12.5px] leading-snug">
               {strength && (
                 <span className="min-w-0">
@@ -92,7 +90,6 @@ export function ResultRow({
             </span>
           </span>
 
-          {/* Comparable numbers — fixed columns, tabular numerals. */}
           <span className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-6">
             <span className="text-right sm:w-16">
               <span className="block text-[15px] font-semibold tnum">{commute.total} min</span>

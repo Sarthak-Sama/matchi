@@ -196,10 +196,6 @@ export function ComparisonTable({
         </p>
       ) : (
         <>
-          {/* Scrolls inside its own container so three columns of Japanese
-              names never push the page sideways on a phone. `tabIndex` is
-              what makes that scroll reachable without a pointer: a plain
-              overflow container cannot be scrolled from the keyboard. */}
           <div
             role="region"
             aria-label="Neighborhood comparison, scrolls horizontally"

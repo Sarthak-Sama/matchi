@@ -13,14 +13,12 @@ export function HeroMapFragment() {
     >
       <rect width={width} height={height} className="fill-sage" />
 
-      {/* Ward bodies — hairline boundaries, no fills competing for attention. */}
       <g className="fill-paper-soft stroke-line-strong" strokeWidth="1.1">
         {WARD_SHAPES.map((ward) => (
           <path key={ward.code} d={ward.d} fillRule="evenodd" />
         ))}
       </g>
 
-      {/* Reference stations — the anchors most readers already hold. */}
       <g>
         {PLATE_STATIONS.map((station) => (
           <g key={station.nameJa}>

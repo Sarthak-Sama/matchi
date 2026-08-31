@@ -51,7 +51,6 @@ export function LifestylePicker({ preferences, onChange }: LifestylePickerProps)
         </p>
       </div>
 
-      {/* Step 1 — pick the axes. */}
       <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Lifestyle priorities">
         {LIFESTYLE_AXIS_IDS.map((id) => {
           const isSelected = preferences[id] !== undefined;
@@ -76,7 +75,6 @@ export function LifestylePicker({ preferences, onChange }: LifestylePickerProps)
         })}
       </div>
 
-      {/* Step 2 — weigh each selected axis. */}
       {selectedIds.length > 0 && (
         <div className="mt-4 divide-y divide-line border-y border-line">
           {selectedIds.map((id) => (

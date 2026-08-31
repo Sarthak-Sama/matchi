@@ -58,7 +58,6 @@ export default async function Landing({
       <Masthead variant="landing" />
 
       <main>
-        {/* ── Hero ─────────────────────────────────────────────── */}
         <section className="mx-auto max-w-[1360px] px-5 pt-12 pb-16 sm:px-8 lg:pt-20 lg:pb-24">
           <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,9fr)_minmax(0,11fr)] lg:gap-16">
             <div>
@@ -100,17 +99,14 @@ export default async function Landing({
               </Reveal>
             </div>
 
-            {/* The signature: the plate that narrows. */}
             <Reveal mode="mount" delay={0.1}>
               <NarrowingPlate />
             </Reveal>
           </div>
         </section>
 
-        {/* ── The index ────────────────────────────────────────── */}
         <IndexBand />
 
-        {/* ── The method ───────────────────────────────────────── */}
         <section id="method" aria-labelledby="method-heading" className="scroll-mt-6 bg-paper-soft">
           <div className="mx-auto max-w-[1360px] px-5 py-16 sm:px-8 lg:py-20">
             <Reveal>
@@ -135,7 +131,6 @@ export default async function Landing({
           </div>
         </section>
 
-        {/* ── What it measures ─────────────────────────────────── */}
         <section aria-labelledby="measures-heading" className="border-t border-line-strong">
           <div className="mx-auto max-w-[1360px] px-5 py-16 sm:px-8 lg:py-20">
             <div className="grid gap-10 lg:grid-cols-[minmax(0,7fr)_minmax(0,13fr)] lg:gap-16">
@@ -155,8 +150,6 @@ export default async function Landing({
                 </p>
               </Reveal>
 
-              {/* A specimen list, not a grid of feature cards: one hairline
-                  per axis, the way a field guide indexes what it covers. */}
               <Reveal delay={0.08}>
                 <ul className="border-t border-line">
                   {LIFESTYLE_AXIS_IDS.map((id, index) => {
@@ -172,9 +165,7 @@ export default async function Landing({
                         <span className="font-serif text-[1.35rem] leading-snug tracking-editorial">
                           {LIFESTYLE_AXES[id].label}
                         </span>
-                        {/* Each axis rests on a different kind of record, so
-                            each states its own unit rather than pretending
-                            they are all the same measurement. */}
+
                         {evidence && (
                           <span className="ml-auto flex shrink-0 items-baseline gap-2 text-ink-muted">
                             <span className="font-mono text-[13px] tnum transition-colors duration-200 group-hover:text-vermilion-deep motion-reduce:transition-none">
@@ -192,7 +183,6 @@ export default async function Landing({
           </div>
         </section>
 
-        {/* ── The honest part ──────────────────────────────────── */}
         <section aria-labelledby="limits-heading" className="border-t border-line-strong bg-moss">
           <div className="mx-auto max-w-[1360px] px-5 py-16 sm:px-8 lg:py-20">
             <Reveal>
@@ -218,7 +208,6 @@ export default async function Landing({
           </div>
         </section>
 
-        {/* ── Closing ──────────────────────────────────────────── */}
         <section aria-labelledby="start-heading" className="border-t border-line-strong">
           <div className="mx-auto max-w-[1360px] px-5 py-20 sm:px-8 lg:py-28">
             <Reveal className="mx-auto max-w-2xl text-center">

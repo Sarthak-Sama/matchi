@@ -69,7 +69,7 @@ export function buildGtfsPlan(input: GtfsPlanInput): GtfsPlan {
 
   for (const pair of pairStats) {
     const railLineId = routeMapping.mapped.get(pair.routeId);
-    if (railLineId === undefined) continue; // Already warned above, at the route level.
+    if (railLineId === undefined) continue;
 
     const fromGroup = matchResult.matchedStopToGroup.get(pair.fromStopId);
     const toGroup = matchResult.matchedStopToGroup.get(pair.toStopId);

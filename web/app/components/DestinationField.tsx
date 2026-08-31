@@ -164,7 +164,6 @@ export function DestinationField(props: DestinationFieldProps) {
         </div>
       )}
 
-      {/* Live status for screen readers — suggestion counts and failures. */}
       <span id={statusId} role="status" aria-live="polite" className="sr-only">
         {props.placesLoading
           ? "Searching destinations…"
@@ -272,7 +271,6 @@ export function DestinationField(props: DestinationFieldProps) {
         </div>
       )}
 
-      {/* Committed-selection confirmation for assistive tech. */}
       {hasSelection && (
         <span role="status" className="sr-only">
           Destination selected: {props.selectedLabel}
