@@ -38,7 +38,7 @@ government portals whose signup flows are Japanese-only.
 **Important:** do not modify any parser in the repo. If a real export's
 field names differ from what the code expects, report the mismatch and
 let me decide. The repo's field-name expectations are explicitly
-documented as *assumptions* that were never verified against real
+documented as _assumptions_ that were never verified against real
 downloads.
 
 ### 1. MLIT — 国土数値情報 (National Land Numerical Information) — TOP PRIORITY
@@ -46,15 +46,16 @@ downloads.
 Five datasets. The repo expects GeoJSON; MLIT typically ships shapefiles,
 which need `ogr2ogr -f GeoJSON out.geojson in.shp`.
 
-| Dataset | MLIT code | Fields the code reads | Feeds |
-|---|---|---|---|
-| Railway stations | **N02** | `N02_005` | `station_groups` |
-| Railway lines | **N02** | `N02_003`, `N02_004` | `rail_lines` |
-| Administrative boundaries | **N03** | `N03_004`, `N03_007` | `wards` |
-| Land prices | **L01** | `L01_005`, `L01_006`, `L01_022` | `land_prices` |
-| Urban planning / zoning | **A55 (2024)** | `YoutoName` | `zoning_areas` |
+| Dataset                   | MLIT code      | Fields the code reads           | Feeds            |
+| ------------------------- | -------------- | ------------------------------- | ---------------- |
+| Railway stations          | **N02**        | `N02_005`                       | `station_groups` |
+| Railway lines             | **N02**        | `N02_003`, `N02_004`            | `rail_lines`     |
+| Administrative boundaries | **N03**        | `N03_004`, `N03_007`            | `wards`          |
+| Land prices               | **L01**        | `L01_005`, `L01_006`, `L01_022` | `land_prices`    |
+| Urban planning / zoning   | **A55 (2024)** | `YoutoName`                     | `zoning_areas`   |
 
 Questions I need answered:
+
 - Is there a real MLIT download **API**, and does it need an API key? The
   repo does not use an `MLIT_API_KEY`; archives are catalog-driven static ZIP
   downloads, and the historical auto-download path is
@@ -124,6 +125,7 @@ quarterly report. Confirm that's still true, then move on.
 ## Deliverable
 
 A step-by-step acquisition plan, ordered with **MLIT N02 first**, with:
+
 1. exact URLs and any registration steps,
 2. which credentials are genuinely required vs. avoidable by manual
    download,

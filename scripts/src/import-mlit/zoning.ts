@@ -46,7 +46,15 @@ import { pickProperty, polygonGeometryToMultiPolygonWKT } from "./geojson.js";
 
 export const MIN_ZONING_ROWS = 1;
 
-const CATEGORY_KEYS = ["YoutoName", "A55_YoutoName", "A29_005", "category", "YoutoCode", "A55_YoutoCode", "A29_004"];
+const CATEGORY_KEYS = [
+  "YoutoName",
+  "A55_YoutoName",
+  "A29_005",
+  "category",
+  "YoutoCode",
+  "A55_YoutoCode",
+  "A29_004",
+];
 const CITY_CODE_KEYS = ["Citycode", "CityCode", "citycode"];
 const IS_RESIDENTIAL_KEYS = ["is_residential"];
 

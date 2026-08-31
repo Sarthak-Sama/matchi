@@ -36,11 +36,7 @@ interface NeighborhoodDetailProps {
   readonly onClose: () => void;
 }
 
-export function NeighborhoodDetail({
-  result,
-  destinationLabel,
-  onClose,
-}: NeighborhoodDetailProps) {
+export function NeighborhoodDetail({ result, destinationLabel, onClose }: NeighborhoodDetailProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
@@ -107,8 +103,12 @@ export function NeighborhoodDetail({
         <div className="border-b border-line px-5 pt-5 pb-5 sm:px-8">
           <div className="flex items-center justify-between gap-3">
             <p className="label-utility text-vermilion-deep">
-              <span className="font-mono tracking-normal">{String(result.rank).padStart(2, "0")}</span>
-              <span className="mx-2 text-line-strong" aria-hidden="true">/</span>
+              <span className="font-mono tracking-normal">
+                {String(result.rank).padStart(2, "0")}
+              </span>
+              <span className="mx-2 text-line-strong" aria-hidden="true">
+                /
+              </span>
               Neighborhood entry
             </p>
             <button
@@ -131,7 +131,9 @@ export function NeighborhoodDetail({
               </h2>
               <p className="mt-2 text-[14px] text-ink-muted">
                 {wardDisplayName(result.wardNameEn)}
-                <span lang="ja" className="ml-2">{result.wardNameJa}</span>
+                <span lang="ja" className="ml-2">
+                  {result.wardNameJa}
+                </span>
               </p>
               <p className="mt-1.5 font-mono text-[11px] text-ink-muted">
                 {formatCoordinates(result.centroid.lat, result.centroid.lon)}
@@ -189,7 +191,10 @@ export function NeighborhoodDetail({
           </section>
 
           {/* The commute, composed */}
-          <section aria-labelledby="commute-heading" className="border-b border-line px-5 py-5 sm:px-8">
+          <section
+            aria-labelledby="commute-heading"
+            className="border-b border-line px-5 py-5 sm:px-8"
+          >
             <h3 id="commute-heading" className="label-utility text-ink">
               The commute, composed
             </h3>
@@ -240,7 +245,8 @@ export function NeighborhoodDetail({
               </>
             )}
             <p className="mt-3 text-[12px] text-ink-muted">
-              {result.commute.label} · {result.commute.confidence} confidence · {result.catchmentLabel}
+              {result.commute.label} · {result.commute.confidence} confidence ·{" "}
+              {result.catchmentLabel}
             </p>
           </section>
 
@@ -303,7 +309,10 @@ export function NeighborhoodDetail({
 
           {/* Lifestyle evidence */}
           {result.factors.length > 0 && (
-            <section aria-labelledby="evidence-heading" className="border-b border-line px-5 py-5 sm:px-8">
+            <section
+              aria-labelledby="evidence-heading"
+              className="border-b border-line px-5 py-5 sm:px-8"
+            >
               <h3 id="evidence-heading" className="label-utility text-ink">
                 The evidence
               </h3>
@@ -324,10 +333,9 @@ export function NeighborhoodDetail({
               <div className="flex gap-3">
                 <dt className="w-28 shrink-0 text-ink-muted">Rent basis</dt>
                 <dd>
-                  {RENT_LABEL} for a {result.rent.assumedSizeSqmMin}–
-                  {result.rent.assumedSizeSqmMax} m² {result.rent.layout} · source{" "}
-                  {result.rent.source}, {result.rent.sourcePeriod} · {result.rent.confidence}{" "}
-                  confidence
+                  {RENT_LABEL} for a {result.rent.assumedSizeSqmMin}–{result.rent.assumedSizeSqmMax}{" "}
+                  m² {result.rent.layout} · source {result.rent.source}, {result.rent.sourcePeriod}{" "}
+                  · {result.rent.confidence} confidence
                 </dd>
               </div>
               {result.nearbyStations.length > 0 && (

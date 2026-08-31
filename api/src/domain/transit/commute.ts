@@ -9,9 +9,9 @@
  * `GraphEdge`). `estimateCommute`'s only inputs are the Dijkstra result and
  * an origin id, so it has no display names to work with either. `path`
  * entries here carry the station_group id itself in `nameEn`/`nameJa` and
- * the raw `railLineId` in `lineName` as placeholders — the caller (Task 9
- * or Task 10, which do have `station_groups` / `rail_lines` in hand) MUST
- * replace them with real names before a response reaches a client.
+ * the raw `railLineId` in `lineName` as placeholders — the caller (which
+ * does have `station_groups` / `rail_lines` in hand) MUST replace them with
+ * real names before a response reaches a client.
  */
 
 import type { Confidence } from "@tokyo/shared";
@@ -81,7 +81,10 @@ export function estimateCommute(
   return {
     mode: "transit",
     totalMinutes: state.totalMinutes + ACCESS_WALK_MINUTES,
-    rangeMinutes: { min: state.totalMinutes + ACCESS_WALK_MINUTES, max: state.totalMinutes + ACCESS_WALK_MINUTES },
+    rangeMinutes: {
+      min: state.totalMinutes + ACCESS_WALK_MINUTES,
+      max: state.totalMinutes + ACCESS_WALK_MINUTES,
+    },
     accessWalkMinutes: ACCESS_WALK_MINUTES,
     railMinutes: state.railMinutes,
     waitMinutes: state.waitMinutes,

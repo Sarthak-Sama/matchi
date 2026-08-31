@@ -43,7 +43,10 @@ export function LoadingResults() {
         </div>
       </div>
 
-      <div aria-hidden="true" className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,11fr)_minmax(0,10fr)]">
+      <div
+        aria-hidden="true"
+        className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,11fr)_minmax(0,10fr)]"
+      >
         <div className="skeleton hidden aspect-[1000/720] border border-line lg:block" />
         <div>
           {/* Featured-result skeleton */}

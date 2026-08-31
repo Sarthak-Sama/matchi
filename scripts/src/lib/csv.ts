@@ -1,9 +1,9 @@
 /**
- * Small, dependency-free CSV parser. Originally built for Task 12's
+ * Small, dependency-free CSV parser. Originally built for
  * `import-rent/estat.ts` and `import-rent/reins.ts`; lives in `lib/`
- * (rather than under `import-rent/`) because Task 14's `import:transit`
+ * (rather than under `import-rent/`) because `import:transit`
  * reads GTFS, which is also CSV (`stops.txt`, `routes.txt`, `trips.txt`,
- * `stop_times.txt`) — a second task needing the same primitives is exactly
+ * `stop_times.txt`) — a second caller needing the same primitives is exactly
  * what this shared-harness directory is for, matching `lib/source-file.ts`
  * and `lib/validate.ts`'s own reuse-by-every-import-script design.
  *

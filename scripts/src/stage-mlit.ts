@@ -121,10 +121,16 @@ function ringContains(point: Point, ring: unknown): boolean {
   if (!Array.isArray(ring)) return false;
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const a = ring[i]; const b = ring[j];
+    const a = ring[i];
+    const b = ring[j];
     if (!Array.isArray(a) || !Array.isArray(b)) continue;
-    const [xi, yi] = a as unknown as Point; const [xj, yj] = b as unknown as Point;
-    if ((yi > point[1]) !== (yj > point[1]) && point[0] < ((xj - xi) * (point[1] - yi)) / (yj - yi) + xi) inside = !inside;
+    const [xi, yi] = a as unknown as Point;
+    const [xj, yj] = b as unknown as Point;
+    if (
+      yi > point[1] !== yj > point[1] &&
+      point[0] < ((xj - xi) * (point[1] - yi)) / (yj - yi) + xi
+    )
+      inside = !inside;
   }
   return inside;
 }
@@ -133,16 +139,55 @@ export function pointInWardUnion(point: Point, wards: FeatureCollection): boolea
   return createWardContains(wards)(point);
 }
 
-interface WardPolygon { readonly outer: unknown; readonly holes: readonly unknown[]; readonly west: number; readonly south: number; readonly east: number; readonly north: number; }
+interface WardPolygon {
+  readonly outer: unknown;
+  readonly holes: readonly unknown[];
+  readonly west: number;
+  readonly south: number;
+  readonly east: number;
+  readonly north: number;
+}
 
-function ringBounds(ring: unknown): { west: number; south: number; east: number; north: number } | null {
+function ringBounds(
+  ring: unknown,
+): { west: number; south: number; east: number; north: number } | null {
   if (!Array.isArray(ring)) return null;
-  let west = Infinity; let south = Infinity; let east = -Infinity; let north = -Infinity;
+  let west = Infinity;
+  let south = Infinity;
+  let east = -Infinity;
+  let north = -Infinity;
   for (const position of ring) {
-    if (!Array.isArray(position) || typeof position[0] !== "number" || typeof position[1] !== "number") continue;
-    west = Math.min(west, position[0]); south = Math.min(south, position[1]); east = Math.max(east, position[0]); north = Math.max(north, position[1]);
+    if (
+      !Array.isArray(position) ||
+      typeof position[0] !== "number" ||
+      typeof position[1] !== "number"
+    )
+      continue;
+    west = Math.min(west, position[0]);
+    south = Math.min(south, position[1]);
+    east = Math.max(east, position[0]);
+    north = Math.max(north, position[1]);
   }
   return Number.isFinite(west) ? { west, south, east, north } : null;
+}
+
+/** Every ring-set (Polygon: one; MultiPolygon: one per part) a geometry contains, or none for any other geometry type. */
+function polygonRingSets(geometry: Feature["geometry"]): unknown {
+  if (geometry?.type === "Polygon") return [geometry.coordinates];
+  if (geometry?.type === "MultiPolygon") return geometry.coordinates;
+  return [];
+}
+
+function pointInPolygon(point: Point, polygon: WardPolygon): boolean {
+  const inBounds =
+    point[0] >= polygon.west &&
+    point[0] <= polygon.east &&
+    point[1] >= polygon.south &&
+    point[1] <= polygon.north;
+  if (!inBounds) return false;
+  return (
+    ringContains(point, polygon.outer) && !polygon.holes.some((hole) => ringContains(point, hole))
+  );
 }
 
 /** Precomputes polygon envelopes once. N03 has thousands of components, so
@@ -151,33 +196,36 @@ function ringBounds(ring: unknown): { west: number; south: number; east: number;
 function createWardContains(wards: FeatureCollection): (point: Point) => boolean {
   const polygons: WardPolygon[] = [];
   for (const feature of wards.features) {
-    const geometry = feature.geometry;
-    const source = geometry?.type === "Polygon" ? [geometry.coordinates] : geometry?.type === "MultiPolygon" ? geometry.coordinates : [];
-    if (!Array.isArray(source)) continue;
-    for (const polygon of source) {
+    const ringSets = polygonRingSets(feature.geometry);
+    if (!Array.isArray(ringSets)) continue;
+    for (const polygon of ringSets) {
       if (!Array.isArray(polygon) || !polygon[0]) continue;
       const bounds = ringBounds(polygon[0]);
       if (bounds) polygons.push({ outer: polygon[0], holes: polygon.slice(1), ...bounds });
     }
   }
-  return (point) => polygons.some((polygon) =>
-    point[0] >= polygon.west && point[0] <= polygon.east && point[1] >= polygon.south && point[1] <= polygon.north &&
-    ringContains(point, polygon.outer) && !polygon.holes.some((hole) => ringContains(point, hole)),
-  );
+  return (point) => polygons.some((polygon) => pointInPolygon(point, polygon));
 }
 
 export function centroidOfLineGeometry(geometry: Feature["geometry"]): Point | null {
-  if (!geometry || (geometry.type !== "LineString" && geometry.type !== "MultiLineString")) return null;
+  if (!geometry || (geometry.type !== "LineString" && geometry.type !== "MultiLineString"))
+    return null;
   const lines = geometry.type === "LineString" ? [geometry.coordinates] : geometry.coordinates;
-  let lon = 0; let lat = 0; let total = 0;
+  let lon = 0;
+  let lat = 0;
+  let total = 0;
   for (const line of Array.isArray(lines) ? lines : []) {
     if (!Array.isArray(line)) continue;
     for (let i = 1; i < line.length; i += 1) {
-      const a = line[i - 1]; const b = line[i];
+      const a = line[i - 1];
+      const b = line[i];
       if (!Array.isArray(a) || !Array.isArray(b)) continue;
-      const [ax, ay] = a as unknown as Point; const [bx, by] = b as unknown as Point;
+      const [ax, ay] = a as unknown as Point;
+      const [bx, by] = b as unknown as Point;
       const length = Math.hypot(bx - ax, by - ay);
-      lon += ((ax + bx) / 2) * length; lat += ((ay + by) / 2) * length; total += length;
+      lon += ((ax + bx) / 2) * length;
+      lat += ((ay + by) / 2) * length;
+      total += length;
     }
   }
   return total > 0 ? [lon / total, lat / total] : null;
@@ -217,8 +265,14 @@ export function stageStations(collection: FeatureCollection, wards: FeatureColle
   for (const feature of collection.features) {
     const geometry = feature.geometry;
     if (geometry === null) continue;
-    const point = geometry.type === "Point" ? firstLonLat(geometry.coordinates) : centroidOfLineGeometry(geometry);
-    if (!point) throw new Error(`stage:mlit — station geometry is "${geometry.type}", expected Point or LineString`);
+    const point =
+      geometry.type === "Point"
+        ? firstLonLat(geometry.coordinates)
+        : centroidOfLineGeometry(geometry);
+    if (!point)
+      throw new Error(
+        `stage:mlit — station geometry is "${geometry.type}", expected Point or LineString`,
+      );
     if (!wardContains(point)) continue;
     staged.push({ ...feature, geometry: { type: "Point", coordinates: point } });
   }
@@ -234,7 +288,10 @@ interface LineGroup {
   sections: number;
 }
 
-export function stageRailLines(collection: FeatureCollection, wards: FeatureCollection): {
+export function stageRailLines(
+  collection: FeatureCollection,
+  wards: FeatureCollection,
+): {
   readonly features: Feature[];
   readonly unclassified: string[];
   readonly sectionsDissolved: number;

@@ -46,7 +46,11 @@ export function ScoreRing({
           className="stroke-vermilion transition-ring"
         />
       </svg>
-      <span aria-hidden="true" className="absolute font-serif text-[1.15em] font-medium tnum" style={{ fontSize: size * 0.3 }}>
+      <span
+        aria-hidden="true"
+        className="absolute font-serif text-[1.15em] font-medium tnum"
+        style={{ fontSize: size * 0.3 }}
+      >
         {rounded}
       </span>
     </span>

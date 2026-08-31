@@ -146,8 +146,8 @@ export function ResultsSection({
             />
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
-            Boundaries are the localities themselves, drawn from public data. Numbers are ranks;
-            the vermilion nail is your destination. Everything on the map is also in the list.
+            Boundaries are the localities themselves, drawn from public data. Numbers are ranks; the
+            vermilion nail is your destination. Everything on the map is also in the list.
           </p>
         </div>
 

@@ -49,7 +49,10 @@ export async function loadNameLookups(pool: DbPool): Promise<NameLookups> {
   ]);
 
   const stationNames = new Map<string, StationName>(
-    stationsResult.rows.map((row) => [row.stationGroupId, { nameEn: row.nameEn, nameJa: row.nameJa }]),
+    stationsResult.rows.map((row) => [
+      row.stationGroupId,
+      { nameEn: row.nameEn, nameJa: row.nameJa },
+    ]),
   );
   const lineNames = new Map<string, string>(
     linesResult.rows
@@ -77,7 +80,8 @@ export function resolvePathNames(
     // `hop.lineName` currently HOLDS the raw `railLineId` placeholder (or
     // `null`) — see `commute.ts`'s doc comment — so it is the lookup key
     // here, not already a display name.
-    const lineName = hop.lineName === null ? null : (lookups.lineNames.get(hop.lineName) ?? hop.lineName);
+    const lineName =
+      hop.lineName === null ? null : (lookups.lineNames.get(hop.lineName) ?? hop.lineName);
 
     return {
       stationGroupId: hop.stationGroupId,

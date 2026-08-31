@@ -56,7 +56,14 @@ export function ChevronDownIcon({ className = "size-4" }: { className?: string }
 export function DestinationMark({ className = "size-3" }: { className?: string }) {
   return (
     <svg aria-hidden="true" viewBox="0 0 12 12" className={className}>
-      <rect x="2.2" y="2.2" width="7.6" height="7.6" transform="rotate(45 6 6)" fill="currentColor" />
+      <rect
+        x="2.2"
+        y="2.2"
+        width="7.6"
+        height="7.6"
+        transform="rotate(45 6 6)"
+        fill="currentColor"
+      />
     </svg>
   );
 }

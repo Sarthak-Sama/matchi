@@ -228,8 +228,14 @@ describe("directionKey / pairMapKey collision guard", () => {
     ]);
     const stats = computeAdjacentPairStats([trip1, trip2], stopTimesByTrip);
 
-    const fromAB = stats.find((s) => s.routeId === "AB" && s.firstStopId === "C" && s.fromStopId === "C" && s.toStopId === "X");
-    const fromA = stats.find((s) => s.routeId === "A" && s.firstStopId === "BC" && s.fromStopId === "C" && s.toStopId === "X");
+    const fromAB = stats.find(
+      (s) =>
+        s.routeId === "AB" && s.firstStopId === "C" && s.fromStopId === "C" && s.toStopId === "X",
+    );
+    const fromA = stats.find(
+      (s) =>
+        s.routeId === "A" && s.firstStopId === "BC" && s.fromStopId === "C" && s.toStopId === "X",
+    );
 
     // If the two tuples collided (no separator), there would be exactly ONE
     // merged entry with offpeakMinutes = median([10, 2]) = 6 and a sample
@@ -301,7 +307,9 @@ describe("computeAdjacentPairStats / computeHeadways (fixture)", () => {
     const headways = computeHeadways(trips, stopTimesByTrip);
     // The backward direction (first stop Nakameguro) only has 2 PEAK departures
     // (08:10, 08:25) and zero off-peak ones.
-    const backward = headways.find((h) => h.routeId === "R1" && h.firstStopId === "gtfs-nakameguro");
+    const backward = headways.find(
+      (h) => h.routeId === "R1" && h.firstStopId === "gtfs-nakameguro",
+    );
     expect(backward).toBeDefined();
     expect(backward?.peakWaitMinutes).toBeDefined();
     expect(backward?.offpeakWaitMinutes).toBeUndefined();
@@ -319,8 +327,20 @@ describe("matchStops", () => {
 
   it("matches via an existing station_source_refs row, even when the name wouldn't match", () => {
     const stops = [
-      { stopId: "child-1", name: "Totally Different Name", lat: 35.67, lon: 139.72, parentStation: "parent-1" },
-      { stopId: "parent-1", name: "Totally Different Name", lat: 35.67, lon: 139.72, parentStation: undefined },
+      {
+        stopId: "child-1",
+        name: "Totally Different Name",
+        lat: 35.67,
+        lon: 139.72,
+        parentStation: "parent-1",
+      },
+      {
+        stopId: "parent-1",
+        name: "Totally Different Name",
+        lat: 35.67,
+        lon: 139.72,
+        parentStation: undefined,
+      },
     ];
     const existingRefs: ExistingGtfsRef[] = [{ sourceId: "parent-1", stationGroupId: "sg-a" }];
     const result = matchStops(stops, existingRefs, []);
@@ -331,21 +351,33 @@ describe("matchStops", () => {
   });
 
   it("falls back to normalized-name + proximity matching when there is no existing ref", () => {
-    const stops = [{ stopId: "s1", name: "Aoyama Station", lat: 35.6701, lon: 139.7201, parentStation: undefined }];
+    const stops = [
+      {
+        stopId: "s1",
+        name: "Aoyama Station",
+        lat: 35.6701,
+        lon: 139.7201,
+        parentStation: undefined,
+      },
+    ];
     const result = matchStops(stops, [], candidates);
     expect(result.matchedStopToGroup.get("s1")).toBe("sg-a");
     expect(result.newRefs).toEqual([{ sourceId: "s1", stationGroupId: "sg-a" }]);
   });
 
   it("does not match a same-named candidate outside STATION_MERGE_RADIUS_M", () => {
-    const farStop = [{ stopId: "s2", name: "Aoyama", lat: 36.5, lon: 140.5, parentStation: undefined }];
+    const farStop = [
+      { stopId: "s2", name: "Aoyama", lat: 36.5, lon: 140.5, parentStation: undefined },
+    ];
     const result = matchStops(farStop, [], candidates);
     expect(result.matchedStopToGroup.has("s2")).toBe(false);
     expect(result.unmatchedRefKeys).toEqual(["s2"]);
   });
 
   it("reports an unmatched stop (no ref, no name/proximity match) in the unmatched summary", () => {
-    const stops = [{ stopId: "ghost", name: "Nowhere Station", lat: 10, lon: 10, parentStation: undefined }];
+    const stops = [
+      { stopId: "ghost", name: "Nowhere Station", lat: 10, lon: 10, parentStation: undefined },
+    ];
     const result = matchStops(stops, [], candidates);
     expect(result.unmatchedRefKeys).toEqual(["ghost"]);
     expect(result.matchedStopToGroup.size).toBe(0);
@@ -420,7 +452,13 @@ describe("resolveGtfsSource", () => {
     "extracts a real .zip archive (via the system unzip binary) and cleans up the temp dir afterward",
     async () => {
       const zipPath = path.join(tmpdir(), `tokyo-gtfs-fixture-${String(process.pid)}.zip`);
-      execFileSync("zip", ["-j", "-q", zipPath, fixturePath("stops.txt"), fixturePath("routes.txt")]);
+      execFileSync("zip", [
+        "-j",
+        "-q",
+        zipPath,
+        fixturePath("stops.txt"),
+        fixturePath("routes.txt"),
+      ]);
       try {
         const resolved = await resolveGtfsSource(zipPath);
         expect(resolved.dir).not.toBe(FIXTURES_DIR);
@@ -444,21 +482,55 @@ describe("buildGtfsPlan (fixture)", () => {
   async function buildFixturePlan() {
     const { stops, routes, trips, stopTimesByTrip } = await loadFixtureGtfs();
     const candidateGroups: CandidateStationGroup[] = [
-      { stationGroupId: "cand-shibuya", nameJa: "Shibuya", nameEn: "Shibuya", lon: 139.7016, lat: 35.658 },
-      { stationGroupId: "cand-daikanyama", nameJa: "Daikanyama", nameEn: "Daikanyama", lon: 139.7031, lat: 35.6486 },
-      { stationGroupId: "cand-nakameguro", nameJa: "Nakameguro", nameEn: "Nakameguro", lon: 139.696, lat: 35.642 },
+      {
+        stationGroupId: "cand-shibuya",
+        nameJa: "Shibuya",
+        nameEn: "Shibuya",
+        lon: 139.7016,
+        lat: 35.658,
+      },
+      {
+        stationGroupId: "cand-daikanyama",
+        nameJa: "Daikanyama",
+        nameEn: "Daikanyama",
+        lon: 139.7031,
+        lat: 35.6486,
+      },
+      {
+        stationGroupId: "cand-nakameguro",
+        nameJa: "Nakameguro",
+        nameEn: "Nakameguro",
+        lon: 139.696,
+        lat: 35.642,
+      },
       // Deliberately mismatched name: this candidate can ONLY be reached via
       // the existing ref below, proving the ref path (not name/proximity)
       // is what resolves gtfs-shinjuku.
-      { stationGroupId: "cand-shinjuku-real", nameJa: "ShinjukuXYZ", nameEn: "ShinjukuXYZ", lon: 139.7006, lat: 35.6896 },
+      {
+        stationGroupId: "cand-shinjuku-real",
+        nameJa: "ShinjukuXYZ",
+        nameEn: "ShinjukuXYZ",
+        lon: 139.7006,
+        lat: 35.6896,
+      },
     ];
-    const existingRefs: ExistingGtfsRef[] = [{ sourceId: "gtfs-shinjuku", stationGroupId: "cand-shinjuku-real" }];
+    const existingRefs: ExistingGtfsRef[] = [
+      { sourceId: "gtfs-shinjuku", stationGroupId: "cand-shinjuku-real" },
+    ];
     const railLines = [
       { railLineId: "R1", nameJa: "Fixture Line One", nameEn: null },
       { railLineId: "R2", nameJa: "Fixture Line Two", nameEn: null },
     ];
 
-    const input: GtfsPlanInput = { stops, routes, trips, stopTimesByTrip, existingRefs, candidateGroups, railLines };
+    const input: GtfsPlanInput = {
+      stops,
+      routes,
+      trips,
+      stopTimesByTrip,
+      existingRefs,
+      candidateGroups,
+      railLines,
+    };
     return buildGtfsPlan(input);
   }
 
@@ -492,7 +564,12 @@ describe("buildGtfsPlan (fixture)", () => {
     const forward = plan.edges.find(
       (e) => e.fromStationGroupId === "cand-shibuya" && e.toStationGroupId === "cand-daikanyama",
     );
-    expect(forward).toMatchObject({ peakTravelMinutes: 5, offpeakTravelMinutes: 2.5, peakWaitMinutes: 5, offpeakWaitMinutes: 10 });
+    expect(forward).toMatchObject({
+      peakTravelMinutes: 5,
+      offpeakTravelMinutes: 2.5,
+      peakWaitMinutes: 5,
+      offpeakWaitMinutes: 10,
+    });
 
     const backward = plan.edges.find(
       (e) => e.fromStationGroupId === "cand-daikanyama" && e.toStationGroupId === "cand-shibuya",
@@ -505,7 +582,9 @@ describe("buildGtfsPlan (fixture)", () => {
     const plan = await buildFixturePlan();
     expect(plan.warnings.some((w) => w.includes("skipped because one or"))).toBe(true);
     expect(plan.warnings.some((w) => w.includes("no off-peak samples"))).toBe(true);
-    expect(plan.edges.every((e) => typeof e.railLineId === "string" && e.railLineId.length > 0)).toBe(true);
+    expect(
+      plan.edges.every((e) => typeof e.railLineId === "string" && e.railLineId.length > 0),
+    ).toBe(true);
   });
 });
 
@@ -591,20 +670,26 @@ async function buildLineGeometryFromEdges(pool: Pool, railLineId: string): Promi
     current = next;
   }
 
-  const { rows: pointRows } = await pool.query<{ station_group_id: string; lon: number; lat: number }>(
+  const { rows: pointRows } = await pool.query<{
+    station_group_id: string;
+    lon: number;
+    lat: number;
+  }>(
     `SELECT station_group_id, ST_X(point) AS lon, ST_Y(point) AS lat
      FROM station_groups WHERE station_group_id = ANY($1::text[])`,
     [orderedIds],
   );
   const byId = new Map(pointRows.map((r) => [r.station_group_id, [r.lon, r.lat] as const]));
-  const orderedPoints = orderedIds.map((id) => byId.get(id)).filter((p): p is readonly [number, number] => !!p);
+  const orderedPoints = orderedIds
+    .map((id) => byId.get(id))
+    .filter((p): p is readonly [number, number] => !!p);
   if (orderedPoints.length < 2) return;
 
   const wkt = multiLineStringWKT([orderedPoints]);
-  await pool.query(`UPDATE rail_lines SET geom = ST_SetSRID(ST_GeomFromText($1), 4326) WHERE rail_line_id = $2`, [
-    wkt,
-    railLineId,
-  ]);
+  await pool.query(
+    `UPDATE rail_lines SET geom = ST_SetSRID(ST_GeomFromText($1), 4326) WHERE rail_line_id = $2`,
+    [wkt, railLineId],
+  );
 }
 
 describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
@@ -747,7 +832,13 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
       const written = await writeTransferEdges(client, "mlit-topology", null);
       expect(written).toBeGreaterThanOrEqual(2);
 
-      const { rows } = await pool.query<{ from_id: string; to_id: string; peak_travel_minutes: number; confidence: string; rail_line_id: string | null }>(
+      const { rows } = await pool.query<{
+        from_id: string;
+        to_id: string;
+        peak_travel_minutes: number;
+        confidence: string;
+        rail_line_id: string | null;
+      }>(
         `SELECT from_station_group_id AS from_id, to_station_group_id AS to_id, peak_travel_minutes, confidence, rail_line_id
          FROM rail_edges
          WHERE edge_type = 'transfer'
@@ -756,7 +847,10 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
       );
       expect(rows).toHaveLength(2);
       const pairs = rows.map((r) => `${r.from_id}->${r.to_id}`).sort();
-      expect(pairs).toEqual(["sg-test-interchange-a->sg-test-interchange-b", "sg-test-interchange-b->sg-test-interchange-a"]);
+      expect(pairs).toEqual([
+        "sg-test-interchange-a->sg-test-interchange-b",
+        "sg-test-interchange-b->sg-test-interchange-a",
+      ]);
       for (const row of rows) {
         expect(row.peak_travel_minutes).toBe(0);
         expect(row.confidence).toBe("medium");

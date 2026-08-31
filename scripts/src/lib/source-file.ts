@@ -16,7 +16,7 @@
  * file) instead of `url`/credentials so no test ever reaches for the
  * network.
  *
- * `encoding` (added for Task 12's e-Stat CSVs, which ship Shift-JIS rather
+ * `encoding` (added for the e-Stat CSVs, which ship Shift-JIS rather
  * than UTF-8) defaults to `"utf8"`, so every existing caller (`import:mlit`'s
  * GeoJSON, which is always UTF-8) is unaffected. A caller that needs to
  * decode raw bytes itself (e.g. with `iconv-lite`, since Node has no

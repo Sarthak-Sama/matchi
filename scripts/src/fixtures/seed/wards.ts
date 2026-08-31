@@ -9,7 +9,7 @@
  * the handful of places where two wards' station clusters interleave in
  * longitude (Setagaya/Meguro) or come close in latitude (Shibuya/Shinjuku).
  * Containment for every station was verified with `ST_Contains` after
- * seeding (see task-5-report.md).
+ * seeding.
  */
 
 import type { LonLat } from "./geo.js";
@@ -44,7 +44,7 @@ export const WARDS: readonly WardFixture[] = [
     name_en: "Shinjuku",
     // Simple rectangle north of Shibuya-ku; also stretched west to cover
     // Nakano (whose real ward, Nakano-ku, is not one of the 4 in this
-    // slice — folded into the Shinjuku polygon instead, see task-5-report.md).
+    // slice — folded into the Shinjuku polygon instead).
     // NOTE: this makes sg-nakano's ward assignment a disclosed fixture
     // fiction, not merely a simplification — the polygon reaches ~3km west
     // of real Shinjuku Station to contain it, so roughly three-quarters of

@@ -1,7 +1,7 @@
 /**
  * rail_lines + rail_edges: a connected graph over the 20 real stations
  * (sg-isolated-test is intentionally excluded from every line — it must
- * have zero rail_edges rows, see task-5-brief.md).
+ * have zero rail_edges rows).
  *
  * Lines follow real adjacency (each line's station order matches the real
  * line in the direction it actually runs), so edge travel times are

@@ -13,7 +13,10 @@ export interface CatalogEntry {
   readonly sha256: string;
 }
 
-interface Catalog { readonly version: number; readonly datasets: readonly CatalogEntry[] }
+interface Catalog {
+  readonly version: number;
+  readonly datasets: readonly CatalogEntry[];
+}
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const DATA_DIR = path.join(root, "data");
@@ -28,7 +31,13 @@ export async function loadDataCatalog(): Promise<readonly CatalogEntry[]> {
   }
   const seen = new Set<string>();
   for (const entry of catalog.datasets) {
-    if (!entry.id || !entry.url.startsWith("https://") || !entry.archive || !entry.sourceDate || !entry.sha256) {
+    if (
+      !entry.id ||
+      !entry.url.startsWith("https://") ||
+      !entry.archive ||
+      !entry.sourceDate ||
+      !entry.sha256
+    ) {
       throw new Error(`data/catalog.json: invalid entry ${entry.id || "(missing id)"}`);
     }
     if (seen.has(entry.id)) throw new Error(`data/catalog.json: duplicate id ${entry.id}`);
@@ -42,7 +51,9 @@ export function isVerifiedChecksum(value: string): boolean {
 }
 
 export async function sha256File(file: string): Promise<string> {
-  return createHash("sha256").update(await readFile(file)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(file))
+    .digest("hex");
 }
 
 async function verifyZip(file: string): Promise<void> {
@@ -60,7 +71,9 @@ export async function prepareArchives(entries: readonly CatalogEntry[]): Promise
   await mkdir(RAW_ESTAT_BOUNDARY_DIR, { recursive: true });
   for (const entry of entries) {
     if (!isVerifiedChecksum(entry.sha256)) {
-      throw new Error(`catalog entry ${entry.id} has no verified SHA-256; update data/catalog.json before downloading`);
+      throw new Error(
+        `catalog entry ${entry.id} has no verified SHA-256; update data/catalog.json before downloading`,
+      );
     }
     const target = path.join(
       entry.dataset === "ESTAT_BOUNDARY" ? RAW_ESTAT_BOUNDARY_DIR : RAW_MLIT_DIR,
@@ -70,7 +83,8 @@ export async function prepareArchives(entries: readonly CatalogEntry[]): Promise
       await stat(target);
     } catch {
       const response = await fetch(entry.url);
-      if (!response.ok) throw new Error(`${entry.id}: download failed (${response.status} ${response.statusText})`);
+      if (!response.ok)
+        throw new Error(`${entry.id}: download failed (${response.status} ${response.statusText})`);
       const temp = `${target}.partial`;
       await writeFile(temp, Buffer.from(await response.arrayBuffer()));
       await rename(temp, target);
@@ -78,7 +92,9 @@ export async function prepareArchives(entries: readonly CatalogEntry[]): Promise
     await verifyZip(target);
     const actual = await sha256File(target);
     if (actual !== entry.sha256.toLowerCase()) {
-      throw new Error(`${entry.id}: SHA-256 mismatch for ${target}; expected ${entry.sha256}, got ${actual}`);
+      throw new Error(
+        `${entry.id}: SHA-256 mismatch for ${target}; expected ${entry.sha256}, got ${actual}`,
+      );
     }
   }
 }

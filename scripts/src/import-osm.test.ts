@@ -49,26 +49,50 @@ function fixturePath(name: string): string {
 
 describe("classifyElement", () => {
   it("maps each shop=* value to its expected category", () => {
-    expect(classifyElement({ shop: "supermarket" }, "t")).toEqual({ kind: "poi", category: "supermarket" });
-    expect(classifyElement({ shop: "greengrocer" }, "t")).toEqual({ kind: "poi", category: "grocery" });
+    expect(classifyElement({ shop: "supermarket" }, "t")).toEqual({
+      kind: "poi",
+      category: "supermarket",
+    });
+    expect(classifyElement({ shop: "greengrocer" }, "t")).toEqual({
+      kind: "poi",
+      category: "grocery",
+    });
     expect(classifyElement({ shop: "butcher" }, "t")).toEqual({ kind: "poi", category: "grocery" });
     expect(classifyElement({ shop: "bakery" }, "t")).toEqual({ kind: "poi", category: "grocery" });
     expect(classifyElement({ shop: "grocery" }, "t")).toEqual({ kind: "poi", category: "grocery" });
-    expect(classifyElement({ shop: "convenience" }, "t")).toEqual({ kind: "poi", category: "convenience" });
+    expect(classifyElement({ shop: "convenience" }, "t")).toEqual({
+      kind: "poi",
+      category: "convenience",
+    });
   });
 
   it("maps each amenity=* value to its expected category", () => {
-    expect(classifyElement({ amenity: "restaurant" }, "t")).toEqual({ kind: "poi", category: "restaurant" });
+    expect(classifyElement({ amenity: "restaurant" }, "t")).toEqual({
+      kind: "poi",
+      category: "restaurant",
+    });
     expect(classifyElement({ amenity: "cafe" }, "t")).toEqual({ kind: "poi", category: "cafe" });
     expect(classifyElement({ amenity: "bar" }, "t")).toEqual({ kind: "poi", category: "bar" });
     expect(classifyElement({ amenity: "pub" }, "t")).toEqual({ kind: "poi", category: "bar" });
-    expect(classifyElement({ amenity: "nightclub" }, "t")).toEqual({ kind: "poi", category: "bar" });
+    expect(classifyElement({ amenity: "nightclub" }, "t")).toEqual({
+      kind: "poi",
+      category: "bar",
+    });
   });
 
   it("maps each highway=* value to a road, not a poi", () => {
-    expect(classifyElement({ highway: "motorway" }, "t")).toEqual({ kind: "road", roadClass: "motorway" });
-    expect(classifyElement({ highway: "trunk" }, "t")).toEqual({ kind: "road", roadClass: "trunk" });
-    expect(classifyElement({ highway: "primary" }, "t")).toEqual({ kind: "road", roadClass: "primary" });
+    expect(classifyElement({ highway: "motorway" }, "t")).toEqual({
+      kind: "road",
+      roadClass: "motorway",
+    });
+    expect(classifyElement({ highway: "trunk" }, "t")).toEqual({
+      kind: "road",
+      roadClass: "trunk",
+    });
+    expect(classifyElement({ highway: "primary" }, "t")).toEqual({
+      kind: "road",
+      roadClass: "primary",
+    });
   });
 
   it("an unmapped tag (and no tags at all) is skipped, not classified as poi/road", () => {
@@ -93,23 +117,46 @@ describe("classifyElement", () => {
   });
 
   it("maps each health amenity=* value to the health category", () => {
-    expect(classifyElement({ amenity: "clinic" }, "t")).toEqual({ kind: "poi", category: "health" });
-    expect(classifyElement({ amenity: "doctors" }, "t")).toEqual({ kind: "poi", category: "health" });
-    expect(classifyElement({ amenity: "pharmacy" }, "t")).toEqual({ kind: "poi", category: "health" });
-    expect(classifyElement({ amenity: "hospital" }, "t")).toEqual({ kind: "poi", category: "health" });
+    expect(classifyElement({ amenity: "clinic" }, "t")).toEqual({
+      kind: "poi",
+      category: "health",
+    });
+    expect(classifyElement({ amenity: "doctors" }, "t")).toEqual({
+      kind: "poi",
+      category: "health",
+    });
+    expect(classifyElement({ amenity: "pharmacy" }, "t")).toEqual({
+      kind: "poi",
+      category: "health",
+    });
+    expect(classifyElement({ amenity: "hospital" }, "t")).toEqual({
+      kind: "poi",
+      category: "health",
+    });
   });
 
   it("maps each landmark amenity=* value to the landmark category", () => {
-    expect(classifyElement({ amenity: "university" }, "t")).toEqual({ kind: "poi", category: "landmark" });
-    expect(classifyElement({ amenity: "college" }, "t")).toEqual({ kind: "poi", category: "landmark" });
-    expect(classifyElement({ amenity: "school" }, "t")).toEqual({ kind: "poi", category: "landmark" });
-  });
-
-  it("a named office=* is classified as landmark", () => {
-    expect(classifyElement({ office: "insurance", name: "Fixture Insurance Office" }, "t")).toEqual({
+    expect(classifyElement({ amenity: "university" }, "t")).toEqual({
       kind: "poi",
       category: "landmark",
     });
+    expect(classifyElement({ amenity: "college" }, "t")).toEqual({
+      kind: "poi",
+      category: "landmark",
+    });
+    expect(classifyElement({ amenity: "school" }, "t")).toEqual({
+      kind: "poi",
+      category: "landmark",
+    });
+  });
+
+  it("a named office=* is classified as landmark", () => {
+    expect(classifyElement({ office: "insurance", name: "Fixture Insurance Office" }, "t")).toEqual(
+      {
+        kind: "poi",
+        category: "landmark",
+      },
+    );
   });
 
   it("an unnamed office=* is NOT classified as landmark (no name tag at all, or an empty one)", () => {
@@ -118,7 +165,10 @@ describe("classifyElement", () => {
   });
 
   it("maps leisure=park|garden to a green_space, not a poi", () => {
-    expect(classifyElement({ leisure: "park" }, "t")).toEqual({ kind: "green_space", leisureClass: "park" });
+    expect(classifyElement({ leisure: "park" }, "t")).toEqual({
+      kind: "green_space",
+      leisureClass: "park",
+    });
     expect(classifyElement({ leisure: "garden" }, "t")).toEqual({
       kind: "green_space",
       leisureClass: "garden",
@@ -198,9 +248,7 @@ describe("parseOverpassResponse: valid fixture", () => {
     expect(road).toBeDefined();
     expect(road?.roadClass).toBe("primary");
     expect(road?.name).toBe("Fixture Avenue");
-    expect(road?.geomWKT).toBe(
-      "MULTILINESTRING((139.7 35.657, 139.702 35.658, 139.704 35.659))",
-    );
+    expect(road?.geomWKT).toBe("MULTILINESTRING((139.7 35.657, 139.702 35.658, 139.704 35.659))");
   });
 
   it("source_updated_at is parsed from osm3s.timestamp_osm_base", () => {
@@ -406,7 +454,9 @@ describe("parseOverpassResponse: malformed input shapes", () => {
       osm3s: { timestamp_osm_base: "2026-01-01T00:00:00Z" },
       elements: [{ type: "node", id: 1, lat: 35.6, lon: 139.7, tags: { leisure: "park" } }],
     });
-    expect(() => parseOverpassResponse(raw)).toThrowError(/only "way"\/"relation" elements are supported/);
+    expect(() => parseOverpassResponse(raw)).toThrowError(
+      /only "way"\/"relation" elements are supported/,
+    );
   });
 
   it("a leisure=park way missing its geometry array is a hard error", () => {
@@ -608,9 +658,8 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
   });
 
   it("a full run writes the pois + roads and records one success import_runs row", async () => {
-    const result = (await runImport(
-      { source: "openstreetmap", pool },
-      (client) => runOsmImport(client, GOOD_ARGS),
+    const result = (await runImport({ source: "openstreetmap", pool }, (client) =>
+      runOsmImport(client, GOOD_ARGS),
     )) as OsmImportResult;
 
     expect(result.poisImported).toBe(6);
@@ -629,8 +678,20 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
     // "node" < "relation" < "way".
     const pois = await poisSnapshot(pool);
     expect(pois).toEqual([
-      { category: "supermarket", osm_type: "node", osm_id: "1001", cuisine: null, opening_hours: null },
-      { category: "convenience", osm_type: "node", osm_id: "1002", cuisine: null, opening_hours: null },
+      {
+        category: "supermarket",
+        osm_type: "node",
+        osm_id: "1001",
+        cuisine: null,
+        opening_hours: null,
+      },
+      {
+        category: "convenience",
+        osm_type: "node",
+        osm_id: "1002",
+        cuisine: null,
+        opening_hours: null,
+      },
       {
         category: "restaurant",
         osm_type: "relation",
@@ -659,9 +720,8 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
       `SELECT count(*)::text AS count FROM pois WHERE source = 'openstreetmap'`,
     );
 
-    const result = (await runImport(
-      { source: "openstreetmap", pool },
-      (client) => runOsmImport(client, GOOD_ARGS),
+    const result = (await runImport({ source: "openstreetmap", pool }, (client) =>
+      runOsmImport(client, GOOD_ARGS),
     )) as OsmImportResult;
 
     expect(result.rowsImported).toBe(9);
@@ -691,7 +751,10 @@ describe.runIf(Boolean(databaseUrl))("import:osm (DB integration)", () => {
 
     await expect(
       runImport({ source: "openstreetmap", pool }, (client) =>
-        runOsmImport(client, { filePath: fixturePath("overpass-malformed.osm.json"), download: false }),
+        runOsmImport(client, {
+          filePath: fixturePath("overpass-malformed.osm.json"),
+          download: false,
+        }),
       ),
     ).rejects.toThrowError(/node is missing lat\/lon coordinates/);
 

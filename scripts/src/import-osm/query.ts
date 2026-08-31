@@ -58,7 +58,11 @@ export function buildOverpassQuery(bbox: Bbox): string {
   ];
 
   const poiClauses = poiFilters
-    .flatMap((filter) => [`node${filter}(${bb});`, `way${filter}(${bb});`, `relation${filter}(${bb});`])
+    .flatMap((filter) => [
+      `node${filter}(${bb});`,
+      `way${filter}(${bb});`,
+      `relation${filter}(${bb});`,
+    ])
     .map((line) => `  ${line}`)
     .join("\n");
 

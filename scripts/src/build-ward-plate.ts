@@ -344,10 +344,7 @@ export async function buildWardPlate(): Promise<PlateSources> {
     const lonScale = Math.cos(((minLat + maxLat) / 2) * (Math.PI / 180));
     const spanX = (maxLon - minLon) * lonScale;
     const spanY = maxLat - minLat;
-    const scale = Math.min(
-      (VIEW_WIDTH - PADDING * 2) / spanX,
-      (VIEW_HEIGHT - PADDING * 2) / spanY,
-    );
+    const scale = Math.min((VIEW_WIDTH - PADDING * 2) / spanX, (VIEW_HEIGHT - PADDING * 2) / spanY);
     const offsetX = (VIEW_WIDTH - spanX * scale) / 2;
     const offsetY = (VIEW_HEIGHT - spanY * scale) / 2;
 
@@ -510,8 +507,8 @@ export async function buildWardPlate(): Promise<PlateSources> {
             const [x, y] = project(example.destination.lat, example.destination.lon);
             return { x: Number(x.toFixed(1)), y: Number(y.toFixed(1)) };
           })(),
-          matchedIndices: example
-            .results.map((result) =>
+          matchedIndices: example.results
+            .map((result) =>
               localities.findIndex((locality) => locality.locality_id === result.localityId),
             )
             .filter((index) => index >= 0),
@@ -553,7 +550,10 @@ export async function buildWardPlate(): Promise<PlateSources> {
       "",
       `export const AXIS_EVIDENCE: Readonly<Record<string, AxisEvidence>> = ${JSON.stringify(
         {
-          supermarkets: { count: Number(evidence["supermarkets"]), unit: "supermarkets and grocers" },
+          supermarkets: {
+            count: Number(evidence["supermarkets"]),
+            unit: "supermarkets and grocers",
+          },
           restaurants: { count: Number(evidence["restaurants"]), unit: "restaurants and cafés" },
           quietness: {
             count: Number(evidence["zoning_areas"]) + Number(evidence["rail_edges"]),

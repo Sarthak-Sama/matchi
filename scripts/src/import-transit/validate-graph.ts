@@ -55,7 +55,8 @@ export async function validateGraph(
     );
   }
 
-  const orphanShare = totalStationGroups > 0 ? orphanStationGroupIds.length / totalStationGroups : 0;
+  const orphanShare =
+    totalStationGroups > 0 ? orphanStationGroupIds.length / totalStationGroups : 0;
   if (orphanShare > ORPHAN_SHARE_MAX) {
     throw new Error(
       `import:transit — ${String(orphanStationGroupIds.length)} of ${String(totalStationGroups)} ` +

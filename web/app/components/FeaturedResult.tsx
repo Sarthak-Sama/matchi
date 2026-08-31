@@ -122,7 +122,8 @@ export function FeaturedResult({
               <span className="ml-1 font-sans text-[12px] text-ink-muted">min</span>
             </dd>
             <dd className="mt-0.5 text-[11px] text-ink-muted tnum">
-              {Math.round(result.commute.rangeMinutes.min)}–{Math.round(result.commute.rangeMinutes.max)} min across the area
+              {Math.round(result.commute.rangeMinutes.min)}–
+              {Math.round(result.commute.rangeMinutes.max)} min across the area
             </dd>
           </div>
           <div className="px-3 py-3">
@@ -140,7 +141,9 @@ export function FeaturedResult({
               {result.commute.mode === "walk" ? "—" : result.commute.transferCount}
             </dd>
             <dd className="mt-0.5 text-[11px] text-ink-muted">
-              {result.commute.mode === "walk" ? "walkable directly" : `${commute.accessWalk} min walk to the station`}
+              {result.commute.mode === "walk"
+                ? "walkable directly"
+                : `${commute.accessWalk} min walk to the station`}
             </dd>
           </div>
         </dl>

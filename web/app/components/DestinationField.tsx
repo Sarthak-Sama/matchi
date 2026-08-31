@@ -87,10 +87,14 @@ export function DestinationField(props: DestinationFieldProps) {
       if (options.length === 0) return;
       const delta = event.key === "ArrowDown" ? 1 : -1;
       setActiveIndex((current) => {
-        const next = current < 0 ? (delta === 1 ? 0 : options.length - 1) : current + delta;
-        const clamped = (next + options.length) % options.length;
-        document.getElementById(optionId(clamped))?.scrollIntoView({ block: "nearest" });
-        return clamped;
+        let next: number;
+        if (current < 0) {
+          next = delta === 1 ? 0 : options.length - 1;
+        } else {
+          next = (current + delta + options.length) % options.length;
+        }
+        document.getElementById(optionId(next))?.scrollIntoView({ block: "nearest" });
+        return next;
       });
     } else if (event.key === "Enter") {
       if (isOpen && activeIndex >= 0 && options[activeIndex]) {
@@ -183,7 +187,12 @@ export function DestinationField(props: DestinationFieldProps) {
       {showDropdown && (
         <div className="absolute inset-x-0 top-full z-30 mt-1 border border-line-strong bg-paper-soft shadow-[0_16px_40px_rgba(40,36,31,0.12)]">
           {options.length > 0 && (
-            <ul role="listbox" id={listboxId} aria-label="Destination suggestions" className="max-h-72 overflow-y-auto">
+            <ul
+              role="listbox"
+              id={listboxId}
+              aria-label="Destination suggestions"
+              className="max-h-72 overflow-y-auto"
+            >
               {props.showStationFallback && (
                 <li
                   aria-hidden="true"
@@ -194,9 +203,11 @@ export function DestinationField(props: DestinationFieldProps) {
               )}
               {options.map((option, index) => {
                 const isActive = index === activeIndex;
-                const key = option.kind === "place" ? option.place.id : option.station.stationGroupId;
+                const key =
+                  option.kind === "place" ? option.place.id : option.station.stationGroupId;
                 const primary = option.kind === "place" ? option.place.name : option.station.nameEn;
-                const nameJa = option.kind === "place" ? option.place.nameJa : option.station.nameJa;
+                const nameJa =
+                  option.kind === "place" ? option.place.nameJa : option.station.nameJa;
                 // Most MLIT records repeat the Japanese name in the English
                 // column; showing it twice reads as a bug, not as bilingual.
                 const secondary = nameJa && nameJa !== primary ? nameJa : null;

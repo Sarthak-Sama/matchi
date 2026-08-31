@@ -86,7 +86,9 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
       "localities",
     ]);
     for (const r of results) {
-      expect(r.rowsWritten, `rowsWritten for step "${r.name}"`).toBe(r.name === "localities" ? 1 : 21);
+      expect(r.rowsWritten, `rowsWritten for step "${r.name}"`).toBe(
+        r.name === "localities" ? 1 : 21,
+      );
       expect(r.durationMs, `durationMs for step "${r.name}"`).toBeGreaterThanOrEqual(0);
     }
   });
@@ -265,7 +267,7 @@ describe.runIf(Boolean(databaseUrl))("derive", () => {
     // a real ratio rather than falling back — its multiplier is != 1.0,
     // which land_price_point_count alone couldn't distinguish from a
     // coincidental fallback-to-1.0 case (the exact ambiguity
-    // land_price_used_fallback exists to resolve for Task 10).
+    // land_price_used_fallback exists to resolve).
     const { rows } = await pool.query<{
       land_price_point_count: number;
       land_price_multiplier: number;

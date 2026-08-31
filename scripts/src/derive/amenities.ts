@@ -10,7 +10,7 @@
  * `amenity_supermarket_equiv` folds supermarket/grocery/convenience counts
  * into one "supermarket-equivalent" number via `AMENITY_WEIGHTS`.
  *
- * Three new raw counts (task-3-brief.md), added to the same single-pass
+ * Three new raw counts, added to the same single-pass
  * CTE rather than a second query over `pois`:
  *
  *   - `health_count`: POIs with `category = 'health'` (OSM

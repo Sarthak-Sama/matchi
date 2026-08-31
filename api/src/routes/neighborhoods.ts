@@ -5,9 +5,9 @@
  * layout (default `1LDK`), and the data's source dates.
  *
  * There is no dedicated shared Zod schema for this route's full response
- * envelope (Task 2 only defined `neighborhoodResultSchema` for
- * `/v1/optimize`'s ranked-result shape, which lacks the catchment GeoJSON
- * and full metrics this route exposes) — so the dev-mode response check
+ * envelope (`neighborhoodResultSchema` covers only `/v1/optimize`'s
+ * ranked-result shape, which lacks the catchment GeoJSON and full metrics
+ * this route exposes) — so the dev-mode response check
  * here validates the two REUSABLE shared sub-schemas this response embeds
  * (`rentEstimateSchema`, `factorEvidenceSchema`) rather than a
  * one-off envelope schema invented just for this check.
@@ -135,7 +135,7 @@ interface NeighborhoodDetailResponse {
   };
   /**
    * `null` when this station's ward has no `rent_stats` row at all (see
-   * `routes/lib/rent.ts` and task-10-brief.md's "four things" item 4) — the
+   * `routes/lib/rent.ts`) — the
    * neighborhood itself IS derived and shown, it simply has no honest rent
    * estimate to display, rather than a fabricated one.
    */

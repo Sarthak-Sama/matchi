@@ -1,9 +1,7 @@
 /**
  * `pnpm import:transit` — derives `rail_edges` (the commute engine's
  * entire routing graph, alongside `rail_lines`/`station_groups`) and any
- * new `station_source_refs` rows a GTFS feed's stops resolve to. This is
- * the last import script (Task 14) and the last backend task before the
- * deliberately minimal frontend.
+ * new `station_source_refs` rows a GTFS feed's stops resolve to.
  *
  * Two input modes, mutually exclusive:
  *
@@ -24,7 +22,7 @@
  * route this run cannot map to an existing `rail_lines` row is SKIPPED
  * ENTIRELY (never written with a null `rail_line_id` — see
  * `route-line-mapping.ts`'s doc comment for why that guard matters to
- * Task 8's router) and named in a loud warning. Stops that end up
+ * the router) and named in a loud warning. Stops that end up
  * unmatched are reported the same way, UNLESS more than 20% of the feed's
  * distinct stations are unmatched, which aborts the whole run.
  *
@@ -69,14 +67,12 @@
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 
 import type { Confidence } from "@tokyo/shared";
 import type { PoolClient } from "pg";
 
-import { createPool } from "./lib/db.js";
 import type { ImportResult } from "./lib/import-run.js";
-import { runImport } from "./lib/import-run.js";
+import { parseFlagValue, runImportCliIfMain } from "./lib/cli.js";
 import { computeFallbackEdges } from "./import-transit/fallback-topology.js";
 import { buildGtfsPlan } from "./import-transit/gtfs-plan.js";
 import { resolveGtfsSource } from "./import-transit/gtfs-source.js";
@@ -215,9 +211,11 @@ async function fetchExistingGtfsRefs(client: PoolClient): Promise<ExistingGtfsRe
 }
 
 async function fetchRailLineCandidates(client: PoolClient): Promise<RailLineCandidate[]> {
-  const { rows } = await client.query<{ rail_line_id: string; name_ja: string; name_en: string | null }>(
-    `SELECT rail_line_id, name_ja, name_en FROM rail_lines`,
-  );
+  const { rows } = await client.query<{
+    rail_line_id: string;
+    name_ja: string;
+    name_en: string | null;
+  }>(`SELECT rail_line_id, name_ja, name_en FROM rail_lines`);
   return rows.map((r) => ({ railLineId: r.rail_line_id, nameJa: r.name_ja, nameEn: r.name_en }));
 }
 
@@ -284,7 +282,8 @@ async function runGtfsMode(
       railLines,
     });
 
-    const unmatchedShare = plan.totalRefKeys > 0 ? plan.unmatchedRefKeys.length / plan.totalRefKeys : 0;
+    const unmatchedShare =
+      plan.totalRefKeys > 0 ? plan.unmatchedRefKeys.length / plan.totalRefKeys : 0;
     if (unmatchedShare > 0.2) {
       throw new Error(
         `import:transit — ${String(plan.unmatchedRefKeys.length)} of ${String(plan.totalRefKeys)} ` +
@@ -406,22 +405,14 @@ export async function runTransitImport(
   };
 }
 
-function parseFlagValue(argv: readonly string[], flag: string): string | undefined {
-  const index = argv.indexOf(flag);
-  if (index === -1) return undefined;
-  const value = argv[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value`);
-  }
-  return value;
-}
-
 export function parseArgs(argv: readonly string[]): ImportTransitArgs {
   const gtfsPath = parseFlagValue(argv, "--gtfs");
   const fromTopology = argv.includes("--from-topology");
 
   if (gtfsPath !== undefined && fromTopology) {
-    throw new Error("import:transit — pass either --gtfs <dir-or-zip> or --from-topology, not both.");
+    throw new Error(
+      "import:transit — pass either --gtfs <dir-or-zip> or --from-topology, not both.",
+    );
   }
   if (gtfsPath === undefined && !fromTopology) {
     throw new Error(
@@ -444,30 +435,10 @@ export function parseArgs(argv: readonly string[]): ImportTransitArgs {
   return { gtfsPath, fromTopology, sourceDate };
 }
 
-async function main(): Promise<void> {
-  if (!process.env["DATABASE_URL"]) {
-    console.error(
-      "DATABASE_URL is not set. Set it to a PostgreSQL connection string, e.g.\n" +
-        "  DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo pnpm import:transit --from-topology",
-    );
-    process.exit(1);
-  }
-
-  const args = parseArgs(process.argv.slice(2));
-  const pool = createPool();
-  try {
-    const source = args.gtfsPath !== undefined ? GTFS_SOURCE : FALLBACK_SOURCE;
-    const result = await runImport({ source, pool }, (client) => runTransitImport(client, args));
-    console.log(`import:transit complete. rows_imported=${String(result.rowsImported)}`);
-  } finally {
-    await pool.end();
-  }
-}
-
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
-if (isMain) {
-  main().catch((err: unknown) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
+runImportCliIfMain(import.meta.url, {
+  commandName: "import:transit",
+  commandExample: "pnpm import:transit --from-topology",
+  parseArgs,
+  source: (args) => (args.gtfsPath !== undefined ? GTFS_SOURCE : FALLBACK_SOURCE),
+  run: runTransitImport,
+});

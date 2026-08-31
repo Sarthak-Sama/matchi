@@ -87,7 +87,10 @@ describe("GET /v1/stations", () => {
     const pool = fakePool([]);
     const app = buildTestApp(pool);
 
-    const response = await app.inject({ method: "GET", url: "/v1/stations?query=shibuya&limit=500" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/stations?query=shibuya&limit=500",
+    });
     await app.close();
 
     expect(response.statusCode).toBe(200);

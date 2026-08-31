@@ -9,11 +9,7 @@
  * silently swaps lat and lon, still "matches the string".
  */
 
-import {
-  MAX_DESTINATION_WALK_M,
-  WALK_DETOUR_FACTOR,
-  WALK_SPEED_M_PER_MIN,
-} from "@tokyo/shared";
+import { MAX_DESTINATION_WALK_M, WALK_DETOUR_FACTOR, WALK_SPEED_M_PER_MIN } from "@tokyo/shared";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

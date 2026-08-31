@@ -66,15 +66,12 @@
  * not a nicety, so it is not gated behind a successful write.
  */
 
-import { fileURLToPath } from "node:url";
-
 import type { PoolClient } from "pg";
 
 import { OSM_ATTRIBUTION, TOKYO_23_WARDS_BBOX } from "@tokyo/shared";
 
-import { createPool } from "./lib/db.js";
 import type { ImportResult } from "./lib/import-run.js";
-import { runImport } from "./lib/import-run.js";
+import { parseFlagValue, runImportCliIfMain } from "./lib/cli.js";
 import { resolveSource } from "./lib/source-file.js";
 import { expectRowCount } from "./lib/validate.js";
 import { downloadOverpass } from "./import-osm/download.js";
@@ -147,7 +144,19 @@ async function upsertPois(
          cuisine = EXCLUDED.cuisine,
          opening_hours = EXCLUDED.opening_hours,
          imported_at = now()`,
-      [p.category, p.name, p.nameEn, p.osmType, p.osmId, p.lon, p.lat, SOURCE, sourceUpdatedAt, p.cuisine, p.openingHours],
+      [
+        p.category,
+        p.name,
+        p.nameEn,
+        p.osmType,
+        p.osmId,
+        p.lon,
+        p.lat,
+        SOURCE,
+        sourceUpdatedAt,
+        p.cuisine,
+        p.openingHours,
+      ],
     );
   }
 
@@ -216,7 +225,10 @@ export interface OsmImportResult extends ImportResult {
   readonly skippedElements: number;
 }
 
-export async function runOsmImport(client: PoolClient, args: ImportOsmArgs): Promise<OsmImportResult> {
+export async function runOsmImport(
+  client: PoolClient,
+  args: ImportOsmArgs,
+): Promise<OsmImportResult> {
   // Licence obligation — printed unconditionally, even if parsing or the
   // write below goes on to fail this run.
   console.log(OSM_ATTRIBUTION);
@@ -231,7 +243,11 @@ export async function runOsmImport(client: PoolClient, args: ImportOsmArgs): Pro
 
   const poisImported = await upsertPois(client, parsed.pois, parsed.sourceUpdatedAt);
   const roadsImported = await replaceRoads(client, parsed.roads, parsed.sourceUpdatedAt);
-  const greenSpacesImported = await replaceGreenSpaces(client, parsed.greenSpaces, parsed.sourceUpdatedAt);
+  const greenSpacesImported = await replaceGreenSpaces(
+    client,
+    parsed.greenSpaces,
+    parsed.sourceUpdatedAt,
+  );
 
   console.log(
     `import:osm — pois=${String(poisImported)} roads=${String(roadsImported)} ` +
@@ -248,16 +264,6 @@ export async function runOsmImport(client: PoolClient, args: ImportOsmArgs): Pro
   };
 }
 
-function parseFlagValue(argv: readonly string[], flag: string): string | undefined {
-  const index = argv.indexOf(flag);
-  if (index === -1) return undefined;
-  const value = argv[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value`);
-  }
-  return value;
-}
-
 export function parseArgs(argv: readonly string[]): ImportOsmArgs {
   return {
     filePath: parseFlagValue(argv, "--file"),
@@ -265,29 +271,10 @@ export function parseArgs(argv: readonly string[]): ImportOsmArgs {
   };
 }
 
-async function main(): Promise<void> {
-  if (!process.env["DATABASE_URL"]) {
-    console.error(
-      "DATABASE_URL is not set. Set it to a PostgreSQL connection string, e.g.\n" +
-        "  DATABASE_URL=postgresql://tokyo:tokyo@localhost:5432/tokyo pnpm import:osm --file ...",
-    );
-    process.exit(1);
-  }
-
-  const args = parseArgs(process.argv.slice(2));
-  const pool = createPool();
-  try {
-    const result = await runImport({ source: SOURCE, pool }, (client) => runOsmImport(client, args));
-    console.log(`import:osm complete. rows_imported=${String(result.rowsImported)}`);
-  } finally {
-    await pool.end();
-  }
-}
-
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
-if (isMain) {
-  main().catch((err: unknown) => {
-    console.error(err);
-    process.exit(1);
-  });
-}
+runImportCliIfMain(import.meta.url, {
+  commandName: "import:osm",
+  commandExample: "pnpm import:osm --file ...",
+  parseArgs,
+  source: () => SOURCE,
+  run: runOsmImport,
+});

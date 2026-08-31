@@ -2,9 +2,7 @@
  * Small, dependency-free GeoJSON helpers shared by every `import:mlit`
  * dataset module. MLIT's own National Land Numerical Information downloads
  * ship as Shapefiles; this script expects them already converted to
- * GeoJSON (e.g. via `ogr2ogr -f GeoJSON out.geojson in.shp`) — see
- * task-11-report.md for the exact property-name assumptions this module's
- * callers build against.
+ * GeoJSON (e.g. via `ogr2ogr -f GeoJSON out.geojson in.shp`).
  *
  * "Normalizes coordinates to SRID 4326": GeoJSON carries no SRID of its
  * own, so every geometry this module converts to WKT is later wrapped in
@@ -123,14 +121,19 @@ function polygonWKT(polygon: unknown, context: string): string {
 }
 
 /** Accepts a `Polygon` or `MultiPolygon` geometry, returns `MULTIPOLYGON(...)` WKT. */
-export function polygonGeometryToMultiPolygonWKT(geometry: GeoJSONGeometry, context: string): string {
+export function polygonGeometryToMultiPolygonWKT(
+  geometry: GeoJSONGeometry,
+  context: string,
+): string {
   let polygons: unknown;
   if (geometry.type === "Polygon") {
     polygons = [geometry.coordinates];
   } else if (geometry.type === "MultiPolygon") {
     polygons = geometry.coordinates;
   } else {
-    throw new Error(`${context}: expected a Polygon or MultiPolygon geometry, got ${geometry.type}`);
+    throw new Error(
+      `${context}: expected a Polygon or MultiPolygon geometry, got ${geometry.type}`,
+    );
   }
   if (!Array.isArray(polygons)) {
     throw new Error(`${context}: malformed polygon coordinates`);
@@ -147,14 +150,19 @@ function lineWKT(line: unknown, context: string): string {
 }
 
 /** Accepts a `LineString` or `MultiLineString` geometry, returns `MULTILINESTRING(...)` WKT. */
-export function lineGeometryToMultiLineStringWKT(geometry: GeoJSONGeometry, context: string): string {
+export function lineGeometryToMultiLineStringWKT(
+  geometry: GeoJSONGeometry,
+  context: string,
+): string {
   let lines: unknown;
   if (geometry.type === "LineString") {
     lines = [geometry.coordinates];
   } else if (geometry.type === "MultiLineString") {
     lines = geometry.coordinates;
   } else {
-    throw new Error(`${context}: expected a LineString or MultiLineString geometry, got ${geometry.type}`);
+    throw new Error(
+      `${context}: expected a LineString or MultiLineString geometry, got ${geometry.type}`,
+    );
   }
   if (!Array.isArray(lines)) {
     throw new Error(`${context}: malformed line coordinates`);

@@ -175,12 +175,12 @@ const EXPECTED_GIST_INDEXES = [
   "zoning_areas_geom_gist_idx",
   "pois_point_gist_idx",
   "major_roads_geom_gist_idx",
-  // Added in 0002_geography_indexes.sql (Task 7): expression indexes on
+  // Added in 0002_geography_indexes.sql : expression indexes on
   // `(point::geography)`, needed because a plain geometry GiST index isn't
   // used by the planner for a geography-cast ST_DWithin predicate.
   "pois_point_geog_gist_idx",
   "land_prices_point_geog_gist_idx",
-  // Added in 0004_lifestyle_metrics.sql (Task 2).
+  // Added in 0004_lifestyle_metrics.sql.
   "green_spaces_geom_gist_idx",
   "station_groups_point_geog_gist_idx",
 ];
@@ -210,14 +210,14 @@ const EXPECTED_MIGRATION_FILENAMES = [
  * — the only symptom of the missing index is a sequential scan that shows
  * up at import scale. Listing them all here means adding such a route
  * forces an explicit decision about its index instead of leaving one to be
- * discovered in production. (Task 6 added the `pois` entry, and found the
+ * discovered in production. (The `pois` entry was added after finding the
  * gap exactly this way.)
  */
 const EXPECTED_TRGM_INDEXES = [
   // 0001_init.sql — back GET /v1/stations.
   "station_groups_name_en_trgm_idx",
   "station_groups_name_ja_trgm_idx",
-  // 0005_poi_name_trigram_index.sql (Task 6) — backs the POI half of
+  // 0005_poi_name_trigram_index.sql — backs the POI half of
   // GET /v1/places.
   "pois_name_trgm_idx",
   // 0006_poi_name_en.sql — backs the same search against the OSM name:en

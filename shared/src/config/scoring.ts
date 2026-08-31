@@ -97,7 +97,7 @@ export const CATCHMENT_LABEL = "approximate 10-minute station area";
 /**
  * Buffer distance (metres) used to compute `road_rail_exposure_share`: the
  * share of a station's catchment within this distance of a major road or
- * rail line. Added in Task 7.
+ * rail line.
  */
 export const ROAD_RAIL_BUFFER_M = 100;
 
@@ -108,7 +108,7 @@ export const ROAD_RAIL_BUFFER_M = 100;
 /**
  * Two station records within this many metres of each other (after their
  * normalized names match) are collapsed into one `station_group` by the
- * import scripts. Added in Task 11.
+ * import scripts.
  */
 export const STATION_MERGE_RADIUS_M = 300;
 
@@ -153,14 +153,13 @@ export const DWELL_SECONDS_PER_INTERMEDIATE_STATION = 45;
  * observed departures (e.g. two trips minutes apart at a terminal)
  * implying an implausibly short wait; the ceiling guards against a sparse
  * or partial-day GTFS sample (e.g. only late-night departures survived
- * weekday-service filtering) implying an implausibly long one. Added in
- * Task 14.
+ * weekday-service filtering) implying an implausibly long one.
  */
 export const MIN_EXPECTED_WAIT_MINUTES = 1;
 export const MAX_EXPECTED_WAIT_MINUTES = 15;
 
 // ---------------------------------------------------------------------------
-// Destination-side walk (Task 6)
+// Destination-side walk
 // ---------------------------------------------------------------------------
 
 /**
@@ -264,13 +263,13 @@ export const IMPORTANCE_OPTIONS = Object.keys(IMPORTANCE_VALUES) as ReadonlyArra
 /**
  * `scoreAffordability` awards the full 100 when the modeled median rent is
  * at or below this fraction of the monthly budget, 0 when it meets or
- * exceeds the budget, linear in between. Added in Task 9.
+ * exceeds the budget, linear in between.
  */
 export const AFFORDABILITY_FULL_SCORE_RATIO = 0.8;
 
 /**
  * `scoreCommute` awards the full 100 at or below this many minutes, 0 at
- * the request's `maxCommuteMinutes`, linear in between. Added in Task 9.
+ * the request's `maxCommuteMinutes`, linear in between.
  */
 export const COMMUTE_FULL_SCORE_MINUTES = 15;
 
@@ -278,14 +277,14 @@ export const COMMUTE_FULL_SCORE_MINUTES = 15;
  * `buildReasons` (and each `FactorEvidence`'s own `direction`) classifies a
  * factor as a positive reason when its contribution relative to what it
  * could have contributed (`pointContribution / (100 * effectiveWeight)`)
- * is above this. Added in Task 9.
+ * is above this.
  */
 export const REASON_POSITIVE_THRESHOLD = 0.66;
 
 /**
  * The negative-reason counterpart of `REASON_POSITIVE_THRESHOLD`: a factor
  * is classified as a negative reason when that same ratio is below this.
- * Added in Task 9.
+ *
  */
 export const REASON_NEGATIVE_THRESHOLD = 0.34;
 
@@ -363,7 +362,7 @@ export function lowerConfidence(c: Confidence): Confidence {
 }
 
 // ---------------------------------------------------------------------------
-// Import validation bounds (Task 12's `import:rent`)
+// Import validation bounds (`import:rent`)
 // ---------------------------------------------------------------------------
 
 /**
@@ -412,7 +411,7 @@ export const MANAGEMENT_FEE_YEN_MAX = 50_000;
 export const TSUBO_TO_SQM = 3.3058;
 
 // ---------------------------------------------------------------------------
-// OSM import (Task 13's `import:osm`)
+// OSM import (`import:osm`)
 // ---------------------------------------------------------------------------
 
 /**

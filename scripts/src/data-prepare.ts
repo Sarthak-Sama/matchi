@@ -2,7 +2,13 @@ import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { DATA_DIR, loadDataCatalog, prepareArchives, RAW_ESTAT_BOUNDARY_DIR, RAW_MLIT_DIR } from "./data-catalog.js";
+import {
+  DATA_DIR,
+  loadDataCatalog,
+  prepareArchives,
+  RAW_ESTAT_BOUNDARY_DIR,
+  RAW_MLIT_DIR,
+} from "./data-catalog.js";
 import { runStageMlit } from "./stage-mlit.js";
 
 function archivePath(id: string, entries: readonly { id: string; archive: string }[]): string {
@@ -22,7 +28,11 @@ function sourceInZip(zip: string, matcher: RegExp): string {
 }
 
 function ogrToGeoJson(zip: string, matcher: RegExp, out: string): void {
-  execFileSync("ogr2ogr", ["-f", "GeoJSON", "-t_srs", "EPSG:4326", out, sourceInZip(zip, matcher)], { stdio: "inherit" });
+  execFileSync(
+    "ogr2ogr",
+    ["-f", "GeoJSON", "-t_srs", "EPSG:4326", out, sourceInZip(zip, matcher)],
+    { stdio: "inherit" },
+  );
 }
 
 function mergeFeatureCollections(files: readonly string[], out: string): void {
@@ -44,7 +54,11 @@ function retainTokyoSpecialWards(file: string): void {
     const code = String(feature.properties?.N03_007 ?? feature.properties?.ward_code ?? "");
     return /^131(?:0[1-9]|1[0-9]|2[0-3])$/.test(code);
   });
-  const codes = new Set(collection.features.map((feature) => String(feature.properties?.N03_007 ?? feature.properties?.ward_code ?? "")));
+  const codes = new Set(
+    collection.features.map((feature) =>
+      String(feature.properties?.N03_007 ?? feature.properties?.ward_code ?? ""),
+    ),
+  );
   if (codes.size !== 23) {
     throw new Error(`${file}: expected exactly 23 Tokyo special-ward codes, found ${codes.size}`);
   }
@@ -55,7 +69,8 @@ export async function runDataPrepare(): Promise<void> {
   const entries = await loadDataCatalog();
   await prepareArchives(entries);
   mkdirSync(path.join(DATA_DIR, "staged"), { recursive: true });
-  const n03 = archivePath("n03", entries); const n02 = archivePath("n02", entries);
+  const n03 = archivePath("n03", entries);
+  const n02 = archivePath("n02", entries);
   const l01 = archivePath("l01", entries);
   const localityEntry = entries.find((entry) => entry.id === "estat-localities-2020");
   if (!localityEntry) throw new Error("catalog is missing estat-localities-2020");
@@ -72,16 +87,29 @@ export async function runDataPrepare(): Promise<void> {
   ogrToGeoJson(n02, /_Station\.geojson$/i, stationsRaw);
   ogrToGeoJson(n02, /_RailroadSection\.geojson$/i, railsRaw);
   ogrToGeoJson(l01, /\.shp$/i, path.join(DATA_DIR, "land-prices.geojson"));
-  const zoningParts = entries.filter((entry) => entry.dataset === "A55").map((entry) => {
-    const out = path.join(DATA_DIR, "staged", `${entry.id}.geojson`);
-    ogrToGeoJson(path.join(RAW_MLIT_DIR, entry.archive), /_youto\.geojson$/i, out);
-    return out;
-  });
+  const zoningParts = entries
+    .filter((entry) => entry.dataset === "A55")
+    .map((entry) => {
+      const out = path.join(DATA_DIR, "staged", `${entry.id}.geojson`);
+      ogrToGeoJson(path.join(RAW_MLIT_DIR, entry.archive), /_youto\.geojson$/i, out);
+      return out;
+    });
   mergeFeatureCollections(zoningParts, path.join(DATA_DIR, "zoning.geojson"));
-  runStageMlit({ stationsIn: stationsRaw, railIn: railsRaw, wardsIn: wardsOut, stationsOut: path.join(DATA_DIR, "stations.geojson"), railOut: path.join(DATA_DIR, "rail-lines.geojson") });
-  console.log(`data:prepare — verified ${entries.length} archive(s) and generated canonical GeoJSON under data/.`);
+  runStageMlit({
+    stationsIn: stationsRaw,
+    railIn: railsRaw,
+    wardsIn: wardsOut,
+    stationsOut: path.join(DATA_DIR, "stations.geojson"),
+    railOut: path.join(DATA_DIR, "rail-lines.geojson"),
+  });
+  console.log(
+    `data:prepare — verified ${entries.length} archive(s) and generated canonical GeoJSON under data/.`,
+  );
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runDataPrepare().catch((error: unknown) => { console.error(error); process.exit(1); });
+  runDataPrepare().catch((error: unknown) => {
+    console.error(error);
+    process.exit(1);
+  });
 }

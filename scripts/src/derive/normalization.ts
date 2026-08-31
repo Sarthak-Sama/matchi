@@ -48,8 +48,7 @@
  * (`jsonb_strip_nulls`) rather than stored as an explicit `null`, since the
  * seed fixtures don't set `source_updated_at` anywhere yet — real imports
  * will. `green_spaces` is intentionally not added to this lookup here —
- * out of this task's scope (task-3-brief.md only asks for the five new
- * `norm_*` CASE blocks, the SET list, and assertColumnsPopulated).
+ * out of scope here.
  *
  * Depends on every earlier step: amenities, zoning, quietness, rent (for
  * the `source_dates` rent lookup), and green-space.
@@ -60,7 +59,10 @@ import type { Pool } from "pg";
 import { CATCHMENT_RADIUS_M, ROAD_RAIL_BUFFER_M } from "@tokyo/shared";
 
 import { withTransaction } from "../lib/db.js";
-import { assertColumnsPopulated, assertRentSourcePopulatedForRankableStations } from "./prerequisites.js";
+import {
+  assertColumnsPopulated,
+  assertRentSourcePopulatedForRankableStations,
+} from "./prerequisites.js";
 import type { StepResult } from "./types.js";
 
 export async function runNormalizationStep(pool: Pool): Promise<StepResult> {

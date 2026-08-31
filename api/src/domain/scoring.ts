@@ -1,7 +1,7 @@
 /**
  * Scoring, hard filters, ranking, and explanations — pure functions over
  * precomputed `neighborhood_metrics` columns plus a commute estimate. No
- * database access happens here (Task 10 does the querying and hands this
+ * database access happens here (the route does the querying and hands this
  * module plain data); every formula constant is imported from
  * `@tokyo/shared`'s `config/scoring.ts` rather than re-typed.
  *
@@ -34,6 +34,7 @@ import {
 import type { RentEstimateResult } from "@tokyo/shared";
 
 import { LIFESTYLE_AXIS_DESCRIBERS } from "./lifestyle-axis-describe.js";
+import { percentile } from "./percentile.js";
 import type { CommuteEstimateResult } from "./transit/commute.js";
 
 // ---------------------------------------------------------------------------
@@ -79,7 +80,7 @@ export interface LifestyleMetricsInput {
 }
 
 /**
- * One station area, fully assembled by the caller (Task 10) from
+ * One station area, fully assembled by the caller from
  * `station_groups`/`wards`, a `RentEstimateResult` (`@tokyo/shared`'s
  * `estimateRent`), a `CommuteEstimateResult` (`estimateCommute`, or `null`
  * when the station is unreachable from the requested destination — the
@@ -277,28 +278,6 @@ function buildSuggestion(input: {
 }
 
 /**
- * Linear-interpolation percentile (the "R-7" / Excel `PERCENTILE.INC`
- * method) over an ALREADY-SORTED-ASCENDING, non-empty array. `p` is a
- * fraction in `[0, 1]` (e.g. `0.25` for the 25th percentile).
- */
-function percentile(sortedAscending: readonly number[], p: number): number {
-  const n = sortedAscending.length;
-  if (n === 0) {
-    throw new Error("percentile: empty input");
-  }
-  const idx = p * (n - 1);
-  const lowerIdx = Math.floor(idx);
-  const upperIdx = Math.ceil(idx);
-  const lower = sortedAscending[lowerIdx];
-  const upper = sortedAscending[upperIdx];
-  if (lower === undefined || upper === undefined) {
-    throw new Error("percentile: index out of range");
-  }
-  const weight = idx - lowerIdx;
-  return lower + (upper - lower) * weight;
-}
-
-/**
  * Rounds to one decimal place. Used to round every `FactorEvidence`'s
  * `pointContribution` AT THE POINT IT'S STORED, so that `overallScore` (the
  * sum of those already-rounded contributions — see `scoreCandidate`) is
@@ -462,10 +441,43 @@ function classifyDirection(componentScore: number): FactorEvidence["direction"] 
 }
 
 // ---------------------------------------------------------------------------
+// legacy id / commute-shape compat (shared by scoreCandidate and rankCandidates)
+// ---------------------------------------------------------------------------
+
+/** See `Candidate.stationGroupId`'s doc comment: the legacy id fallback used wherever a `localityId` isn't set yet. */
+function resolveLocalityId(candidate: {
+  readonly localityId?: string;
+  readonly stationGroupId?: string;
+  readonly nameJa: string;
+}): string {
+  return candidate.localityId ?? `legacy:${candidate.stationGroupId ?? candidate.nameJa}`;
+}
+
+/**
+ * `CommuteEstimateResult.path` is `readonly CommutePathHop[]` (the transit
+ * domain's own invariant); `NeighborhoodResult["commute"]` (derived from
+ * `commuteEstimateSchema` via `z.infer`) expects a plain mutable array and
+ * defaulted `mode`/`rangeMinutes`. `.map()` always returns a fresh mutable
+ * array regardless of the source's readonly-ness, so this is a type-shape
+ * conversion only — no data is changed.
+ */
+function normalizeCommute(commute: CommuteEstimateResult) {
+  return {
+    ...commute,
+    mode: commute.mode ?? "transit",
+    rangeMinutes: commute.rangeMinutes ?? { min: commute.totalMinutes, max: commute.totalMinutes },
+    path: commute.path.map((hop) => ({ ...hop })),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // scoreCandidate
 // ---------------------------------------------------------------------------
 
-export type ScoredCandidate = Omit<NeighborhoodResult, "rank" | "localityId" | "polygon" | "nearbyStations" | "commute"> & {
+export type ScoredCandidate = Omit<
+  NeighborhoodResult,
+  "rank" | "localityId" | "polygon" | "nearbyStations" | "commute"
+> & {
   readonly localityId?: string;
   readonly polygon?: unknown | null;
   readonly nearbyStations?: NeighborhoodResult["nearbyStations"];
@@ -555,7 +567,7 @@ export function scoreCandidate(
   const { reasonsFor, reasonsAgainst } = buildReasons(factors);
 
   return {
-    localityId: candidate.localityId ?? `legacy:${candidate.stationGroupId ?? candidate.nameJa}`,
+    localityId: resolveLocalityId(candidate),
     ...(candidate.stationGroupId ? { stationGroupId: candidate.stationGroupId } : {}),
     nameEn: candidate.nameEn,
     nameJa: candidate.nameJa,
@@ -567,13 +579,7 @@ export function scoreCandidate(
     nearbyStations: (candidate.nearbyStations ?? []).map((station) => ({ ...station })),
     overallScore,
     rent: candidate.rent,
-    // `CommuteEstimateResult.path` is `readonly CommutePathHop[]` (the
-    // transit domain's own invariant); `NeighborhoodResult["commute"]`
-    // (derived from `commuteEstimateSchema` via `z.infer`) expects a
-    // plain mutable array. `.map()` always returns a fresh mutable array
-    // regardless of the source's readonly-ness, so this is a type-shape
-    // conversion only — no data is changed.
-    commute: { ...commute, mode: commute.mode ?? "transit", rangeMinutes: commute.rangeMinutes ?? { min: commute.totalMinutes, max: commute.totalMinutes }, path: commute.path.map((hop) => ({ ...hop })) },
+    commute: normalizeCommute(commute),
     factors,
     reasonsFor,
     reasonsAgainst,
@@ -643,15 +649,17 @@ export function rankCandidates(scored: readonly ScoredCandidate[]): Neighborhood
       return a.commute.totalMinutes - b.commute.totalMinutes;
     }
     if (a.rent.medianYen !== b.rent.medianYen) return a.rent.medianYen - b.rent.medianYen;
-    return (a.localityId ?? a.stationGroupId ?? a.nameJa).localeCompare(b.localityId ?? b.stationGroupId ?? b.nameJa);
+    return (a.localityId ?? a.stationGroupId ?? a.nameJa).localeCompare(
+      b.localityId ?? b.stationGroupId ?? b.nameJa,
+    );
   });
 
   return sorted.map((candidate, index) => ({
     ...candidate,
-    localityId: candidate.localityId ?? `legacy:${candidate.stationGroupId ?? candidate.nameJa}`,
+    localityId: resolveLocalityId(candidate),
     polygon: candidate.polygon ?? null,
     nearbyStations: candidate.nearbyStations ?? [],
-    commute: { ...candidate.commute, mode: candidate.commute.mode ?? "transit", rangeMinutes: candidate.commute.rangeMinutes ?? { min: candidate.commute.totalMinutes, max: candidate.commute.totalMinutes }, path: candidate.commute.path.map((hop) => ({ ...hop })) },
+    commute: normalizeCommute(candidate.commute),
     rank: index + 1,
   }));
 }

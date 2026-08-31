@@ -147,9 +147,7 @@ function buildRows(results: readonly NeighborhoodResult[]): readonly Row[] {
     );
 
   for (const key of sharedFactorKeys) {
-    const factors = results.map(
-      (result) => result.factors.find((factor) => factor.key === key)!,
-    );
+    const factors = results.map((result) => result.factors.find((factor) => factor.key === key)!);
     const scores = factors.map((factor) => Math.round(factor.componentScore));
     rows.push({
       id: `factor:${key}`,
@@ -235,8 +233,8 @@ export function ComparisonTable({
           >
             <table className="w-full min-w-[34rem] border-collapse text-left">
               <caption className="sr-only">
-                Comparison of {results.length} shortlisted neighborhoods. Values that stand out
-                from the others are marked &ldquo;best of these&rdquo;.
+                Comparison of {results.length} shortlisted neighborhoods. Values that stand out from
+                the others are marked &ldquo;best of these&rdquo;.
               </caption>
               <thead>
                 <tr className="border-b border-line-strong bg-paper-soft align-bottom">
@@ -277,10 +275,7 @@ export function ComparisonTable({
               <tbody className="divide-y divide-line">
                 {rows.map((row) => (
                   <tr key={row.id} className="align-top">
-                    <th
-                      scope="row"
-                      className="px-4 py-3 text-[13px] font-medium text-ink-muted"
-                    >
+                    <th scope="row" className="px-4 py-3 text-[13px] font-medium text-ink-muted">
                       {row.label}
                     </th>
                     {row.values.map((value, index) => (
@@ -291,7 +286,10 @@ export function ComparisonTable({
                         {value}
                         {row.standout === index && (
                           <span className="mt-1 flex items-center gap-1.5 text-[11px] font-normal text-vermilion-deep">
-                            <span aria-hidden="true" className="size-1.5 rounded-full bg-vermilion" />
+                            <span
+                              aria-hidden="true"
+                              className="size-1.5 rounded-full bg-vermilion"
+                            />
                             best of these
                           </span>
                         )}

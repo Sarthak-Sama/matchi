@@ -16,7 +16,7 @@
  * 1055 - 400 = 655m from Shibuya's center — inside its 800m catchment.
  * (This was caught for real: a first version of this fixture had exactly
  * one such point, giving sg-shibuya a live ST_DWithin count of 38, not the
- * documented 37 — see task-5-report.md's fix-up entry.)
+ * documented 37.)
  *
  * Fix: sg-daikanyama gets a tighter, station-specific filler radius of
  * 200m (`FILLER_RADIUS_OVERRIDES` below) instead of the 400m default, so
@@ -70,13 +70,7 @@ import type { LonLat } from "./geo.js";
 import { STATIONS } from "./stations.js";
 
 export type PoiCategory =
-  | "supermarket"
-  | "grocery"
-  | "convenience"
-  | "restaurant"
-  | "cafe"
-  | "bar"
-  | "health";
+  "supermarket" | "grocery" | "convenience" | "restaurant" | "cafe" | "bar" | "health";
 
 export interface PoiFixture {
   readonly category: PoiCategory;
@@ -166,7 +160,9 @@ const shibuyaRestaurants: PoiFixture[] = Array.from({ length: 15 }, (_, i) => ({
   point: near(shibuya.point, 450),
   cuisine: RESTAURANT_CUISINES[i] ?? null,
   openingHours:
-    i === RESTAURANT_OFF_EXAMPLE_INDEX ? RESTAURANT_OFF_EXAMPLE : (RESTAURANT_LATE_NIGHT_HOURS[i] ?? null),
+    i === RESTAURANT_OFF_EXAMPLE_INDEX
+      ? RESTAURANT_OFF_EXAMPLE
+      : (RESTAURANT_LATE_NIGHT_HOURS[i] ?? null),
 }));
 
 // The first of 8 cafes carries a 9th distinct cuisine value and a `24/7`

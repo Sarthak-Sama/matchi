@@ -30,8 +30,7 @@
   --font-sans:
     var(--font-archivo), "Hiragino Sans", "Yu Gothic", "YuGothic", "Noto Sans JP", system-ui,
     sans-serif;
-  --font-mono:
-    var(--font-plex-mono), "SF Mono", ui-monospace, "Menlo", monospace;
+  --font-mono: var(--font-plex-mono), "SF Mono", ui-monospace, "Menlo", monospace;
 
   /* Tracking presets used across the editorial system */
   --tracking-utility: 0.16em;

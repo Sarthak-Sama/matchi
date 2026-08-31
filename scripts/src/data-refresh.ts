@@ -20,9 +20,15 @@ export function parseRefreshSource(argv: readonly string[]): RefreshSource {
 
 function runPnpm(script: string, args: readonly string[] = []): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn("pnpm", [script, ...args], { stdio: "inherit", cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."), env: process.env });
+    const child = spawn("pnpm", [script, ...args], {
+      stdio: "inherit",
+      cwd: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
+      env: process.env,
+    });
     child.on("error", reject);
-    child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`${script} exited ${String(code)}`)));
+    child.on("exit", (code) =>
+      code === 0 ? resolve() : reject(new Error(`${script} exited ${String(code)}`)),
+    );
   });
 }
 
@@ -37,8 +43,14 @@ export async function runDataRefresh(source: RefreshSource): Promise<void> {
       return value;
     };
     await runPnpm("import:mlit", [
-      "--n03-source-date", sourceDate("n03"), "--n02-source-date", sourceDate("n02"),
-      "--l01-source-date", sourceDate("l01"), "--a55-source-date", sourceDate("a55-13101"),
+      "--n03-source-date",
+      sourceDate("n03"),
+      "--n02-source-date",
+      sourceDate("n02"),
+      "--l01-source-date",
+      sourceDate("l01"),
+      "--a55-source-date",
+      sourceDate("a55-13101"),
     ]);
     await runPnpm("import:transit", ["--from-topology", "--source-date", sourceDate("n02")]);
   }
@@ -46,11 +58,20 @@ export async function runDataRefresh(source: RefreshSource): Promise<void> {
   if (source === "all" || source === "osm") await runPnpm("import:osm", ["--download"]);
   if (source === "all" || source === "localities") await runPnpm("import:localities");
   const pool = createPool();
-  try { await runDerive(pool); } finally { await pool.end(); }
+  try {
+    await runDerive(pool);
+  } finally {
+    await pool.end();
+  }
   await runDataValidation();
-  console.log("data:refresh complete — restart the API now; transit graph data is cached at startup.");
+  console.log(
+    "data:refresh complete — restart the API now; transit graph data is cached at startup.",
+  );
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  runDataRefresh(parseRefreshSource(process.argv.slice(2))).catch((error: unknown) => { console.error(error); process.exit(1); });
+  runDataRefresh(parseRefreshSource(process.argv.slice(2))).catch((error: unknown) => {
+    console.error(error);
+    process.exit(1);
+  });
 }

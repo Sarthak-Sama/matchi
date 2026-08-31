@@ -140,14 +140,14 @@ This is described as an approximate 10-minute station area, not a true pedestria
 The user chooses a layout rather than entering m2:
 
 | Layout | Assumed range | Midpoint |
-|---|---:|---:|
-| 1R | 18-25 m2 | 21 m2 |
-| 1K | 20-28 m2 | 24 m2 |
-| 1DK | 25-35 m2 | 30 m2 |
-| 1LDK | 32-45 m2 | 38 m2 |
-| 2K/2DK | 35-50 m2 | 43 m2 |
-| 2LDK | 45-65 m2 | 55 m2 |
-| 3LDK | 60-80 m2 | 70 m2 |
+| ------ | ------------: | -------: |
+| 1R     |      18-25 m2 |    21 m2 |
+| 1K     |      20-28 m2 |    24 m2 |
+| 1DK    |      25-35 m2 |    30 m2 |
+| 1LDK   |      32-45 m2 |    38 m2 |
+| 2K/2DK |      35-50 m2 |    43 m2 |
+| 2LDK   |      45-65 m2 |    55 m2 |
+| 3LDK   |      60-80 m2 |    70 m2 |
 
 Display this assumption next to every estimate.
 
@@ -382,5 +382,6 @@ Use Next.js, Tailwind, custom components, and MapLibre. No general-purpose compo
 ## User directive (binding)
 
 - Do not put much effort toward the frontend. The frontend will be built after the backend is finished and ready. Deliver a functional, minimal frontend only.
+
 > Historical design document. Flood ingestion and scoring were removed by
 > migration `0009_remove_flood.sql`; flood references below are not active requirements.

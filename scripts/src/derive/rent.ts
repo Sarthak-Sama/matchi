@@ -5,26 +5,26 @@
  * catchment (`land_prices` where `use_category = 'residential'`), median
  * residential land price for its whole ward, then
  * `computeLandPriceMultiplier`, `pickRentStat`, and `estimateRent` from
- * `@tokyo/shared` — the exact same functions Task 6 wrote and tested. The
+ * `@tokyo/shared` — the exact same tested functions. The
  * rent formula itself is NOT reimplemented here or in SQL.
  *
  * Layout choice: `neighborhood_metrics` stores one rent estimate per
  * station, not one per layout (per-layout estimates are recomputed at
- * request time by the Task 10 API, which reuses `rent_per_sqm_yen`,
+ * request time by the API, which reuses `rent_per_sqm_yen`,
  * `land_price_multiplier`, etc. stored here). "1LDK" is used as the
  * precomputed baseline layout because it matches the API's own default
- * layout (see task-10-brief.md).
+ * layout.
  *
  * `landPriceUsedFallback` is threaded straight from
  * `computeLandPriceMultiplier`'s own return value into `estimateRent` — it
  * is NOT re-derived from `pointCount < MIN_LAND_PRICE_POINTS`, because
  * `computeLandPriceMultiplier` also reports `usedFallback: true` when a
  * median is missing or non-positive even with enough points. Re-deriving
- * from the count alone was a real bug caught in Task 6.
+ * from the count alone was a real bug.
  *
  * That same flag is also persisted verbatim to
  * `neighborhood_metrics.land_price_used_fallback` (added in
- * `0003_land_price_used_fallback.sql`) — Task 10 needs it to recompute a
+ * `0003_land_price_used_fallback.sql`) — the API needs it to recompute a
  * per-layout rent estimate honestly, and re-deriving it from
  * `land_price_point_count` alone at that call site would reintroduce the
  * exact same bug.
@@ -81,11 +81,13 @@ export async function runRentStep(pool: Pool): Promise<RentStepResult> {
   const start = Date.now();
   await assertCatchmentsDerived(pool);
 
-  const { written, skippedStationGroupIds, usedFallbackCount } = await withTransaction(pool, async (client) => {
-    // A single `pg` client can only run one query at a time, so these are
-    // awaited sequentially rather than via Promise.all.
-    const catchmentRes = await client.query<CatchmentLandPriceRow>(
-      `
+  const { written, skippedStationGroupIds, usedFallbackCount } = await withTransaction(
+    pool,
+    async (client) => {
+      // A single `pg` client can only run one query at a time, so these are
+      // awaited sequentially rather than via Promise.all.
+      const catchmentRes = await client.query<CatchmentLandPriceRow>(
+        `
       SELECT
         sg.station_group_id,
         sg.ward_code,
@@ -97,9 +99,9 @@ export async function runRentStep(pool: Pool): Promise<RentStepResult> {
         AND ST_DWithin(lp.point::geography, sg.point::geography, $1)
       GROUP BY sg.station_group_id, sg.ward_code
       `,
-      [CATCHMENT_RADIUS_M],
-    );
-    const wardRes = await client.query<WardLandPriceRow>(`
+        [CATCHMENT_RADIUS_M],
+      );
+      const wardRes = await client.query<WardLandPriceRow>(`
       SELECT
         ward_code,
         percentile_cont(0.5) WITHIN GROUP (ORDER BY price_yen_per_sqm)::text AS ward_median
@@ -107,76 +109,79 @@ export async function runRentStep(pool: Pool): Promise<RentStepResult> {
       WHERE use_category = 'residential'
       GROUP BY ward_code
     `);
-    const rentStatsRes = await client.query<RentStatDbRow>(`
+      const rentStatsRes = await client.query<RentStatDbRow>(`
       SELECT ward_code, period, source, rent_per_sqm_yen, management_fee_yen
       FROM rent_stats
     `);
 
-    const wardMedianByWard = new Map<string, number | null>(
-      wardRes.rows.map((r) => [r.ward_code, r.ward_median === null ? null : Number(r.ward_median)]),
-    );
+      const wardMedianByWard = new Map<string, number | null>(
+        wardRes.rows.map((r) => [
+          r.ward_code,
+          r.ward_median === null ? null : Number(r.ward_median),
+        ]),
+      );
 
-    const rentStatsByWard = new Map<string, RentStatDbRow[]>();
-    for (const row of rentStatsRes.rows) {
-      const existing = rentStatsByWard.get(row.ward_code);
-      if (existing) {
-        existing.push(row);
-      } else {
-        rentStatsByWard.set(row.ward_code, [row]);
-      }
-    }
-
-    const currentYear = new Date().getFullYear();
-    let written = 0;
-    let usedFallbackCount = 0;
-    const skippedStationGroupIds: string[] = [];
-
-    for (const row of catchmentRes.rows) {
-      if (!row.ward_code) {
-        console.warn(
-          `derive/rent: skipping ${row.station_group_id} — no ward_code, cannot look up rent stats`,
-        );
-        skippedStationGroupIds.push(row.station_group_id);
-        continue;
+      const rentStatsByWard = new Map<string, RentStatDbRow[]>();
+      for (const row of rentStatsRes.rows) {
+        const existing = rentStatsByWard.get(row.ward_code);
+        if (existing) {
+          existing.push(row);
+        } else {
+          rentStatsByWard.set(row.ward_code, [row]);
+        }
       }
 
-      const wardStats = rentStatsByWard.get(row.ward_code) ?? [];
-      if (wardStats.length === 0) {
-        console.warn(
-          `derive/rent: skipping ${row.station_group_id} — no rent_stats rows for ward ${row.ward_code}`,
-        );
-        skippedStationGroupIds.push(row.station_group_id);
-        continue;
-      }
+      const currentYear = new Date().getFullYear();
+      let written = 0;
+      let usedFallbackCount = 0;
+      const skippedStationGroupIds: string[] = [];
 
-      const { stat, baseConfidence } = pickRentStat(wardStats, { currentYear });
+      for (const row of catchmentRes.rows) {
+        if (!row.ward_code) {
+          console.warn(
+            `derive/rent: skipping ${row.station_group_id} — no ward_code, cannot look up rent stats`,
+          );
+          skippedStationGroupIds.push(row.station_group_id);
+          continue;
+        }
 
-      const catchmentMedianLandPrice =
-        row.catchment_median === null ? null : Number(row.catchment_median);
-      const wardMedianLandPrice = wardMedianByWard.get(row.ward_code) ?? null;
-      const pointCount = Number(row.point_count);
+        const wardStats = rentStatsByWard.get(row.ward_code) ?? [];
+        if (wardStats.length === 0) {
+          console.warn(
+            `derive/rent: skipping ${row.station_group_id} — no rent_stats rows for ward ${row.ward_code}`,
+          );
+          skippedStationGroupIds.push(row.station_group_id);
+          continue;
+        }
 
-      const { multiplier, usedFallback } = computeLandPriceMultiplier({
-        catchmentMedianLandPrice,
-        wardMedianLandPrice,
-        pointCount,
-      });
+        const { stat, baseConfidence } = pickRentStat(wardStats, { currentYear });
 
-      const rentResult = estimateRent({
-        layout: BASELINE_LAYOUT,
-        wardRentPerSqmYen: stat.rent_per_sqm_yen,
-        managementFeeYen: stat.management_fee_yen,
-        landPriceMultiplier: multiplier,
-        landPricePointCount: pointCount,
-        landPriceUsedFallback: usedFallback,
-        source: stat.source,
-        sourcePeriod: stat.period,
-        baseConfidence,
-        currentYear,
-      });
+        const catchmentMedianLandPrice =
+          row.catchment_median === null ? null : Number(row.catchment_median);
+        const wardMedianLandPrice = wardMedianByWard.get(row.ward_code) ?? null;
+        const pointCount = Number(row.point_count);
 
-      await client.query(
-        `
+        const { multiplier, usedFallback } = computeLandPriceMultiplier({
+          catchmentMedianLandPrice,
+          wardMedianLandPrice,
+          pointCount,
+        });
+
+        const rentResult = estimateRent({
+          layout: BASELINE_LAYOUT,
+          wardRentPerSqmYen: stat.rent_per_sqm_yen,
+          managementFeeYen: stat.management_fee_yen,
+          landPriceMultiplier: multiplier,
+          landPricePointCount: pointCount,
+          landPriceUsedFallback: usedFallback,
+          source: stat.source,
+          sourcePeriod: stat.period,
+          baseConfidence,
+          currentYear,
+        });
+
+        await client.query(
+          `
         UPDATE neighborhood_metrics
         SET
           rent_low_yen = $2,
@@ -192,32 +197,33 @@ export async function runRentStep(pool: Pool): Promise<RentStepResult> {
           land_price_used_fallback = $12
         WHERE station_group_id = $1
         `,
-        [
-          row.station_group_id,
-          rentResult.lowYen,
-          rentResult.medianYen,
-          rentResult.highYen,
-          rentResult.confidence,
-          rentResult.source,
-          rentResult.sourcePeriod,
-          rentResult.wardRentPerSqmYen,
-          rentResult.managementFeeYen,
-          rentResult.landPriceMultiplier,
-          rentResult.landPricePointCount,
-          // `estimateRent` doesn't echo `landPriceUsedFallback` back on its
-          // result shape (it only feeds the confidence step-down), so this
-          // reads straight from computeLandPriceMultiplier's own output —
-          // not re-derived from pointCount, for the same reason described
-          // in the module doc comment above.
-          usedFallback,
-        ],
-      );
-      written += 1;
-      if (usedFallback) usedFallbackCount += 1;
-    }
+          [
+            row.station_group_id,
+            rentResult.lowYen,
+            rentResult.medianYen,
+            rentResult.highYen,
+            rentResult.confidence,
+            rentResult.source,
+            rentResult.sourcePeriod,
+            rentResult.wardRentPerSqmYen,
+            rentResult.managementFeeYen,
+            rentResult.landPriceMultiplier,
+            rentResult.landPricePointCount,
+            // `estimateRent` doesn't echo `landPriceUsedFallback` back on its
+            // result shape (it only feeds the confidence step-down), so this
+            // reads straight from computeLandPriceMultiplier's own output —
+            // not re-derived from pointCount, for the same reason described
+            // in the module doc comment above.
+            usedFallback,
+          ],
+        );
+        written += 1;
+        if (usedFallback) usedFallbackCount += 1;
+      }
 
-    return { written, skippedStationGroupIds, usedFallbackCount };
-  });
+      return { written, skippedStationGroupIds, usedFallbackCount };
+    },
+  );
 
   if (skippedStationGroupIds.length > 0) {
     console.warn(
@@ -240,5 +246,11 @@ export async function runRentStep(pool: Pool): Promise<RentStepResult> {
     );
   }
 
-  return { name: "rent", rowsWritten: written, durationMs: Date.now() - start, skippedStationGroupIds, usedFallbackCount };
+  return {
+    name: "rent",
+    rowsWritten: written,
+    durationMs: Date.now() - start,
+    skippedStationGroupIds,
+    usedFallbackCount,
+  };
 }

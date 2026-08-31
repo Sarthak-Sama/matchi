@@ -38,7 +38,8 @@ export function parseGtfsStops(text: string): GtfsStop[] {
       name: String(record["stop_name"]),
       lat,
       lon,
-      parentStation: parentStation !== undefined && parentStation !== "" ? parentStation : undefined,
+      parentStation:
+        parentStation !== undefined && parentStation !== "" ? parentStation : undefined,
     };
   });
 }
@@ -153,7 +154,7 @@ function isWeekdayDate(date: string): boolean {
  * Selects `service_id`s that count as "a typical weekday" for this
  * import's median/headway computations.
  *
- * ASSUMPTION (documented in task-14-report.md): a `calendar.txt` row
+ * ASSUMPTION: a `calendar.txt` row
  * counts as a weekday service iff `monday` THROUGH `friday` are ALL `1`
  * — the standard "runs every weekday" pattern GTFS feeds use, distinct
  * from a weekend-only (`saturday`/`sunday` = 1, weekdays = 0) or

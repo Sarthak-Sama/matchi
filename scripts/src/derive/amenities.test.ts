@@ -2,9 +2,7 @@
  * Direct unit coverage of `lateNightConditionSql`'s conservative
  * `opening_hours` heuristic (see amenities.ts's module doc comment) against
  * a table of sample strings — including OSM's `off` rule modifier, which a
- * bare `-HH:MM` substring match would wrongly count as late-night (see
- * task-3-report.md's fix-up entry for the false positive this test guards
- * against).
+ * bare `-HH:MM` substring match would wrongly count as late-night.
  *
  * This runs the exact SQL fragment `runAmenitiesStep` embeds into its real
  * query (via a `VALUES` table, no `pois`/`station_groups` schema needed),
