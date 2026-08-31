@@ -1,15 +1,14 @@
 /**
- * Small handwritten `fetch` wrapper for the Matchi API.
- * API. No generated client, no data-fetching library (no React Query, no
- * SWR, no axios) — just `getJson`/`postJson` against
- * `NEXT_PUBLIC_API_BASE_URL`, throwing a typed `ApiClientError` that carries
- * the API's own `{ error: { code, message, details? } }` shape on both HTTP
- * error responses and network failures (fetch rejecting, e.g. the API being
- * unreachable), so callers can branch on `.code` without re-parsing
- * anything themselves.
+ * `fetch` wrapper for the Matchi API: `getJson`/`postJson` against
+ * `NEXT_PUBLIC_API_BASE_URL`, throwing a typed `ApiClientError` carrying the
+ * API's own `{ error: { code, message, details? } }` shape on HTTP errors,
+ * network failures, and timeouts alike, so callers branch on `.code` only.
  */
 
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
+
+/** `/v1/optimize` runs a full candidate scan plus a Dijkstra pass, so this is generous. */
+const REQUEST_TIMEOUT_MS = 30_000;
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
@@ -47,8 +46,14 @@ export class ApiClientError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${apiBaseUrl()}${path}`, init);
-  } catch {
+    response = await fetch(`${apiBaseUrl()}${path}`, {
+      ...init,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new ApiClientError("TIMEOUT", "The API took too long to respond. Please try again.");
+    }
     throw new ApiClientError(
       "NETWORK_ERROR",
       "Could not reach the API. Check your connection and that the API server is running.",
