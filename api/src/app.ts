@@ -6,6 +6,8 @@
  */
 
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
+import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
@@ -24,9 +26,7 @@ import { registerStationsRoute } from "./routes/stations.js";
 
 /**
  * `graphs` is the pair of in-memory transit graphs built once at startup
- * (`server.ts`'s `reloadGraph`) — an ADDITIVE extension to `AppDeps`, per
- * the task-10 brief, not a breaking change to the DI shape Task 4
- * established. A graph built from zero `rail_edges` rows (both `peak` and
+ * (`server.ts`'s `reloadGraph`). A graph built from zero `rail_edges` rows (both `peak` and
  * `offpeak` have empty `nodes`) is a valid, well-formed `TransitGraphs`
  * value, not `null` — `/v1/optimize` itself decides whether to report
  * `GRAPH_UNAVAILABLE` by checking `nodes.size`.
@@ -58,6 +58,9 @@ export class ApiError extends Error {
 
 const REQUEST_ID_HEADER = "x-request-id";
 
+/** Shared by the global limit and `/v1/optimize`'s stricter per-route one. */
+export const RATE_LIMIT_WINDOW = "1 minute";
+
 export function buildApp(deps: AppDeps): FastifyInstance {
   const app = Fastify({
     logger: { level: deps.config.LOG_LEVEL },
@@ -66,9 +69,32 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     // fallback generator for requests that don't send one.
     requestIdHeader: REQUEST_ID_HEADER,
     genReqId: () => randomUUID(),
+    trustProxy: deps.config.TRUST_PROXY,
+  });
+
+  void app.register(helmet, {
+    // The browser app is served from a different origin than this API, and
+    // helmet's default `same-origin` policy would block it from reading any
+    // response.
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    // This API serves only JSON — a script/style/frame policy guards nothing
+    // here and costs ~200 bytes on every response.
+    contentSecurityPolicy: false,
   });
 
   void app.register(cors, { origin: deps.config.CORS_ORIGIN });
+
+  // Registered before the routes so each can tighten `max` via its own
+  // `config.rateLimit` (see `/v1/optimize`).
+  void app.register(rateLimit, {
+    max: deps.config.RATE_LIMIT_MAX,
+    timeWindow: RATE_LIMIT_WINDOW,
+    // The plugin THROWS whatever this returns, so it must be an `ApiError`
+    // for the global handler to render the documented error envelope —
+    // a plain body object falls through to a 500.
+    errorResponseBuilder: (_request, context) =>
+      new ApiError(429, "RATE_LIMITED", `Too many requests. Retry in ${context.after}.`),
+  });
 
   app.addHook("onSend", async (request, reply, payload) => {
     reply.header(REQUEST_ID_HEADER, request.id);
@@ -104,13 +130,21 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     });
   });
 
-  registerHealthRoute(app, { pool: deps.pool });
-  registerStationsRoute(app, deps);
-  registerPlacesRoute(app, deps);
-  registerOptimizeRoute(app, deps);
-  registerNeighborhoodRoute(app, deps);
-  registerLocalityRoute(app, deps);
-  registerDataStatusRoute(app, deps);
+  // Routes go in their own plugin so they are defined only AFTER the
+  // plugins above have finished loading. `register` defers loading, so
+  // routes added synchronously here would be built before the rate
+  // limiter's `onRoute` hook exists — silently dropping every per-route
+  // `config.rateLimit` (and with it `/v1/optimize`'s stricter budget).
+  void app.register((instance, _opts, done) => {
+    registerHealthRoute(instance, { pool: deps.pool });
+    registerStationsRoute(instance, deps);
+    registerPlacesRoute(instance, deps);
+    registerOptimizeRoute(instance, deps);
+    registerNeighborhoodRoute(instance, deps);
+    registerLocalityRoute(instance, deps);
+    registerDataStatusRoute(instance, deps);
+    done();
+  });
 
   return app;
 }

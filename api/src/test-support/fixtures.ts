@@ -17,6 +17,9 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     LOG_LEVEL: "silent",
     CORS_ORIGIN: "*",
     NODE_ENV: "test",
+    RATE_LIMIT_MAX: 100,
+    RATE_LIMIT_OPTIMIZE_MAX: 20,
+    TRUST_PROXY: false,
     ...overrides,
   };
 }
