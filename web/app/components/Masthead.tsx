@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export function Masthead({ variant = "search" }: { readonly variant?: "search" | "landing" }) {
   const isLanding = variant === "landing";
@@ -8,7 +9,15 @@ export function Masthead({ variant = "search" }: { readonly variant?: "search" |
       className={`z-40 border-b border-line bg-paper ${isLanding ? "relative" : "sticky top-0"}`}
     >
       <div className="mx-auto flex h-14 max-w-[1360px] items-center justify-between px-5 sm:px-8">
-        <Link href="/" className="flex items-baseline gap-2.5">
+        <Link href="/" aria-label="Matchi home" className="flex items-center gap-2.5">
+          <Image
+            src="/matchi-logo.png"
+            alt=""
+            width={32}
+            height={32}
+            priority
+            className="size-8 shrink-0"
+          />
           <span className="font-serif text-lg leading-none font-semibold tracking-editorial">
             Matchi
           </span>

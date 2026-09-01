@@ -29,6 +29,9 @@ export const metadata: Metadata = {
   title: "Matchi — Find the Tokyo neighborhood that fits your life",
   description:
     "Meet your Matchi. Compare Tokyo neighborhoods by commute, modeled rent, and everyday rhythm — quietness, groceries, dining, and more — not just listings.",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
