@@ -7,6 +7,7 @@ import {
   commuteDisplayTerms,
   deriveResultsSummary,
   formatYenCompact,
+  googleMapsUrl,
   pickCompromise,
   pickStrength,
   wardDisplayName,
@@ -191,6 +192,12 @@ describe("deriveResultsSummary", () => {
 });
 
 describe("formatting", () => {
+  it("builds a Google Maps search URL for a neighborhood centroid", () => {
+    expect(googleMapsUrl(35.63, 139.68)).toBe(
+      "https://www.google.com/maps/search/?api=1&query=35.63%2C139.68",
+    );
+  });
+
   it("compacts yen to thousands and millions", () => {
     expect(formatYenCompact(168_000)).toBe("¥168k");
     expect(formatYenCompact(1_250_000)).toBe("¥1.3M");

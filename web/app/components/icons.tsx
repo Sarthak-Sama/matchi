@@ -64,3 +64,30 @@ export function DestinationMark({ className = "size-3" }: { className?: string }
     </svg>
   );
 }
+
+export function ExternalLinkIcon({ className = "size-4" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      className={`${className} fill-none stroke-current`}
+      strokeWidth="1.5"
+    >
+      <path d="M6 3.5H3.5v9h9V10M8.5 3.5h4v4M12.25 3.75 7 9" />
+    </svg>
+  );
+}
+
+export function MapPinIcon({ className = "size-4" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      className={`${className} fill-none stroke-current`}
+      strokeWidth="1.5"
+    >
+      <path d="M13 6.5c0 3.4-5 7-5 7s-5-3.6-5-7a5 5 0 0 1 10 0Z" />
+      <circle cx="8" cy="6.5" r="1.5" />
+    </svg>
+  );
+}
