@@ -13,6 +13,7 @@ import {
   wardDisplayName,
 } from "../../lib/format";
 import { CompareToggle } from "./CompareToggle";
+import { GoogleMapsLink } from "./GoogleMapsLink";
 import { ArrowRightIcon } from "./icons";
 import { ScoreRing } from "./ScoreRing";
 
@@ -70,9 +71,12 @@ export function FeaturedResult({
       <div className="px-5 py-5 sm:px-7 sm:py-6">
         <div className="flex items-start justify-between gap-5">
           <div className="min-w-0">
-            <h3 className="font-serif text-3xl leading-tight font-medium tracking-editorial text-balance break-words sm:text-4xl">
-              {localityDisplayName(result.nameEn, result.nameJa)}
-            </h3>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <h3 className="font-serif text-3xl leading-tight font-medium tracking-editorial text-balance break-words sm:text-4xl">
+                {localityDisplayName(result.nameEn, result.nameJa)}
+              </h3>
+              <GoogleMapsLink result={result} />
+            </div>
             <p className="mt-1.5 text-[13px] text-ink-muted">
               {result.nameEn !== result.nameJa && (
                 <span lang="ja" className="mr-2">

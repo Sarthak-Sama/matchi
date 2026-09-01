@@ -129,7 +129,7 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
               value={search.layout}
               options={LAYOUT_IDS.map((id) => ({ value: id, label: LAYOUTS[id].label }))}
               onChange={search.setLayout}
-              className="w-full sm:w-auto"
+              wideColumns={7}
             />
           </div>
           <p className="mt-2 text-[12px] text-ink-muted">

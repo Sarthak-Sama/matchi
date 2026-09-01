@@ -27,6 +27,11 @@ export function formatCoordinates(lat: number, lon: number): string {
   return `${Math.abs(lat).toFixed(4)}° ${latHemisphere} / ${Math.abs(lon).toFixed(4)}° ${lonHemisphere}`;
 }
 
+export function googleMapsUrl(lat: number, lon: number): string {
+  const query = encodeURIComponent(`${lat},${lon}`);
+  return `https://www.google.com/maps/search/?api=1&query=${query}`;
+}
+
 export function formatSourceDate(value: string | null): string {
   if (!value) return "date unknown";
   if (/^\d{4}$/.test(value)) return value;

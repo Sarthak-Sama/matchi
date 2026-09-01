@@ -11,6 +11,7 @@ import {
   wardDisplayName,
 } from "../../lib/format";
 import { CompareToggle } from "./CompareToggle";
+import { GoogleMapsLink } from "./GoogleMapsLink";
 import { ScoreRing } from "./ScoreRing";
 
 export function ResultRow({
@@ -45,27 +46,28 @@ export function ResultRow({
       onMouseEnter={() => onHighlight(result.localityId)}
       onMouseLeave={() => onHighlight(null)}
     >
-      <button
-        type="button"
-        onClick={() => onOpen(result)}
-        onFocus={() => onHighlight(result.localityId)}
-        onBlur={() => onHighlight(null)}
-        aria-label={`Rank ${result.rank}: ${displayName}, ${wardDisplayName(result.wardNameEn)}. Open the neighborhood entry.`}
-        className="min-w-0 flex-1 px-4 py-4 text-left sm:px-5"
-      >
-        <div className="flex items-start gap-3 sm:items-center sm:gap-5">
-          <span className="mt-1 w-6 shrink-0 font-mono text-[12px] text-vermilion-deep sm:mt-0">
+      <div className="min-w-0 flex-1 px-4 py-4 text-left sm:px-5">
+        <div className="flex items-start gap-3 sm:gap-5">
+          <span className="mt-1 w-6 shrink-0 font-mono text-[12px] text-vermilion-deep">
             {rankLabel}
           </span>
 
           <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-baseline gap-x-2.5">
-              <span className="font-serif text-[19px] leading-snug font-medium tracking-editorial break-words">
-                {localityDisplayName(result.nameEn, result.nameJa)}
-              </span>
+            <span className="flex flex-wrap items-center gap-x-2.5">
+              <button
+                type="button"
+                onClick={() => onOpen(result)}
+                onFocus={() => onHighlight(result.localityId)}
+                onBlur={() => onHighlight(null)}
+                aria-label={`Rank ${result.rank}: ${displayName}, ${wardDisplayName(result.wardNameEn)}. Open the neighborhood entry.`}
+                className="-my-2 py-2 font-serif text-[19px] leading-snug font-medium tracking-editorial break-words underline decoration-transparent underline-offset-4 transition-colors hover:text-vermilion-deep hover:decoration-vermilion-deep"
+              >
+                {displayName}
+              </button>
               <span className="text-[12px] text-ink-muted">
                 {wardDisplayName(result.wardNameEn)}
               </span>
+              <GoogleMapsLink result={result} compact />
             </span>
 
             <span className="mt-1.5 flex flex-col gap-0.5 text-[12.5px] leading-snug">
@@ -90,7 +92,7 @@ export function ResultRow({
             </span>
           </span>
 
-          <span className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-6">
+          <span className="flex shrink-0 flex-col items-end gap-1 pt-0.5 sm:flex-row sm:items-center sm:gap-6">
             <span className="text-right sm:w-16">
               <span className="block text-[15px] font-semibold tnum">{commute.total} min</span>
               <span className="label-utility block text-[8px] text-ink-muted">Commute</span>
@@ -110,7 +112,7 @@ export function ResultRow({
             </span>
           </span>
         </div>
-      </button>
+      </div>
 
       <div className="flex shrink-0 items-center border-l border-line">
         <CompareToggle

@@ -17,6 +17,7 @@ import {
   wardDisplayName,
 } from "../../lib/format";
 import { CloseIcon } from "./icons";
+import { GoogleMapsLink } from "./GoogleMapsLink";
 import { ScoreRing } from "./ScoreRing";
 
 interface NeighborhoodDetailProps {
@@ -107,12 +108,15 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
           </div>
           <div className="mt-4 flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <h2
-                id="neighborhood-entry-title"
-                className="font-serif text-4xl leading-[1.05] font-medium tracking-editorial break-words"
-              >
-                {localityDisplayName(result.nameEn, result.nameJa)}
-              </h2>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <h2
+                  id="neighborhood-entry-title"
+                  className="font-serif text-4xl leading-[1.05] font-medium tracking-editorial break-words"
+                >
+                  {localityDisplayName(result.nameEn, result.nameJa)}
+                </h2>
+                <GoogleMapsLink result={result} />
+              </div>
               <p className="mt-2 text-[14px] text-ink-muted">
                 {wardDisplayName(result.wardNameEn)}
                 <span lang="ja" className="ml-2">
