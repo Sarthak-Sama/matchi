@@ -13,8 +13,8 @@ const LOAD_RAIL_EDGES_SQL = `
     re.peak_wait_minutes AS "peakWaitMinutes",
     re.offpeak_wait_minutes AS "offpeakWaitMinutes",
     re.confidence AS "confidence"
-  FROM rail_edges re
-  LEFT JOIN rail_lines rl ON rl.rail_line_id = re.rail_line_id
+  FROM public.rail_edges re
+  LEFT JOIN public.rail_lines rl ON rl.rail_line_id = re.rail_line_id
 `;
 
 export async function loadRailEdges(pool: DbPool): Promise<RailEdgeRow[]> {

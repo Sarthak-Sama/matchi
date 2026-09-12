@@ -25,10 +25,10 @@ export interface NameLookups {
 export async function loadNameLookups(pool: DbPool): Promise<NameLookups> {
   const [stationsResult, linesResult] = await Promise.all([
     pool.query(
-      `SELECT station_group_id AS "stationGroupId", name_en AS "nameEn", name_ja AS "nameJa" FROM station_groups`,
+      `SELECT station_group_id AS "stationGroupId", name_en AS "nameEn", name_ja AS "nameJa" FROM public.station_groups`,
     ) as Promise<{ rows: StationNameRow[] }>,
     pool.query(
-      `SELECT rail_line_id AS "railLineId", name_en AS "nameEn" FROM rail_lines`,
+      `SELECT rail_line_id AS "railLineId", name_en AS "nameEn" FROM public.rail_lines`,
     ) as Promise<{ rows: RailLineNameRow[] }>,
   ]);
 

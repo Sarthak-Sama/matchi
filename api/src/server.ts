@@ -38,7 +38,10 @@ async function reloadGraphOrExit(pool: DbPool): Promise<TransitGraphs> {
 
 export async function main(): Promise<void> {
   const config = loadConfigOrExit();
-  const pool = createPool(config.DATABASE_URL);
+  const pool = createPool(config.DATABASE_URL, {
+    maxConnections: config.DATABASE_POOL_MAX,
+    idleTimeoutMs: config.DATABASE_POOL_IDLE_TIMEOUT_MS,
+  });
   const graphs = await reloadGraphOrExit(pool);
   const app = buildApp({ config, pool, graphs });
 

@@ -47,6 +47,23 @@ unpooled connection. The pooled endpoint becomes the right choice only for a
 serverless deployment with many short-lived connections, and only once every
 query schema-qualifies its tables.
 
+### Serverless API deployment
+
+The production API's SQL is schema-qualified (`public.<table>`), so it can use
+`DATABASE_URL_POOLED` when deployed to a serverless platform such as Vercel.
+The import, migration, and derivation scripts still use the direct endpoint:
+they perform administrative work and are not deployed with the API.
+
+The API defaults to a two-connection `pg` pool and a five-second idle timeout.
+It attaches that pool to Vercel Fluid Compute so idle connections are closed
+before an instance is suspended. Set `DATABASE_POOL_MAX` (between 2 and 10) or
+`DATABASE_POOL_IDLE_TIMEOUT_MS` only when observed traffic and Neon connection
+limits justify it.
+
+Fastify's built-in rate limit remains a per-instance safeguard. Configure a
+Vercel Firewall rate-limit rule for `/v1/*` to enforce a global edge limit;
+there is deliberately no Redis dependency for this read-only API.
+
 Both strings use `sslmode=require`, not `verify-full`: libpq (`psql`,
 `pg_dump`) refuses `verify-full` without an explicit `sslrootcert`, so it
 would break every command-line tool. Certificate verification is pinned in

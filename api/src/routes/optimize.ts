@@ -56,7 +56,7 @@ async function resolveDestinationSeeds(
   }
 
   const pointResult = (await pool.query(
-    `SELECT ST_Y(point) AS lat, ST_X(point) AS lon FROM station_groups WHERE station_group_id = $1`,
+    `SELECT ST_Y(point) AS lat, ST_X(point) AS lon FROM public.station_groups WHERE station_group_id = $1`,
     [destinationStationGroupId],
   )) as { rows: { lat?: number; lon?: number }[] };
   const point = pointResult.rows[0];
