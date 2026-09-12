@@ -35,7 +35,7 @@ const PLACES_SQL = `
       ST_Y(sg.point) AS lat,
       ST_X(sg.point) AS lon,
       ${similarityScoreSql(STATION_GROUP_MATCH_COLUMNS, "$1")} AS score
-    FROM station_groups sg
+    FROM public.station_groups sg
     WHERE ${textMatchSql(STATION_GROUP_MATCH_COLUMNS, "$1")}
 
     UNION ALL
@@ -55,7 +55,7 @@ const PLACES_SQL = `
       ST_Y(p.point) AS lat,
       ST_X(p.point) AS lon,
       ${similarityScoreSql(POI_MATCH_COLUMNS, "$1")} AS score
-    FROM pois p
+    FROM public.pois p
     WHERE COALESCE(p.name_en, p.name) IS NOT NULL
       AND ${textMatchSql(POI_MATCH_COLUMNS, "$1")}
   ) matches

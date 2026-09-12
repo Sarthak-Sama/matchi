@@ -39,14 +39,14 @@ export const CANDIDATES_SQL = `
     lm.green_space_share AS "greenSpaceShare", lm.late_night_count AS "lateNightCount", lm.health_count AS "healthCount",
     lm.derived_at AS "derivedAt",
     COALESCE(samples.samples, '[]'::jsonb) AS samples
-  FROM locality_metrics lm JOIN localities l ON l.locality_id = lm.locality_id
-  LEFT JOIN wards w ON w.ward_code = l.ward_code
+  FROM public.locality_metrics lm JOIN public.localities l ON l.locality_id = lm.locality_id
+  LEFT JOIN public.wards w ON w.ward_code = l.ward_code
   LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object('sampleNumber', ls.sample_number, 'lat', ST_Y(ls.point), 'lon', ST_X(ls.point),
       'stations', COALESCE((SELECT jsonb_agg(jsonb_build_object('stationGroupId', lss.station_group_id, 'walkMinutes', lss.walk_minutes, 'rank', lss.station_rank) ORDER BY lss.station_rank)
-        FROM locality_sample_stations lss WHERE lss.locality_id = ls.locality_id AND lss.sample_number = ls.sample_number), '[]'::jsonb))
+        FROM public.locality_sample_stations lss WHERE lss.locality_id = ls.locality_id AND lss.sample_number = ls.sample_number), '[]'::jsonb))
       ORDER BY ls.sample_number) AS samples
-    FROM locality_samples ls WHERE ls.locality_id = l.locality_id
+    FROM public.locality_samples ls WHERE ls.locality_id = l.locality_id
   ) samples ON true
 `;
 

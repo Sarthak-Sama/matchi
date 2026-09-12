@@ -9,7 +9,7 @@ const LATEST_IMPORT_RUNS_SQL = `
     finished_at AS "finishedAt",
     rows_imported AS "rowsImported",
     error
-  FROM import_runs
+  FROM public.import_runs
   ORDER BY source, started_at DESC
 `;
 
@@ -22,7 +22,7 @@ const LATEST_SUCCESSFUL_IMPORT_RUNS_SQL = `
     finished_at AS "finishedAt",
     rows_imported AS "rowsImported",
     error
-  FROM import_runs
+  FROM public.import_runs
   WHERE status = 'success'
   ORDER BY source, started_at DESC
 `;

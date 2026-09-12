@@ -60,10 +60,10 @@ const NEIGHBORHOOD_SQL = `
     nm.source_dates AS "sourceDates",
     sa.radius_m AS "catchmentRadiusM",
     ST_AsGeoJSON(sa.geom) AS "catchmentGeoJson"
-  FROM station_groups sg
-  LEFT JOIN wards w ON w.ward_code = sg.ward_code
-  LEFT JOIN neighborhood_metrics nm ON nm.station_group_id = sg.station_group_id
-  LEFT JOIN station_areas sa ON sa.station_group_id = sg.station_group_id
+  FROM public.station_groups sg
+  LEFT JOIN public.wards w ON w.ward_code = sg.ward_code
+  LEFT JOIN public.neighborhood_metrics nm ON nm.station_group_id = sg.station_group_id
+  LEFT JOIN public.station_areas sa ON sa.station_group_id = sg.station_group_id
   WHERE sg.station_group_id = $1
 `;
 

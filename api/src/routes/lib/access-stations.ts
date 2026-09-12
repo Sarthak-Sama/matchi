@@ -11,7 +11,7 @@ const ACCESS_STATIONS_SQL = `
   SELECT
     sg.station_group_id AS "stationGroupId",
     ST_Distance(sg.point::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) AS "distanceM"
-  FROM station_groups sg
+  FROM public.station_groups sg
   WHERE ST_DWithin(
     sg.point::geography,
     ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
