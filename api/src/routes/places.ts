@@ -3,7 +3,7 @@ import { PLACES_LIMIT, placesResponseSchema } from "@tokyo/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
-import type { AppDeps } from "../app.js";
+import type { AppDeps } from "../application.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
 import {
   escapeLikeWildcards,

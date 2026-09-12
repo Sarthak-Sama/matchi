@@ -15,8 +15,8 @@ import {
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
-import type { AppDeps } from "../app.js";
-import { ApiError } from "../app.js";
+import type { AppDeps } from "../application.js";
+import { ApiError } from "../application.js";
 import { scoreLifestyle } from "../domain/scoring.js";
 import type { LifestyleMetricsInput } from "../domain/scoring.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";

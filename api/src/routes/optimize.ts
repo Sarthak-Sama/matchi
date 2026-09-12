@@ -9,8 +9,8 @@ import {
 } from "@tokyo/shared";
 import type { FastifyInstance } from "fastify";
 
-import type { AppDeps } from "../app.js";
-import { ApiError, RATE_LIMIT_WINDOW } from "../app.js";
+import type { AppDeps } from "../application.js";
+import { ApiError, RATE_LIMIT_WINDOW } from "../application.js";
 import type { DbPool } from "../db.js";
 import { reverseDijkstra } from "../domain/transit/dijkstra.js";
 import { resolvePeriod } from "../domain/transit/period.js";

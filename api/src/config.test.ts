@@ -11,7 +11,7 @@ describe("loadConfig", () => {
     expect(config.PORT).toBe(4000);
     expect(config.HOST).toBe("0.0.0.0");
     expect(config.LOG_LEVEL).toBe("info");
-    expect(config.CORS_ORIGIN).toBe("*");
+    expect(config.CORS_ORIGIN).toBe("https://matchi-web-ten.vercel.app");
     expect(config.NODE_ENV).toBe("development");
     expect(config.DATABASE_POOL_MAX).toBe(2);
     expect(config.DATABASE_POOL_IDLE_TIMEOUT_MS).toBe(5_000);
