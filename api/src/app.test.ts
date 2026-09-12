@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { buildApp } from "./app.js";
+import { buildApp } from "./application.js";
 import type { DbPool } from "./db.js";
 import { emptyGraphs, testConfig } from "./test-support/fixtures.js";
 

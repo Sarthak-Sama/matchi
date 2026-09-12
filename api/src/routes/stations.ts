@@ -3,7 +3,7 @@ import { STATIONS_DEFAULT_LIMIT, STATIONS_MAX_LIMIT, stationsResponseSchema } fr
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
-import type { AppDeps } from "../app.js";
+import type { AppDeps } from "../application.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
 import {
   escapeLikeWildcards,

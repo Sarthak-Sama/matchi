@@ -1,6 +1,6 @@
 import type { ZodType } from "zod";
 
-import { ApiError } from "../../app.js";
+import { ApiError } from "../../application.js";
 
 export interface ValidationIssue {
   readonly path: string;
