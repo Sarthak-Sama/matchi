@@ -9,7 +9,10 @@ const envSchema = z
     PORT: z.coerce.number().int().positive().default(4000),
     HOST: z.string().min(1).default("0.0.0.0"),
     LOG_LEVEL: z.enum(LOG_LEVELS).default("info"),
-    CORS_ORIGIN: z.string().min(1).default("*"),
+    // Matchi is deployed as separate web and API projects. Keep the fallback
+    // explicit so Preview deployments remain safe and usable even when the
+    // dashboard variable has only been configured for Production.
+    CORS_ORIGIN: z.string().min(1).default("https://matchi-web-ten.vercel.app"),
     NODE_ENV: z.enum(NODE_ENVS).default("development"),
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
     RATE_LIMIT_OPTIMIZE_MAX: z.coerce.number().int().positive().default(20),
