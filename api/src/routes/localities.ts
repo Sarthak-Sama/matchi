@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
-import type { AppDeps } from "../app.js";
-import { ApiError } from "../app.js";
+import type { AppDeps } from "../application.js";
+import { ApiError } from "../application.js";
 import { parseOrThrow } from "./lib/validation.js";
 
 const paramsSchema = z.object({ localityId: z.string().min(1) }).strict();

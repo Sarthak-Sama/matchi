@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { buildApp } from "../app.js";
+import { buildApp } from "../application.js";
 import type { DbPool } from "../db.js";
 import { emptyGraphs, testConfig } from "../test-support/fixtures.js";
 

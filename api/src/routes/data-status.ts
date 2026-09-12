@@ -2,7 +2,7 @@ import type { DataStatus } from "@tokyo/shared";
 import { dataStatusSchema } from "@tokyo/shared";
 import type { FastifyInstance } from "fastify";
 
-import type { AppDeps } from "../app.js";
+import type { AppDeps } from "../application.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
 import { loadLatestImportRuns } from "./lib/data-vintages.js";
 

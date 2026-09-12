@@ -1,4 +1,4 @@
-import { buildApp } from "./app.js";
+import { buildApp } from "./application.js";
 import type { Config } from "./config.js";
 import { loadConfig } from "./config.js";
 import type { DbPool } from "./db.js";
