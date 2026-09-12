@@ -14,6 +14,12 @@ const envSchema = z
     RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
     RATE_LIMIT_OPTIMIZE_MAX: z.coerce.number().int().positive().default(20),
 
+    // Keep each Fluid Compute instance modest: concurrency is handled by pg's
+    // pool, while a small maximum prevents a traffic spike from exhausting
+    // Neon connections across newly created instances.
+    DATABASE_POOL_MAX: z.coerce.number().int().min(2).max(10).default(2),
+    DATABASE_POOL_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(5_000),
+
     TRUST_PROXY: z
       .enum(["true", "false"])
       .default("false")

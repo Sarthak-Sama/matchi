@@ -13,6 +13,8 @@ describe("loadConfig", () => {
     expect(config.LOG_LEVEL).toBe("info");
     expect(config.CORS_ORIGIN).toBe("*");
     expect(config.NODE_ENV).toBe("development");
+    expect(config.DATABASE_POOL_MAX).toBe(2);
+    expect(config.DATABASE_POOL_IDLE_TIMEOUT_MS).toBe(5_000);
   });
 
   it("names every invalid variable in the thrown message", () => {

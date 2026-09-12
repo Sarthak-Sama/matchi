@@ -32,11 +32,11 @@ const STATIONS_SQL = `
     ST_X(sg.point) AS lon,
     COALESCE(lines.names, ARRAY[]::text[]) AS lines,
     ${similarityScoreSql(STATION_GROUP_MATCH_COLUMNS, "$1")} AS score
-  FROM station_groups sg
+  FROM public.station_groups sg
   LEFT JOIN LATERAL (
     SELECT ARRAY_AGG(DISTINCT rl.name_en ORDER BY rl.name_en) AS names
-    FROM rail_edges re
-    JOIN rail_lines rl ON rl.rail_line_id = re.rail_line_id
+    FROM public.rail_edges re
+    JOIN public.rail_lines rl ON rl.rail_line_id = re.rail_line_id
     WHERE (re.from_station_group_id = sg.station_group_id OR re.to_station_group_id = sg.station_group_id)
       AND rl.name_en IS NOT NULL
   ) lines ON true

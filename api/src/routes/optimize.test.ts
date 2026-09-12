@@ -115,17 +115,17 @@ function fakeOptimizePool(
       if (text.includes("localities l")) {
         return Promise.resolve({ rows: candidates });
       }
-      if (text.includes("FROM rail_lines")) {
+      if (text.includes("FROM public.rail_lines")) {
         return Promise.resolve({ rows: RAIL_LINE_NAME_ROWS });
       }
 
       if (text.includes("ST_DWithin")) {
         return Promise.resolve({ rows: accessStations });
       }
-      if (text.includes("FROM station_groups")) {
+      if (text.includes("FROM public.station_groups")) {
         return Promise.resolve({ rows: STATION_NAME_ROWS });
       }
-      if (text.includes("FROM import_runs")) {
+      if (text.includes("FROM public.import_runs")) {
         return Promise.resolve({ rows: importRuns });
       }
       throw new Error(`fakeOptimizePool: unrecognized query text: ${text}`);

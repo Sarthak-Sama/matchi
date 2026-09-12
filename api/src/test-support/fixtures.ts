@@ -12,6 +12,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     NODE_ENV: "test",
     RATE_LIMIT_MAX: 100,
     RATE_LIMIT_OPTIMIZE_MAX: 20,
+    DATABASE_POOL_MAX: 2,
+    DATABASE_POOL_IDLE_TIMEOUT_MS: 5_000,
     TRUST_PROXY: false,
     ...overrides,
   };
