@@ -1,4 +1,4 @@
-import { STATION_MERGE_RADIUS_M } from "@tokyo/shared";
+import { haversineMeters, STATION_MERGE_RADIUS_M } from "@tokyo/shared";
 
 import { slug } from "./geojson.js";
 import type { ParsedStation } from "./stations.js";
@@ -19,18 +19,6 @@ export function normalizeStationName(name: string): string {
     .replace(/\s*station$/iu, "")
     .trim()
     .toLowerCase();
-}
-
-const EARTH_RADIUS_M = 6_371_000;
-
-function haversineMeters(a: ParsedStation, b: ParsedStation): number {
-  const toRad = (deg: number): number => (deg * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLon = toRad(b.lon - a.lon);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(Math.min(1, h)));
 }
 
 class UnionFind {
@@ -86,7 +74,7 @@ export function mergeStations(stations: readonly ParsedStation[]): MergedStation
         const sa = stations[ia];
         const sb = stations[ib];
         if (sa === undefined || sb === undefined) continue;
-        if (haversineMeters(sa, sb) <= STATION_MERGE_RADIUS_M) {
+        if (haversineMeters(sa.lat, sa.lon, sb.lat, sb.lon) <= STATION_MERGE_RADIUS_M) {
           uf.union(ia, ib);
         }
       }

@@ -1,4 +1,4 @@
-import { STATION_MERGE_RADIUS_M } from "@tokyo/shared";
+import { haversineMeters, STATION_MERGE_RADIUS_M } from "@tokyo/shared";
 
 import { normalizeStationName } from "../import-mlit/station-merge.js";
 import type { GtfsStop } from "./gtfs-static.js";
@@ -29,18 +29,6 @@ export interface StopMatchResult {
   readonly unmatchedRefKeys: readonly string[];
 
   readonly totalRefKeys: number;
-}
-
-const EARTH_RADIUS_M = 6_371_000;
-
-function haversineMeters(aLon: number, aLat: number, bLon: number, bLat: number): number {
-  const toRad = (deg: number): number => (deg * Math.PI) / 180;
-  const dLat = toRad(bLat - aLat);
-  const dLon = toRad(bLon - aLon);
-  const lat1 = toRad(aLat);
-  const lat2 = toRad(bLat);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(Math.min(1, h)));
 }
 
 interface RefKeyInfo {
@@ -105,7 +93,7 @@ export function matchStops(
         normalizeStationName(candidate.nameEn),
       ];
       if (!candidateNames.includes(normalizedName)) continue;
-      const distanceM = haversineMeters(group.lon, group.lat, candidate.lon, candidate.lat);
+      const distanceM = haversineMeters(group.lat, group.lon, candidate.lat, candidate.lon);
       if (distanceM > STATION_MERGE_RADIUS_M) continue;
       if (!best || distanceM < best.distanceM) {
         best = { stationGroupId: candidate.stationGroupId, distanceM };
