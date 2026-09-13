@@ -83,6 +83,11 @@ const checks: readonly Check[] = [
     sql: "SELECT count(*)::int AS value FROM locality_metrics WHERE norm_amenity_supermarket NOT BETWEEN 0 AND 100 OR norm_amenity_restaurant NOT BETWEEN 0 AND 100 OR norm_quietness NOT BETWEEN 0 AND 100",
     expect: (n) => n === 0,
   },
+  {
+    label: "romanized locality names",
+    sql: "SELECT count(*)::int AS value FROM localities WHERE name_en IS NULL OR btrim(name_en) = '' OR name_en = name_ja",
+    expect: (n) => n === 0,
+  },
 ];
 
 export async function runDataValidation(): Promise<void> {
