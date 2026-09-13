@@ -1,5 +1,6 @@
 "use client";
 
+import { motion, useReducedMotion } from "motion/react";
 import type { NeighborhoodResult } from "@tokyo/shared";
 
 import {
@@ -31,6 +32,7 @@ export function ResultRow({
   readonly onHighlight: (id: string | null) => void;
   readonly onOpen: (result: NeighborhoodResult) => void;
 }) {
+  const reducedMotion = useReducedMotion();
   const commute = commuteDisplayTerms(result.commute);
   const strength = pickStrength(result);
   const compromise = pickCompromise(result);
@@ -39,7 +41,14 @@ export function ResultRow({
   const displayName = localityDisplayName(result.nameEn, result.nameJa);
 
   return (
-    <li
+    <motion.li
+      initial={reducedMotion ? false : { opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        duration: reducedMotion ? 0 : 0.32,
+        delay: Math.min(result.rank - 1, 8) * 0.035,
+      }}
+      whileHover={reducedMotion ? undefined : { x: 4 }}
       className={`flex items-stretch transition-colors duration-150 motion-reduce:transition-none ${
         highlighted ? "bg-sage/50" : "hover:bg-paper-soft"
       }`}
@@ -122,6 +131,6 @@ export function ResultRow({
           name={displayName}
         />
       </div>
-    </li>
+    </motion.li>
   );
 }

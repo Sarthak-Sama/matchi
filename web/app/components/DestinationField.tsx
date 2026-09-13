@@ -154,7 +154,7 @@ export function DestinationField(props: DestinationFieldProps) {
             }}
             onKeyDown={handleKeyDown}
             placeholder="Shibuya, 渋谷, or an office or campus name"
-            className="min-h-12 w-full border border-line-strong bg-paper-soft px-4 py-3 text-[15px] placeholder:text-stone focus:border-ink focus:outline-none"
+            className="field-control min-h-12 w-full px-4 py-3 text-[15px] placeholder:text-stone"
           />
           {props.placesLoading && (
             <span className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 text-[11px] text-ink-muted">

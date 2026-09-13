@@ -54,6 +54,12 @@
     text-rendering: optimizeLegibility;
   }
 
+  button,
+  a,
+  input {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   /* Unmistakable keyboard focus that fits the visual system. */
   :focus-visible {
     outline: 2px solid var(--color-vermilion-deep);
