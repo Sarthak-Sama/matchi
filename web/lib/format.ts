@@ -11,7 +11,12 @@ export function localityDisplayName(nameEn: string, nameJa: string): string {
 
 export function localitySecondaryLabel(result: NeighborhoodResult): string {
   const ward = wardDisplayName(result.wardNameEn);
-  const nearest = result.nearbyStations[0];
+  const nearest = result.nearbyStations.reduce<
+    NeighborhoodResult["nearbyStations"][number] | undefined
+  >((closest, station) => {
+    if (!closest || station.walkMinutes < closest.walkMinutes) return station;
+    return closest;
+  }, undefined);
   if (!nearest) return ward;
 
   const name = nearest.nameEn && nearest.nameEn !== nearest.nameJa ? nearest.nameEn : nearest.nameJa;
