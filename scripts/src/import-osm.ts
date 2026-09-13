@@ -15,6 +15,14 @@ const SOURCE = "openstreetmap";
 
 const MIN_OSM_ELEMENTS = 1;
 
+const CURATED_POI_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  "way:575505286": ["Bunka Fashion College"],
+};
+
+export function curatedPoiAliases(osmType: string, osmId: number): readonly string[] {
+  return CURATED_POI_ALIASES[`${osmType}:${String(osmId)}`] ?? [];
+}
+
 const MANUAL_DOWNLOAD_URL =
   "https://overpass-turbo.eu/ (or any Overpass API mirror) — run a query for shop=supermarket/" +
   "greengrocer/butcher/bakery/grocery/convenience, amenity=restaurant/cafe/bar/pub/nightclub/clinic/" +
@@ -56,8 +64,8 @@ async function upsertPois(
 ): Promise<number> {
   for (const p of pois) {
     await client.query(
-      `INSERT INTO pois (category, name, name_en, osm_type, osm_id, point, source, source_updated_at, cuisine, opening_hours)
-       VALUES ($1, $2, $3, $4, $5, ST_SetSRID(ST_MakePoint($6, $7), 4326), $8, $9, $10, $11)
+      `INSERT INTO pois (category, name, name_en, osm_type, osm_id, point, source, source_updated_at, cuisine, opening_hours, aliases)
+       VALUES ($1, $2, $3, $4, $5, ST_SetSRID(ST_MakePoint($6, $7), 4326), $8, $9, $10, $11, $12)
        ON CONFLICT (osm_type, osm_id) DO UPDATE SET
          category = EXCLUDED.category,
          name = EXCLUDED.name,
@@ -67,6 +75,10 @@ async function upsertPois(
          source_updated_at = EXCLUDED.source_updated_at,
          cuisine = EXCLUDED.cuisine,
          opening_hours = EXCLUDED.opening_hours,
+         aliases = ARRAY(
+           SELECT DISTINCT alias
+           FROM unnest(pois.aliases || EXCLUDED.aliases) AS alias
+         ),
          imported_at = now()`,
       [
         p.category,
@@ -80,6 +92,7 @@ async function upsertPois(
         sourceUpdatedAt,
         p.cuisine,
         p.openingHours,
+        [...curatedPoiAliases(p.osmType, p.osmId)],
       ],
     );
   }

@@ -11,9 +11,14 @@ import { ArrowRightIcon, ChevronDownIcon } from "./icons";
 import { DestinationField } from "./DestinationField";
 import { LifestylePicker } from "./LifestylePicker";
 import { SegmentedControl } from "./SegmentedControl";
+import { TimePicker } from "./TimePicker";
 
 export function SearchForm({ search }: { search: OptimizeSearch }) {
   const [prioritiesOpen, setPrioritiesOpen] = useState(true);
+  const [maxCommuteText, setMaxCommuteText] = useState(String(search.maxCommuteMinutes));
+  const [monthlyBudgetText, setMonthlyBudgetText] = useState(String(search.monthlyBudgetYen));
+  const [editingMaxCommute, setEditingMaxCommute] = useState(false);
+  const [editingMonthlyBudget, setEditingMonthlyBudget] = useState(false);
   const selectedPriorityCount = Object.values(search.preferences).filter(
     (value) => value !== undefined,
   ).length;
@@ -21,6 +26,14 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
   useEffect(() => {
     if (search.response) setPrioritiesOpen(false);
   }, [search.response]);
+
+  useEffect(() => {
+    if (!editingMaxCommute) setMaxCommuteText(String(search.maxCommuteMinutes));
+  }, [editingMaxCommute, search.maxCommuteMinutes]);
+
+  useEffect(() => {
+    if (!editingMonthlyBudget) setMonthlyBudgetText(String(search.monthlyBudgetYen));
+  }, [editingMonthlyBudget, search.monthlyBudgetYen]);
 
   const layoutDef = LAYOUTS[search.layout];
 
@@ -49,18 +62,15 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
             onRetry={search.retryAutocomplete}
           />
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-4">
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div>
-            <label htmlFor="arrivalTime" className="label-utility text-ink">
+            <span id="arrivalTime-label" className="label-utility text-ink">
               Arrive by
-            </label>
-            <input
+            </span>
+            <TimePicker
               id="arrivalTime"
-              type="time"
               value={search.arrivalTime}
-              onChange={(event) => search.setArrivalTime(event.target.value)}
-              required
-              className="mt-2 min-h-12 w-full border border-line-strong bg-paper-soft px-3 py-2.5 text-[15px] tnum focus:border-ink focus:outline-none"
+              onChange={search.setArrivalTime}
             />
           </div>
           <div>
@@ -74,8 +84,14 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
                 min={5}
                 max={180}
                 step={5}
-                value={search.maxCommuteMinutes}
-                onChange={(event) => search.setMaxCommuteMinutes(Number(event.target.value))}
+                value={maxCommuteText}
+                onFocus={() => setEditingMaxCommute(true)}
+                onBlur={() => setEditingMaxCommute(false)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setMaxCommuteText(value);
+                  if (value !== "") search.setMaxCommuteMinutes(Number(value));
+                }}
                 required
                 className="min-h-12 w-full border border-line-strong bg-paper-soft px-3 py-2.5 pr-14 text-[15px] tnum focus:border-ink focus:outline-none"
               />
@@ -97,7 +113,7 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
         </legend>
         <div className="mt-4">
           <label htmlFor="monthlyBudgetYen" className="label-utility text-ink">
-            Monthly budget, all-in
+            Monthly budget, all-in (rent + commute)
           </label>
           <div className="relative mt-2">
             <span
@@ -112,8 +128,14 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
               min={1}
               max={10_000_000}
               step="any"
-              value={search.monthlyBudgetYen}
-              onChange={(event) => search.setMonthlyBudgetYen(Number(event.target.value))}
+              value={monthlyBudgetText}
+              onFocus={() => setEditingMonthlyBudget(true)}
+              onBlur={() => setEditingMonthlyBudget(false)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setMonthlyBudgetText(value);
+                if (value !== "") search.setMonthlyBudgetYen(Number(value));
+              }}
               required
               className="min-h-12 w-full border border-line-strong bg-paper-soft py-2.5 pr-3 pl-7 text-[15px] tnum focus:border-ink focus:outline-none"
             />

@@ -90,6 +90,18 @@ describe("GET /v1/places", () => {
     expect(sql).not.toContain("shibuya");
   });
 
+  it("searches POI aliases and ranks destination types ahead of retail matches", async () => {
+    const pool = fakePool();
+    const app = buildTestApp(pool);
+    await app.inject({ method: "GET", url: "/v1/places?query=bunka" });
+    await app.close();
+
+    const sql = (pool.query as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+    expect(sql).toContain("FROM unnest(p.aliases) AS alias_0");
+    expect(sql).toContain("CASE WHEN p.category = 'landmark' THEN 0 ELSE 1 END");
+    expect(sql).toContain("ORDER BY destination_priority ASC, score DESC, name ASC");
+  });
+
   it("escapes LIKE wildcards so a typed % is matched literally, not as `match everything`", async () => {
     const pool = fakePool();
     const app = buildTestApp(pool);

@@ -101,6 +101,7 @@ const EXPECTED_COLUMNS: Record<string, readonly string[]> = {
     "cuisine",
     "opening_hours",
     "name_en",
+    "aliases",
   ],
   major_roads: ["id", "name", "road_class", "geom", "source", "source_updated_at", "imported_at"],
   green_spaces: [

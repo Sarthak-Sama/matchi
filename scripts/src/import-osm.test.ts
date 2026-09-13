@@ -10,7 +10,7 @@ import { downloadOverpass } from "./import-osm/download.js";
 import { classifyElement, parseOverpassResponse } from "./import-osm/parse.js";
 import { buildOverpassQuery } from "./import-osm/query.js";
 import type { ImportOsmArgs, OsmImportResult } from "./import-osm.js";
-import { parseArgs, runOsmImport } from "./import-osm.js";
+import { curatedPoiAliases, parseArgs, runOsmImport } from "./import-osm.js";
 import { runImport } from "./lib/import-run.js";
 import { runMigrations } from "./migrate.js";
 import { runSeed } from "./seed.js";
@@ -18,6 +18,13 @@ import { destructiveTestDatabaseUrl } from "./test-support/database-url.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = path.join(__dirname, "fixtures/osm");
+
+describe("curatedPoiAliases", () => {
+  it("maps Bunka Fashion College to the Bunka Gakuen University OSM campus", () => {
+    expect(curatedPoiAliases("way", 575505286)).toEqual(["Bunka Fashion College"]);
+    expect(curatedPoiAliases("node", 575505286)).toEqual([]);
+  });
+});
 
 function fixture(name: string): string {
   return readFileSync(path.join(FIXTURES_DIR, name), "utf8");
