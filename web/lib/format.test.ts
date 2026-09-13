@@ -245,6 +245,20 @@ describe("localitySecondaryLabel", () => {
     expect(japaneseSuffix).toBe("Shibuya-ku · 2 min walk to 渋谷駅");
   });
 
+  it("picks the shortest walk even when it is not the first entry", () => {
+    const label = localitySecondaryLabel(
+      result({
+        wardNameEn: "Shibuya",
+        nearbyStations: [
+          { stationGroupId: "s1", nameEn: "Yoyogi", nameJa: "代々木", walkMinutes: 9 },
+          { stationGroupId: "s2", nameEn: "Hatsudai", nameJa: "初台", walkMinutes: 6 },
+        ],
+      }),
+    );
+
+    expect(label).toBe("Shibuya-ku · 6 min walk to Hatsudai Station");
+  });
+
   it("rounds a fractional walk time", () => {
     const label = localitySecondaryLabel(
       result({

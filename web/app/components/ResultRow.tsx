@@ -69,7 +69,7 @@ export function ResultRow({
                 onClick={() => onOpen(result)}
                 onFocus={() => onHighlight(result.localityId)}
                 onBlur={() => onHighlight(null)}
-                aria-label={`Rank ${result.rank}: ${displayName}. ${secondaryLabel}. Open the neighborhood entry.`}
+                aria-label={`Rank ${result.rank}: ${displayName}. Open the neighborhood entry.`}
                 className="-my-2 py-2 font-serif text-[19px] leading-snug font-medium tracking-editorial break-words underline decoration-transparent underline-offset-4 transition-colors hover:text-vermilion-deep hover:decoration-vermilion-deep"
               >
                 {displayName}
