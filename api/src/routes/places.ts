@@ -21,7 +21,10 @@ const placesQuerySchema = z
   })
   .strict();
 
-const POI_MATCH_COLUMNS = { text: ["p.name", "p.name_en"] } as const;
+const POI_MATCH_COLUMNS = {
+  text: ["p.name", "p.name_en"],
+  arrays: ["p.aliases"],
+} as const;
 
 const PLACES_SQL = `
   SELECT kind, id, name, "nameJa", category, lat, lon
@@ -34,6 +37,7 @@ const PLACES_SQL = `
       NULL::text AS category,
       ST_Y(sg.point) AS lat,
       ST_X(sg.point) AS lon,
+      0 AS destination_priority,
       ${similarityScoreSql(STATION_GROUP_MATCH_COLUMNS, "$1")} AS score
     FROM public.station_groups sg
     WHERE ${textMatchSql(STATION_GROUP_MATCH_COLUMNS, "$1")}
@@ -54,12 +58,13 @@ const PLACES_SQL = `
       p.category AS category,
       ST_Y(p.point) AS lat,
       ST_X(p.point) AS lon,
+      CASE WHEN p.category = 'landmark' THEN 0 ELSE 1 END AS destination_priority,
       ${similarityScoreSql(POI_MATCH_COLUMNS, "$1")} AS score
     FROM public.pois p
     WHERE COALESCE(p.name_en, p.name) IS NOT NULL
       AND ${textMatchSql(POI_MATCH_COLUMNS, "$1")}
   ) matches
-  ORDER BY score DESC, name ASC
+  ORDER BY destination_priority ASC, score DESC, name ASC
   LIMIT $2
 `;
 
