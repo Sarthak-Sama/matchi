@@ -3,6 +3,11 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { Pool } from "pg";
 
+import {
+  buildRomanizationIndex,
+  parseJapanPostCsv,
+  resolveLocalityNames,
+} from "./import-localities/romanization.js";
 import { createPool } from "./lib/db.js";
 import { runImport } from "./lib/import-run.js";
 
@@ -41,6 +46,7 @@ function localityId(wardCode: string, nameJa: string): string {
 export async function importLocalities(
   pool: Pool,
   path = "data/localities.geojson",
+  romanizationPath = "data/locality-romanization.csv",
 ): Promise<number> {
   const parsed = JSON.parse(await readFile(path, "utf8")) as { features?: GeoJsonFeature[] };
   if (!Array.isArray(parsed.features))
@@ -62,11 +68,47 @@ export async function importLocalities(
   }
   if (grouped.size === 0)
     throw new Error(`${path}: no Tokyo 23-ward town/chome features recognized`);
+
+  // The wards table must already be populated (import:mlit runs first in the refresh
+  // order) — ward-scoped romanization lookups and the clip CTE both depend on it.
+  const { rows: wardRows } = await pool.query<{ ward_code: string; name_ja: string }>(
+    "SELECT ward_code, name_ja FROM wards",
+  );
+  const wardNameJaByCode = new Map(wardRows.map((row) => [row.ward_code, row.name_ja]));
+  const missingWardCodes = [...new Set(Array.from(grouped.values(), (entry) => entry.wardCode))]
+    .filter((wardCode) => !wardNameJaByCode.has(wardCode))
+    .sort();
+  if (missingWardCodes.length > 0) {
+    throw new Error(
+      `${path}: wards table has no row for ward_code(s) ${missingWardCodes.join(", ")} — run import:mlit before import:localities`,
+    );
+  }
+
+  const romanizationBytes = await readFile(romanizationPath);
+  const romanizationIndex = buildRomanizationIndex(parseJapanPostCsv(romanizationBytes));
+  const { nameEnByKey } = resolveLocalityNames({
+    localities: Array.from(grouped.values(), (entry) => ({
+      wardCode: entry.wardCode,
+      // Guaranteed present by the missingWardCodes check above; the fallback only
+      // keeps this expression typed under noUncheckedIndexedAccess.
+      wardNameJa: wardNameJaByCode.get(entry.wardCode) ?? "",
+      nameJa: entry.nameJa,
+    })),
+    index: romanizationIndex,
+  });
+
   const result = await runImport({ pool, source: SOURCE }, async (client) => {
     await client.query("DELETE FROM localities WHERE source IN ('estat-2020', $1)", [SOURCE]);
     let written = 0;
     for (const entry of grouped.values()) {
       const id = localityId(entry.wardCode, entry.nameJa);
+      const key = `${entry.wardCode}\u0000${entry.nameJa}`;
+      const nameEn = nameEnByKey.get(key);
+      if (nameEn === undefined) {
+        throw new Error(
+          `${path}: resolveLocalityNames did not resolve ${entry.wardCode} ${entry.nameJa}`,
+        );
+      }
       const { rowCount } = await client.query(
         `WITH dissolved AS (
            SELECT ST_Multi(ST_CollectionExtract(ST_MakeValid(
@@ -77,10 +119,10 @@ export async function importLocalities(
            SELECT ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Intersection(d.geom, w.geom)), 3)) AS geom
            FROM dissolved d JOIN wards w ON w.ward_code=$2
          )
-         INSERT INTO localities (locality_id, ward_code, name_ja, geom, centroid, source, source_updated_at)
-         SELECT $1, $2, $3, geom, ST_PointOnSurface(geom), $5, $6
+         INSERT INTO localities (locality_id, ward_code, name_ja, name_en, geom, centroid, source, source_updated_at)
+         SELECT $1, $2, $3, $7, geom, ST_PointOnSurface(geom), $5, $6
          FROM clipped WHERE NOT ST_IsEmpty(geom)`,
-        [id, entry.wardCode, entry.nameJa, entry.geometries, SOURCE, SOURCE_UPDATED_AT],
+        [id, entry.wardCode, entry.nameJa, entry.geometries, SOURCE, SOURCE_UPDATED_AT, nameEn],
       );
       written += rowCount ?? 0;
     }
