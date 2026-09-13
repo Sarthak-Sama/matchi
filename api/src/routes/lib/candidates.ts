@@ -191,16 +191,23 @@ function nearbyStationsFromSamples(
     });
 }
 
+export interface BuildCandidateContext {
+  readonly dijkstraResult: ReturnType<typeof reverseDijkstra>;
+  readonly destination: Destination;
+  readonly layout: LayoutId;
+  readonly currentYear: number;
+  readonly nameLookups: NameLookups;
+  readonly log: FastifyBaseLogger;
+  readonly exclusionCounts: ExclusionCounts;
+}
+
 export function buildCandidate(
   row: CandidateRow,
-  dijkstraResult: ReturnType<typeof reverseDijkstra>,
-  destination: Destination,
-  layout: LayoutId,
-  currentYear: number,
-  nameLookups: NameLookups,
-  log: FastifyBaseLogger,
-  exclusionCounts: ExclusionCounts,
+  context: BuildCandidateContext,
 ): Candidate | null {
+  const { dijkstraResult, destination, layout, currentYear, nameLookups, log, exclusionCounts } =
+    context;
+
   if (row.wardCode === null || row.wardNameEn === null || row.wardNameJa === null) {
     log.warn(
       { localityId: row.localityId },
