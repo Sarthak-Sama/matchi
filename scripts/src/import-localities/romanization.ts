@@ -61,7 +61,7 @@ function stripQuotes(field: string): string {
 function stripAnnotation(value: string, open: string, close: string): string {
   const escapedOpen = open.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   const escapedClose = close.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  const pattern = new RegExp(`${escapedOpen}[^${escapedOpen}]*${escapedClose}?`, "gu");
+  const pattern = new RegExp(`${escapedOpen}[^${escapedClose}]*${escapedClose}?`, "gu");
   return value.replace(pattern, "");
 }
 
@@ -79,15 +79,14 @@ export function parseJapanPostCsv(bytes: Buffer): readonly JapanPostRow[] {
     const fields = line.split(",").map(stripQuotes);
     if (fields.length < 7) continue;
 
-    const [, prefJa, cityJa, townJaRaw, , , townRoRaw] = fields as [
-      string,
-      string,
-      string,
-      string,
-      string,
-      string,
-      string,
-    ];
+    // Columns: [postalCode, prefJa, cityJa, townJa, prefRo, cityRo, townRo]. `fields`
+    // may have more than 7 elements; indexed access (not a 7-tuple cast, which would
+    // overclaim the exact length) keeps this honest while still relying on the
+    // length check above to guarantee these four are defined.
+    const prefJa = fields[1] ?? "";
+    const cityJa = fields[2] ?? "";
+    const townJaRaw = fields[3] ?? "";
+    const townRoRaw = fields[6] ?? "";
     if (prefJa !== "東京都") continue;
     if (!cityJa.endsWith("区")) continue;
     if (townJaRaw.includes(NO_TOWN_LISTED_MARKER)) continue;
