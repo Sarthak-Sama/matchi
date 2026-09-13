@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Analytics } from "@vercel/analytics/next";
 import { Archivo, IBM_Plex_Mono, Newsreader } from "next/font/google";
 
 import "./globals.css";
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className={`${newsreader.variable} ${archivo.variable} ${plexMono.variable}`}>
       <body>
         <ExperienceFrame>{children}</ExperienceFrame>
+        <Analytics />
       </body>
     </html>
   );
