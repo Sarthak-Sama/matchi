@@ -138,6 +138,19 @@ describe("parseJapanPostCsv postal annotations", () => {
     );
     expect(rows).toEqual([{ wardNameJa: "中央区", matchKey: "銀座", nameEn: "Ginza" }]);
   });
+
+  it("preserves content that trails a closed annotation instead of deleting through to end of field", () => {
+    const rows = parseJapanPostCsv(
+      japanPostCsv([
+        {
+          cityJa: "渋谷区",
+          townJa: "恵比寿（次のビルを除く）南",
+          townRo: "EBISU (TSUGINOBIRUONOZOKU) MINAMI",
+        },
+      ]),
+    );
+    expect(rows).toEqual([{ wardNameJa: "渋谷区", matchKey: "恵比寿南", nameEn: "Ebisu Minami" }]);
+  });
 });
 
 describe("parseJapanPostCsv sub-town ideographic space", () => {
