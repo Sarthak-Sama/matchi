@@ -5,7 +5,7 @@ import { useMemo } from "react";
 
 import type { NeighborhoodResult } from "@tokyo/shared";
 
-import { formatYenCompact, wardDisplayName } from "../../lib/format";
+import { formatYenCompact, localityDisplayName, localitySecondaryLabel } from "../../lib/format";
 
 const VIEW_W = 1000;
 const VIEW_H = 720;
@@ -260,7 +260,7 @@ export function ResultsMap({
             onFocus={() => onHighlight(result.localityId)}
             onBlur={() => onHighlight(null)}
             onClick={() => onSelect(result)}
-            aria-label={`Rank ${result.rank}: ${result.nameJa}, ${wardDisplayName(result.wardNameEn)} — ${Math.round(result.commute.totalMinutes)} minute commute, ${formatYenCompact(result.rent.lowYen)} to ${formatYenCompact(result.rent.highYen)} modeled rent. Open the neighborhood entry.`}
+            aria-label={`Rank ${result.rank}: ${localityDisplayName(result.nameEn, result.nameJa)}, ${localitySecondaryLabel(result)} — ${Math.round(result.commute.totalMinutes)} minute commute, ${formatYenCompact(result.rent.lowYen)} to ${formatYenCompact(result.rent.highYen)} modeled rent. Open the neighborhood entry.`}
             className={`absolute grid size-8 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full font-mono text-[12px] font-medium text-white transition-transform duration-150 motion-reduce:transition-none ${
               isTop ? "bg-vermilion" : "bg-moss"
             } ${isHighlighted ? "scale-125 ring-2 ring-ink" : "ring-2 ring-paper"}`}

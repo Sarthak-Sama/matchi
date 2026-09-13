@@ -8,6 +8,7 @@ import {
   deriveResultsSummary,
   formatYenCompact,
   googleMapsUrl,
+  localitySecondaryLabel,
   pickCompromise,
   pickStrength,
   wardDisplayName,
@@ -40,7 +41,7 @@ function result(overrides: Partial<NeighborhoodResult> = {}): NeighborhoodResult
     centroid: { lat: 35.63, lon: 139.68 },
     polygon: null,
     nearbyStations: [],
-    catchmentLabel: "approximate 10-minute station area",
+    catchmentLabel: "official town locality boundary (chōme combined)",
     rank: 1,
     overallScore: 90,
     rent: {
@@ -188,6 +189,73 @@ describe("deriveResultsSummary", () => {
     ];
 
     expect(deriveResultsSummary(results, "渋谷")).toContain("cluster in Meguro-ku");
+  });
+});
+
+describe("localitySecondaryLabel", () => {
+  it("joins the ward and the walk to the nearest station", () => {
+    const label = localitySecondaryLabel(
+      result({
+        wardNameEn: "Shibuya",
+        nearbyStations: [
+          { stationGroupId: "s1", nameEn: "Hatsudai", nameJa: "初台", walkMinutes: 6 },
+        ],
+      }),
+    );
+
+    expect(label).toBe("Shibuya-ku · 6 min walk to Hatsudai Station");
+  });
+
+  it("falls back to the ward alone when there is no nearby station", () => {
+    const label = localitySecondaryLabel(result({ wardNameEn: "Shibuya", nearbyStations: [] }));
+
+    expect(label).toBe("Shibuya-ku");
+  });
+
+  it("uses the Japanese name when the station's nameEn is just a Japanese fallback", () => {
+    const label = localitySecondaryLabel(
+      result({
+        wardNameEn: "Meguro",
+        nearbyStations: [
+          { stationGroupId: "s1", nameEn: "祐天寺", nameJa: "祐天寺", walkMinutes: 4 },
+        ],
+      }),
+    );
+
+    expect(label).toBe("Meguro-ku · 4 min walk to 祐天寺 Station");
+  });
+
+  it("does not double up when the resolved name already ends in Station or 駅", () => {
+    const englishSuffix = localitySecondaryLabel(
+      result({
+        wardNameEn: "Chiyoda",
+        nearbyStations: [
+          { stationGroupId: "s1", nameEn: "Tokyo Station", nameJa: "東京駅", walkMinutes: 3 },
+        ],
+      }),
+    );
+    expect(englishSuffix).toBe("Chiyoda-ku · 3 min walk to Tokyo Station");
+
+    const japaneseSuffix = localitySecondaryLabel(
+      result({
+        wardNameEn: "Shibuya",
+        nearbyStations: [{ stationGroupId: "s1", nameEn: "", nameJa: "渋谷駅", walkMinutes: 2 }],
+      }),
+    );
+    expect(japaneseSuffix).toBe("Shibuya-ku · 2 min walk to 渋谷駅");
+  });
+
+  it("rounds a fractional walk time", () => {
+    const label = localitySecondaryLabel(
+      result({
+        wardNameEn: "Setagaya",
+        nearbyStations: [
+          { stationGroupId: "s1", nameEn: "Sangenjaya", nameJa: "三軒茶屋", walkMinutes: 5.6 },
+        ],
+      }),
+    );
+
+    expect(label).toBe("Setagaya-ku · 6 min walk to Sangenjaya Station");
   });
 });
 

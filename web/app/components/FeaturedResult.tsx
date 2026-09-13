@@ -8,10 +8,10 @@ import {
   deriveDescriptor,
   formatYenCompact,
   localityDisplayName,
+  localitySecondaryLabel,
   pickCompromise,
   pickStrength,
   sentenceCase,
-  wardDisplayName,
 } from "../../lib/format";
 import { CompareToggle } from "./CompareToggle";
 import { GoogleMapsLink } from "./GoogleMapsLink";
@@ -79,17 +79,7 @@ export function FeaturedResult({
               </h3>
               <GoogleMapsLink result={result} />
             </div>
-            <p className="mt-1.5 text-[13px] text-ink-muted">
-              {result.nameEn !== result.nameJa && (
-                <span lang="ja" className="mr-2">
-                  {result.nameJa}
-                </span>
-              )}
-              {wardDisplayName(result.wardNameEn)}
-              <span lang="ja" className="ml-1.5">
-                {result.wardNameJa}
-              </span>
-            </p>
+            <p className="mt-1.5 text-[13px] text-ink-muted">{localitySecondaryLabel(result)}</p>
           </div>
           <div className="flex shrink-0 flex-col items-center gap-1">
             <ScoreRing
