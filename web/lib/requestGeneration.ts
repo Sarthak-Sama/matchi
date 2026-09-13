@@ -1,4 +1,3 @@
-/** Tracks the newest request so older asynchronous work can be ignored. */
 export function createRequestGeneration() {
   let current = 0;
 

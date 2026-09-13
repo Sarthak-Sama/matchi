@@ -1,11 +1,3 @@
-/**
- * Read-only audit: which user-visible name columns still hold Japanese text?
- *
- * A value counts as unromanized when it is NULL, blank, or identical to the Japanese
- * name, or when it still contains kana/kanji. Run after a romanization backfill to see
- * what is actually left rather than assuming.
- */
-
 import { fileURLToPath } from "node:url";
 import type { Pool } from "pg";
 

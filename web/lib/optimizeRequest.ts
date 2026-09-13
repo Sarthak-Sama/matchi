@@ -47,7 +47,6 @@ export type SearchValidationResult =
   | { readonly ok: true; readonly destination: SelectedDestination }
   | { readonly ok: false; readonly message: string };
 
-/** Validates the form state `runOptimize` needs before it can submit. */
 export function validateSearchInputs(
   selectedDestination: SelectedDestination | null,
   preferences: Record<LifestyleAxisId, Importance | undefined>,

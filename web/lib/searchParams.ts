@@ -91,7 +91,6 @@ export interface SearchQueryStringInputs {
   readonly preferences: Record<LifestyleAxisId, Importance | undefined>;
 }
 
-/** Builds the deep-link query string `parseSearchParams` can read back. */
 export function buildSearchQueryString(inputs: SearchQueryStringInputs): string {
   const {
     selectedDestination,
