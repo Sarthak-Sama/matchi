@@ -7,11 +7,7 @@ import type { RomanizationOverride } from "./romanization-overrides.js";
 // breakdown — never a real town name.
 const NO_TOWN_LISTED_MARKER = "以下に掲載がない場合";
 
-/**
- * Matching key only — never stored. Normalizes an e-Stat or Japan Post Japanese
- * locality name so the two sources can be joined despite chome-suffix, katakana-KE
- * and whitespace differences.
- */
+/** Matching key only — never stored. */
 export function normalizeForMatch(name: string): string {
   return name
     .normalize("NFKC")
@@ -23,11 +19,6 @@ export function normalizeForMatch(name: string): string {
     .trim();
 }
 
-/**
- * Title-cases an all-caps romanization for display: split on whitespace runs, title
- * case each word, rejoin with a single space. "HATSUDAI" -> "Hatsudai";
- * "SENJU AKEBONOCHO" -> "Senju Akebonocho".
- */
 export function toDisplayRomanization(upper: string): string {
   return upper
     .trim()
@@ -43,7 +34,6 @@ export interface JapanPostRow {
   readonly nameEn: string;
 }
 
-/** Strips one leading and one trailing '"' from a field, if present. */
 function stripQuotes(field: string): string {
   let result = field;
   if (result.startsWith('"')) result = result.slice(1);
@@ -51,13 +41,7 @@ function stripQuotes(field: string): string {
   return result;
 }
 
-/**
- * Strips a parenthesized annotation from a town name column. Handles Japan Post's
- * truncated fields, which can leave the closing bracket missing.
- *
- * `openPattern`/`closePattern` are single-character regex fragments (not sets) for
- * the open/close bracket characters to match.
- */
+// The closing bracket is optional: Japan Post's fields can be truncated mid-annotation.
 function stripAnnotation(value: string, open: string, close: string): string {
   const escapedOpen = open.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   const escapedClose = close.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
@@ -65,11 +49,6 @@ function stripAnnotation(value: string, open: string, close: string): string {
   return value.replace(pattern, "");
 }
 
-/**
- * Parses the Japan Post romanized-address CSV (Shift-JIS encoded, no header row) into
- * rows scoped to Tokyo's 23 wards, with annotations stripped and the ideographic-space
- * sub-town separator preserved.
- */
 export function parseJapanPostCsv(bytes: Buffer): readonly JapanPostRow[] {
   const text = iconv.decode(bytes, "Shift_JIS");
   const rows: JapanPostRow[] = [];
@@ -109,12 +88,8 @@ export function parseJapanPostCsv(bytes: Buffer): readonly JapanPostRow[] {
   return rows;
 }
 
-/**
- * Builds a wardNameJa -> matchKey -> {distinct display romanizations} index from
- * parsed Japan Post rows. The value is a Set so callers can detect ambiguity (more
- * than one distinct romanization for the same ward + key) rather than silently
- * picking one.
- */
+// A Set, not a single value, so callers can detect ambiguity (more than one
+// distinct romanization for the same ward + key) instead of silently picking one.
 export function buildRomanizationIndex(
   rows: readonly JapanPostRow[],
 ): Map<string, Map<string, Set<string>>> {
@@ -152,13 +127,8 @@ function localityKey(wardCode: string, nameJa: string): string {
   return `${wardCode}\u0000${nameJa}`;
 }
 
-/**
- * The whole e-Stat <-> Japan Post join: for each locality, an override matching
- * wardCode + exact nameJa wins; otherwise the index is looked up by wardNameJa and
- * normalizeForMatch(nameJa). Throws a single error listing every offender when any
- * locality is unresolved, ambiguous, has an unused override, or resolves to an
- * empty/unchanged name.
- */
+// Collects every unresolved/ambiguous/unused/invalid locality and throws once,
+// listing all of them, rather than failing on the first.
 export function resolveLocalityNames(input: ResolveLocalityNamesInput): ResolvedRomanization {
   const overrides = input.overrides ?? ROMANIZATION_OVERRIDES;
   const overrideByKey = new Map<string, RomanizationOverride>();
