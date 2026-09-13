@@ -15,7 +15,12 @@ import type { DbPool } from "../db.js";
 import { reverseDijkstra } from "../domain/transit/dijkstra.js";
 import { resolvePeriod } from "../domain/transit/period.js";
 import { findAccessStations } from "./lib/access-stations.js";
-import type { CandidateRow, Destination, ExclusionCounts } from "./lib/candidates.js";
+import type {
+  BuildCandidateContext,
+  CandidateRow,
+  Destination,
+  ExclusionCounts,
+} from "./lib/candidates.js";
 import { buildCandidate, CANDIDATES_SQL } from "./lib/candidates.js";
 import { loadLatestSuccessfulImportRuns } from "./lib/data-vintages.js";
 import { assertDevResponseShape } from "./lib/dev-response-check.js";
@@ -104,20 +109,19 @@ export function registerOptimizeRoute(app: FastifyInstance, deps: AppDeps): void
     const graph = period === "peak" ? deps.graphs.peak : deps.graphs.offpeak;
     const dijkstraResult = reverseDijkstra(graph, destination.seeds);
 
-    const currentYear = new Date().getFullYear();
-    const candidates: Candidate[] = [];
     const exclusionCounts: ExclusionCounts = { missingLifestyleMetrics: 0 };
+    const buildContext: BuildCandidateContext = {
+      dijkstraResult,
+      destination,
+      layout: body.layout,
+      currentYear: new Date().getFullYear(),
+      nameLookups,
+      log: request.log,
+      exclusionCounts,
+    };
+    const candidates: Candidate[] = [];
     for (const row of candidateRowsResult.rows) {
-      const candidate = buildCandidate(
-        row,
-        dijkstraResult,
-        destination,
-        body.layout,
-        currentYear,
-        nameLookups,
-        request.log,
-        exclusionCounts,
-      );
+      const candidate = buildCandidate(row, buildContext);
       if (candidate) candidates.push(candidate);
     }
 
