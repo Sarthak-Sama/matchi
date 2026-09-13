@@ -144,10 +144,15 @@ export function ResultsSection({
               expanded
             />
           </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
-            Boundaries are the localities themselves, drawn from public data. Numbers are ranks; the
-            vermilion nail is your destination. Everything on the map is also in the list.
-          </p>
+          <div className="mt-2 flex items-start justify-between gap-5 text-[11px] leading-relaxed text-ink-muted">
+            <p className="max-w-xl">
+              Locality boundaries from public data. Hover, focus, or select a numbered marker to
+              connect it with the ranked list.
+            </p>
+            <p className="hidden shrink-0 font-mono text-[9px] tracking-[0.08em] text-stone uppercase xl:block">
+              Geographic centroids · displaced pins use leaders
+            </p>
+          </div>
         </div>
 
         <div>
