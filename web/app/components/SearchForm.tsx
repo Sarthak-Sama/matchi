@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 
 import type { Layout } from "@tokyo/shared";
@@ -19,9 +20,12 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
   const [monthlyBudgetText, setMonthlyBudgetText] = useState(String(search.monthlyBudgetYen));
   const [editingMaxCommute, setEditingMaxCommute] = useState(false);
   const [editingMonthlyBudget, setEditingMonthlyBudget] = useState(false);
+  const reducedMotion = useReducedMotion();
   const selectedPriorityCount = Object.values(search.preferences).filter(
     (value) => value !== undefined,
   ).length;
+  const homeComplete =
+    search.monthlyBudgetYen > 0 && search.maxCommuteMinutes >= 5 && search.maxCommuteMinutes <= 180;
 
   useEffect(() => {
     if (search.response) setPrioritiesOpen(false);
@@ -39,6 +43,21 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
 
   return (
     <form role="search" aria-label="Neighborhood search" onSubmit={search.handleSubmit}>
+      <div className="mb-7 border-b border-line pb-5">
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+          <div>
+            <p className="label-utility text-vermilion-deep">Your Tokyo brief</p>
+            <p className="mt-1 font-serif text-[17px] tracking-editorial text-ink-muted">
+              Three decisions. One considered shortlist.
+            </p>
+          </div>
+          <ol className="flex gap-4" aria-label="Search brief progress">
+            <BriefStatus index="1" label="Place" complete={search.selectedDestination !== null} />
+            <BriefStatus index="2" label="Home" complete={homeComplete} />
+            <BriefStatus index="3" label="Life" complete={selectedPriorityCount > 0} optional />
+          </ol>
+        </div>
+      </div>
       <fieldset id="search">
         <legend className="flex items-baseline gap-3">
           <span className="font-mono text-[11px] text-vermilion-deep">01</span>
@@ -93,7 +112,7 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
                   if (value !== "") search.setMaxCommuteMinutes(Number(value));
                 }}
                 required
-                className="min-h-12 w-full border border-line-strong bg-paper-soft px-3 py-2.5 pr-14 text-[15px] tnum focus:border-ink focus:outline-none"
+                className="field-control min-h-12 w-full px-3 py-2.5 pr-14 text-[15px] tnum"
               />
               <span
                 aria-hidden="true"
@@ -137,7 +156,7 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
                 if (value !== "") search.setMonthlyBudgetYen(Number(value));
               }}
               required
-              className="min-h-12 w-full border border-line-strong bg-paper-soft py-2.5 pr-3 pl-7 text-[15px] tnum focus:border-ink focus:outline-none"
+              className="field-control min-h-12 w-full py-2.5 pr-3 pl-7 text-[15px] tnum"
             />
           </div>
         </div>
@@ -185,11 +204,20 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
             />
           </button>
         </h3>
-        {prioritiesOpen && (
-          <div id="priorities-panel" className="mt-3">
-            <LifestylePicker preferences={search.preferences} onChange={search.setPreferences} />
-          </div>
-        )}
+        <AnimatePresence initial={false}>
+          {prioritiesOpen && (
+            <motion.div
+              id="priorities-panel"
+              className="mt-3 overflow-hidden"
+              initial={reducedMotion ? false : { height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: reducedMotion ? 0 : 0.28, ease: [0.22, 0.61, 0.36, 1] }}
+            >
+              <LifestylePicker preferences={search.preferences} onChange={search.setPreferences} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </section>
 
       {search.error && (
@@ -208,19 +236,57 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
       )}
 
       <div className="mt-8">
-        <button
+        <motion.button
           type="submit"
           disabled={search.isLoading}
-          className="flex min-h-13 w-full items-center justify-between gap-3 bg-moss px-5 py-4 text-[15px] font-semibold text-white transition-colors hover:bg-moss-deep disabled:cursor-wait disabled:opacity-70 sm:w-auto sm:min-w-72"
+          whileHover={reducedMotion || search.isLoading ? undefined : "hover"}
+          whileTap={reducedMotion || search.isLoading ? undefined : { scale: 0.988 }}
+          className="group flex min-h-13 w-full items-center justify-between gap-3 bg-moss px-5 py-4 text-[15px] font-semibold text-white transition-colors hover:bg-moss-deep disabled:cursor-wait disabled:opacity-70 sm:w-auto sm:min-w-72"
         >
           {search.isLoading ? "Reading the city…" : "Find my Matchi"}
-          <ArrowRightIcon />
-        </button>
+          <motion.span
+            className="inline-flex"
+            variants={{ hover: { x: 5 } }}
+            transition={{ duration: 0.18, ease: [0.22, 0.61, 0.36, 1] }}
+          >
+            <ArrowRightIcon />
+          </motion.span>
+        </motion.button>
         <p className="mt-3 max-w-md text-[12px] leading-relaxed text-ink-muted">
           Recommendations use modeled rent, transit, safety, and amenity data — not live listings.
         </p>
       </div>
     </form>
+  );
+}
+
+function BriefStatus({
+  index,
+  label,
+  complete,
+  optional = false,
+}: {
+  readonly index: string;
+  readonly label: string;
+  readonly complete: boolean;
+  readonly optional?: boolean;
+}) {
+  const reducedMotion = useReducedMotion();
+
+  return (
+    <li className="flex items-center gap-1.5 text-[10px] text-ink-muted">
+      <motion.span
+        aria-hidden="true"
+        className={`size-1.5 ${complete ? "bg-vermilion" : "bg-line-strong"}`}
+        animate={{ scale: complete && !reducedMotion ? [1, 1.7, 1] : 1 }}
+        transition={{ duration: reducedMotion ? 0 : 0.3 }}
+      />
+      <span className="font-mono">{index}</span>
+      <span>{label}</span>
+      <span className="sr-only">
+        {complete ? "— complete" : optional ? "— optional" : "— incomplete"}
+      </span>
+    </li>
   );
 }
 

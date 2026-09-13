@@ -1,5 +1,6 @@
 "use client";
 
+import { motion, useReducedMotion } from "motion/react";
 import type { NeighborhoodResult } from "@tokyo/shared";
 
 import {
@@ -36,6 +37,7 @@ export function FeaturedResult({
   readonly onHighlight: (id: string | null) => void;
   readonly onOpen: (result: NeighborhoodResult) => void;
 }) {
+  const reducedMotion = useReducedMotion();
   const commute = commuteDisplayTerms(result.commute);
   const descriptor = deriveDescriptor(result);
   const compromise = pickCompromise(result);
@@ -158,14 +160,22 @@ export function FeaturedResult({
           )}
         </div>
 
-        <button
+        <motion.button
           type="button"
           onClick={() => onOpen(result)}
+          whileHover={reducedMotion ? undefined : "hover"}
+          whileTap={reducedMotion ? undefined : { scale: 0.985 }}
           className="mt-6 flex min-h-12 w-full items-center justify-between gap-3 bg-moss px-5 py-3.5 text-[13px] font-semibold tracking-[0.08em] text-white uppercase transition-colors hover:bg-moss-deep sm:w-auto sm:min-w-64"
         >
           Read the neighborhood entry
-          <ArrowRightIcon />
-        </button>
+          <motion.span
+            className="inline-flex"
+            variants={{ hover: { x: 5 } }}
+            transition={{ duration: 0.18, ease: [0.22, 0.61, 0.36, 1] }}
+          >
+            <ArrowRightIcon />
+          </motion.span>
+        </motion.button>
       </div>
     </article>
   );

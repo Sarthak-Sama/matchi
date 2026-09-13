@@ -1,5 +1,6 @@
 "use client";
 
+import { motion, useReducedMotion } from "motion/react";
 import { useMemo } from "react";
 
 import type { NeighborhoodResult } from "@tokyo/shared";
@@ -138,6 +139,7 @@ export function ResultsMap({
   onSelect,
   expanded,
 }: ResultsMapProps) {
+  const reducedMotion = useReducedMotion();
   const destinationPoint = useMemo(
     () => (destination ? { x: destination.lon, y: destination.lat } : null),
     [destination],
@@ -187,7 +189,7 @@ export function ResultsMap({
             const isHighlighted = result.localityId === highlightedId;
             const isTop = result.rank === 1;
             return (
-              <path
+              <motion.path
                 key={result.localityId}
                 d={d}
                 fillRule="evenodd"
@@ -200,6 +202,13 @@ export function ResultsMap({
                       : "fill-paper/60 stroke-line-strong"
                 }`}
                 strokeWidth={isHighlighted ? 1.6 : 1}
+                initial={reducedMotion ? false : { opacity: 0, pathLength: 0 }}
+                animate={{ opacity: 1, pathLength: 1 }}
+                transition={{
+                  duration: reducedMotion ? 0 : 0.55,
+                  delay: reducedMotion ? 0 : Math.min(result.rank - 1, 12) * 0.035,
+                  ease: [0.22, 0.61, 0.36, 1],
+                }}
               />
             );
           })}
@@ -215,6 +224,19 @@ export function ResultsMap({
             zIndex: DESTINATION_Z,
           }}
         >
+          {!reducedMotion && (
+            <motion.span
+              className="absolute inset-0 block bg-vermilion"
+              initial={{ opacity: 0.45, scale: 1, rotate: 45 }}
+              animate={{ opacity: 0, scale: 3, rotate: 45 }}
+              transition={{
+                duration: 1.6,
+                repeat: Infinity,
+                repeatDelay: 2.8,
+                ease: "easeOut",
+              }}
+            />
+          )}
           <span className="block size-3.5 rotate-45 bg-vermilion ring-2 ring-paper" />
           <span
             className={`absolute top-3.5 left-1/2 max-w-40 -translate-x-1/2 truncate bg-ink px-1.5 py-0.5 text-center text-[10px] font-medium whitespace-nowrap text-paper ${
@@ -230,7 +252,7 @@ export function ResultsMap({
         const isHighlighted = result.localityId === highlightedId;
         const isTop = result.rank === 1;
         return (
-          <button
+          <motion.button
             key={result.localityId}
             type="button"
             onMouseEnter={() => onHighlight(result.localityId)}
@@ -248,9 +270,15 @@ export function ResultsMap({
 
               zIndex: isHighlighted ? HIGHLIGHT_Z : Math.max(1, MAX_PIN_Z - result.rank),
             }}
+            initial={reducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{
+              duration: reducedMotion ? 0 : 0.3,
+              delay: reducedMotion ? 0 : 0.28 + Math.min(result.rank - 1, 12) * 0.045,
+            }}
           >
             {result.rank}
-          </button>
+          </motion.button>
         );
       })}
 
