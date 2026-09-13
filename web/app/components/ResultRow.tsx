@@ -49,7 +49,6 @@ export function ResultRow({
         duration: reducedMotion ? 0 : 0.32,
         delay: Math.min(result.rank - 1, 8) * 0.035,
       }}
-      whileHover={reducedMotion ? undefined : { x: 4 }}
       className={`flex items-stretch transition-colors duration-150 motion-reduce:transition-none ${
         highlighted ? "bg-sage/50" : "hover:bg-paper-soft"
       }`}
