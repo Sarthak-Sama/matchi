@@ -7,6 +7,7 @@ import {
   loadDataCatalog,
   prepareArchives,
   RAW_ESTAT_BOUNDARY_DIR,
+  RAW_JP_POST_DIR,
   RAW_MLIT_DIR,
 } from "./data-catalog.js";
 import { runStageMlit } from "./stage-mlit.js";
@@ -79,6 +80,15 @@ export async function runDataPrepare(): Promise<void> {
     /\.shp$/i,
     path.join(DATA_DIR, "localities.geojson"),
   );
+  const jpPostEntry = entries.find((entry) => entry.id === "japanpost-rome");
+  if (!jpPostEntry) throw new Error("catalog is missing japanpost-rome");
+  // Written as raw Shift-JIS bytes (no encoding option): a later stage decodes with iconv-lite.
+  const romanizationCsv = execFileSync(
+    "unzip",
+    ["-p", path.join(RAW_JP_POST_DIR, jpPostEntry.archive), "KEN_ALL_ROME.CSV"],
+    { maxBuffer: 32 * 1024 * 1024 },
+  );
+  writeFileSync(path.join(DATA_DIR, "locality-romanization.csv"), romanizationCsv);
   const stationsRaw = path.join(DATA_DIR, "staged", "n02-stations.geojson");
   const railsRaw = path.join(DATA_DIR, "staged", "n02-rails.geojson");
   const wardsOut = path.join(DATA_DIR, "wards.geojson");
@@ -103,7 +113,7 @@ export async function runDataPrepare(): Promise<void> {
     railOut: path.join(DATA_DIR, "rail-lines.geojson"),
   });
   console.log(
-    `data:prepare — verified ${entries.length} archive(s) and generated canonical GeoJSON under data/.`,
+    `data:prepare — verified ${entries.length} archive(s) and generated canonical GeoJSON and CSV outputs under data/.`,
   );
 }
 

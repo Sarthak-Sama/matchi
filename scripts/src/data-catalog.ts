@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export interface CatalogEntry {
   readonly id: string;
-  readonly dataset: "N03" | "N02" | "L01" | "A55" | "ESTAT_BOUNDARY";
+  readonly dataset: "N03" | "N02" | "L01" | "A55" | "ESTAT_BOUNDARY" | "JP_POST_ROME";
   readonly release: string;
   readonly url: string;
   readonly archive: string;
@@ -22,6 +22,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..")
 export const DATA_DIR = path.join(root, "data");
 export const RAW_MLIT_DIR = path.join(DATA_DIR, "raw", "mlit");
 export const RAW_ESTAT_BOUNDARY_DIR = path.join(DATA_DIR, "raw", "estat-boundaries");
+export const RAW_JP_POST_DIR = path.join(DATA_DIR, "raw", "japanpost");
 
 export async function loadDataCatalog(): Promise<readonly CatalogEntry[]> {
   const raw = await readFile(path.join(DATA_DIR, "catalog.json"), "utf8");
@@ -63,19 +64,28 @@ async function verifyZip(file: string): Promise<void> {
   }
 }
 
+function rawDirFor(dataset: CatalogEntry["dataset"]): string {
+  switch (dataset) {
+    case "ESTAT_BOUNDARY":
+      return RAW_ESTAT_BOUNDARY_DIR;
+    case "JP_POST_ROME":
+      return RAW_JP_POST_DIR;
+    default:
+      return RAW_MLIT_DIR;
+  }
+}
+
 export async function prepareArchives(entries: readonly CatalogEntry[]): Promise<void> {
   await mkdir(RAW_MLIT_DIR, { recursive: true });
   await mkdir(RAW_ESTAT_BOUNDARY_DIR, { recursive: true });
+  await mkdir(RAW_JP_POST_DIR, { recursive: true });
   for (const entry of entries) {
     if (!isVerifiedChecksum(entry.sha256)) {
       throw new Error(
         `catalog entry ${entry.id} has no verified SHA-256; update data/catalog.json before downloading`,
       );
     }
-    const target = path.join(
-      entry.dataset === "ESTAT_BOUNDARY" ? RAW_ESTAT_BOUNDARY_DIR : RAW_MLIT_DIR,
-      entry.archive,
-    );
+    const target = path.join(rawDirFor(entry.dataset), entry.archive);
     try {
       await stat(target);
     } catch {

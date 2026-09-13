@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { Importance, LifestyleAxisId } from "@tokyo/shared";
 import {
   IMPORTANCE_OPTIONS,
@@ -26,6 +27,7 @@ interface LifestylePickerProps {
 }
 
 export function LifestylePicker({ preferences, onChange }: LifestylePickerProps) {
+  const reducedMotion = useReducedMotion();
   const selectedIds = LIFESTYLE_AXIS_IDS.filter((id) => preferences[id] !== undefined);
   const selectedCount = selectedIds.length;
 
@@ -56,12 +58,14 @@ export function LifestylePicker({ preferences, onChange }: LifestylePickerProps)
           const isSelected = preferences[id] !== undefined;
           const disabled = !isSelected && selectedCount >= MAX_SELECTED_LIFESTYLE_AXES;
           return (
-            <button
+            <motion.button
               key={id}
+              layout={!reducedMotion}
               type="button"
               aria-pressed={isSelected}
               disabled={disabled}
               onClick={() => toggleAxis(id)}
+              whileTap={reducedMotion || disabled ? undefined : { scale: 0.96 }}
               className={`flex min-h-11 items-center gap-2 border px-3.5 text-[13px] font-medium transition-colors ${
                 isSelected
                   ? "border-moss bg-moss text-white"
@@ -70,32 +74,40 @@ export function LifestylePicker({ preferences, onChange }: LifestylePickerProps)
             >
               {isSelected && <CheckIcon className="size-3.5" />}
               {LIFESTYLE_AXES[id].label}
-            </button>
+            </motion.button>
           );
         })}
       </div>
 
-      {selectedIds.length > 0 && (
-        <div className="mt-4 divide-y divide-line border-y border-line">
-          {selectedIds.map((id) => (
-            <div
-              key={id}
-              className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <span className="text-[14px] font-medium">{LIFESTYLE_AXES[id].label}</span>
-              <SegmentedControl<Importance>
-                legend={`${LIFESTYLE_AXES[id].label} importance`}
-                value={preferences[id] ?? DEFAULT_IMPORTANCE}
-                options={IMPORTANCE_OPTIONS.map((option) => ({
-                  value: option,
-                  label: IMPORTANCE_LABELS[option],
-                }))}
-                onChange={(value) => rateAxis(id, value)}
-              />
-            </div>
-          ))}
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {selectedIds.length > 0 && (
+          <motion.div
+            className="mt-4 divide-y divide-line overflow-hidden border-y border-line"
+            initial={reducedMotion ? false : { height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: reducedMotion ? 0 : 0.26, ease: [0.22, 0.61, 0.36, 1] }}
+          >
+            {selectedIds.map((id) => (
+              <div
+                key={id}
+                className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <span className="text-[14px] font-medium">{LIFESTYLE_AXES[id].label}</span>
+                <SegmentedControl<Importance>
+                  legend={`${LIFESTYLE_AXES[id].label} importance`}
+                  value={preferences[id] ?? DEFAULT_IMPORTANCE}
+                  options={IMPORTANCE_OPTIONS.map((option) => ({
+                    value: option,
+                    label: IMPORTANCE_LABELS[option],
+                  }))}
+                  onChange={(value) => rateAxis(id, value)}
+                />
+              </div>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

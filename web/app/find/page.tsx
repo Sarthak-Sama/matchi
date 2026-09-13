@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef } from "react";
 
 import { LAYOUTS } from "@tokyo/shared";
@@ -89,16 +90,36 @@ export default function Home() {
         </div>
 
         <div ref={resultsRegionRef} className="mx-auto max-w-[1360px] scroll-mt-16 px-5 sm:px-8">
-          {search.isLoading && <LoadingResults />}
-          {!search.isLoading && response && (
-            <ResultsSection
-              response={response}
-              destinationLabel={search.resultDestinationLabel}
-              destinationCoords={search.destinationCoords}
-              searchSummary={searchSummary}
-              headingRef={resultsHeadingRef}
-            />
-          )}
+          <AnimatePresence mode="wait" initial={false}>
+            {search.isLoading && (
+              <motion.div
+                key="loading"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: reducedMotion ? 0 : 0.22 }}
+              >
+                <LoadingResults />
+              </motion.div>
+            )}
+            {!search.isLoading && response && (
+              <motion.div
+                key="results"
+                initial={reducedMotion ? false : { opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: reducedMotion ? 0 : 0.46, ease: [0.22, 0.61, 0.36, 1] }}
+              >
+                <ResultsSection
+                  response={response}
+                  destinationLabel={search.resultDestinationLabel}
+                  destinationCoords={search.destinationCoords}
+                  searchSummary={searchSummary}
+                  headingRef={resultsHeadingRef}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </main>
 

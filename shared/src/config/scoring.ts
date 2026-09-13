@@ -42,7 +42,9 @@ export const RENT_STAT_OLD_MIN_AGE_YEARS = 5;
 
 export const CATCHMENT_RADIUS_M = 800;
 
-export const CATCHMENT_LABEL = "approximate 10-minute station area";
+export const CATCHMENT_LABEL = "official town locality boundary (chōme combined)";
+
+export const STATION_CATCHMENT_LABEL = `approximate ${CATCHMENT_RADIUS_M} m station catchment`;
 
 export const ROAD_RAIL_BUFFER_M = 100;
 
