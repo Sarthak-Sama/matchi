@@ -214,6 +214,186 @@ export interface PlateSources {
   readonly localities: string;
 }
 
+type Project = (lat: number, lon: number) => [number, number];
+
+function pathOf(geometry: GeoJsonPolygon, project: Project): string {
+  return ringsOf(geometry)
+    .map(
+      (ring) =>
+        ring
+          .map(([lon, lat], index) => {
+            const [x, y] = project(lat, lon);
+            return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+          })
+          .join(" ") + "Z",
+    )
+    .join(" ");
+}
+
+function buildWardsSource(
+  wards: readonly WardRow[],
+  stations: readonly StationRow[],
+  project: Project,
+): string {
+  const orderedStations = REFERENCE_STATIONS.flatMap((reference) => {
+    const row = stations.find((station) => station.name_ja === reference.nameJa);
+    return row ? [{ ...reference, lat: row.lat, lon: row.lon }] : [];
+  });
+
+  return [
+    `export const WARD_PLATE_VIEWBOX = { width: ${VIEW_WIDTH}, height: ${VIEW_HEIGHT} } as const;`,
+    "",
+    "export interface WardShape {",
+    "  readonly code: string;",
+    "  readonly nameEn: string;",
+    "  readonly nameJa: string;",
+    "  readonly d: string;",
+    "}",
+    "",
+    "export const WARD_SHAPES: readonly WardShape[] = [",
+    ...wards.map(
+      (ward) =>
+        `  { code: ${JSON.stringify(ward.ward_code)}, nameEn: ${JSON.stringify(ward.name_en)}, ` +
+        `nameJa: ${JSON.stringify(ward.name_ja)}, d: ${JSON.stringify(pathOf(ward.geojson, project))} },`,
+    ),
+    "];",
+    "",
+    "export interface PlateStation {",
+    "  readonly romanized: string;",
+    "  readonly nameJa: string;",
+    "  readonly x: number;",
+    "  readonly y: number;",
+    "}",
+    "",
+    "export const PLATE_STATIONS: readonly PlateStation[] = [",
+    ...orderedStations.map((station) => {
+      const [x, y] = project(station.lat, station.lon);
+      return (
+        `  { romanized: ${JSON.stringify(station.romanized)}, nameJa: ${JSON.stringify(station.nameJa)}, ` +
+        `x: ${x.toFixed(1)}, y: ${y.toFixed(1)} },`
+      );
+    }),
+    "];",
+    "",
+  ].join("\n");
+}
+
+function buildLocalitiesSource(
+  localities: readonly LocalityRow[],
+  example: Awaited<ReturnType<typeof fetchExampleShortlist>>,
+  evidence: Record<string, string>,
+  indexNames: readonly string[],
+  project: Project,
+): string {
+  return [
+    `export const LOCALITY_COUNT = ${String(localities.length)};`,
+    "",
+    "export const LOCALITY_XY: readonly number[] = [",
+    ...chunk(
+      localities.map((locality) => {
+        const [x, y] = project(locality.lat, locality.lon);
+        return `${x.toFixed(1)}, ${y.toFixed(1)},`;
+      }),
+      6,
+    ).map((line) => `  ${line}`),
+    "];",
+    "",
+    "export function localityPoint(index: number): { x: number; y: number } {",
+    "  return { x: LOCALITY_XY[index * 2] ?? 0, y: LOCALITY_XY[index * 2 + 1] ?? 0 };",
+    "}",
+    "",
+    "export interface ExampleSearch {",
+    "  readonly destinationNameJa: string;",
+    "  readonly arrivalTime: string;",
+    "  readonly maxCommuteMinutes: number;",
+    "  readonly monthlyBudgetYen: number;",
+    "  readonly layout: string;",
+    "  readonly destination: { readonly x: number; readonly y: number };",
+    "  readonly matchedIndices: readonly number[];",
+    "  readonly funnel: {",
+    "    readonly considered: number;",
+    "    readonly excludedByCommute: number;",
+    "    readonly excludedByRent: number;",
+    "    readonly excludedByDisconnected: number;",
+    "    readonly qualified: number;",
+    "    readonly shortlisted: number;",
+    "  };",
+    "  readonly topResult: {",
+    "    readonly nameJa: string;",
+    "    readonly nameEn: string;",
+    "    readonly wardNameEn: string;",
+    "    readonly score: number;",
+    "    readonly commuteMinutes: number;",
+    "    readonly transfers: number;",
+    "    readonly rentLowYen: number;",
+    "    readonly rentHighYen: number;",
+    "    readonly strength: string;",
+    "    readonly weakest: { readonly label: string; readonly score: number };",
+    "  };",
+    "}",
+    "",
+    `export const EXAMPLE_SEARCH: ExampleSearch = ${JSON.stringify(
+      {
+        destinationNameJa: EXAMPLE_REQUEST.destinationNameJa,
+        arrivalTime: EXAMPLE_REQUEST.arrivalTime,
+        maxCommuteMinutes: EXAMPLE_REQUEST.maxCommuteMinutes,
+        monthlyBudgetYen: EXAMPLE_REQUEST.monthlyBudgetYen,
+        layout: EXAMPLE_REQUEST.layout,
+        destination: (() => {
+          const [x, y] = project(example.destination.lat, example.destination.lon);
+          return { x: Number(x.toFixed(1)), y: Number(y.toFixed(1)) };
+        })(),
+        matchedIndices: example.results
+          .map((result) =>
+            localities.findIndex((locality) => locality.locality_id === result.localityId),
+          )
+          .filter((index) => index >= 0),
+        funnel: {
+          considered: example.diagnostics.candidatesConsidered,
+          excludedByCommute: example.diagnostics.excludedByCommute,
+          excludedByRent: example.diagnostics.excludedByRent,
+          excludedByDisconnected: example.diagnostics.excludedByDisconnected,
+
+          qualified: example.diagnostics.feasibleCount,
+          shortlisted: example.results.length,
+        },
+        topResult: describeTopResult(example.results),
+      },
+      null,
+      2,
+    )};`,
+    "",
+    `export const INDEX_NAMES: readonly string[] = ${JSON.stringify(indexNames, null, 2)};`,
+    "",
+    "export interface AxisEvidence {",
+    "  readonly count: number;",
+    "  readonly unit: string;",
+    "}",
+    "",
+    `export const AXIS_EVIDENCE: Readonly<Record<string, AxisEvidence>> = ${JSON.stringify(
+      {
+        supermarkets: {
+          count: Number(evidence["supermarkets"]),
+          unit: "supermarkets and grocers",
+        },
+        restaurants: { count: Number(evidence["restaurants"]), unit: "restaurants and cafés" },
+        quietness: {
+          count: Number(evidence["zoning_areas"]) + Number(evidence["rail_edges"]),
+          unit: "zoning areas and rail segments",
+        },
+        konbini: { count: Number(evidence["konbini"]), unit: "convenience stores" },
+        cuisineVariety: { count: Number(evidence["cuisine_variety"]), unit: "distinct cuisines" },
+        greenSpace: { count: Number(evidence["green_space"]), unit: "parks and gardens" },
+        lateNight: { count: Number(evidence["late_night"]), unit: "places open past 23:00" },
+        health: { count: Number(evidence["health"]), unit: "clinics and pharmacies" },
+      },
+      null,
+      2,
+    )};`,
+    "",
+  ].join("\n");
+}
+
 export async function buildWardPlate(): Promise<PlateSources> {
   const pool = createPool();
   try {
@@ -272,175 +452,15 @@ export async function buildWardPlate(): Promise<PlateSources> {
     const offsetX = (VIEW_WIDTH - spanX * scale) / 2;
     const offsetY = (VIEW_HEIGHT - spanY * scale) / 2;
 
-    const project = (lat: number, lon: number): [number, number] => [
+    const project: Project = (lat, lon) => [
       offsetX + (lon - minLon) * lonScale * scale,
       offsetY + (maxLat - lat) * scale,
     ];
 
-    const pathOf = (geometry: GeoJsonPolygon): string =>
-      ringsOf(geometry)
-        .map(
-          (ring) =>
-            ring
-              .map(([lon, lat], index) => {
-                const [x, y] = project(lat, lon);
-                return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
-              })
-              .join(" ") + "Z",
-        )
-        .join(" ");
-
-    const orderedStations = REFERENCE_STATIONS.flatMap((reference) => {
-      const row = stations.find((station) => station.name_ja === reference.nameJa);
-      return row ? [{ ...reference, lat: row.lat, lon: row.lon }] : [];
-    });
-
-    const wardsSource = [
-      `export const WARD_PLATE_VIEWBOX = { width: ${VIEW_WIDTH}, height: ${VIEW_HEIGHT} } as const;`,
-      "",
-      "export interface WardShape {",
-      "  readonly code: string;",
-      "  readonly nameEn: string;",
-      "  readonly nameJa: string;",
-      "  readonly d: string;",
-      "}",
-      "",
-      "export const WARD_SHAPES: readonly WardShape[] = [",
-      ...wards.map(
-        (ward) =>
-          `  { code: ${JSON.stringify(ward.ward_code)}, nameEn: ${JSON.stringify(ward.name_en)}, ` +
-          `nameJa: ${JSON.stringify(ward.name_ja)}, d: ${JSON.stringify(pathOf(ward.geojson))} },`,
-      ),
-      "];",
-      "",
-      "export interface PlateStation {",
-      "  readonly romanized: string;",
-      "  readonly nameJa: string;",
-      "  readonly x: number;",
-      "  readonly y: number;",
-      "}",
-      "",
-      "export const PLATE_STATIONS: readonly PlateStation[] = [",
-      ...orderedStations.map((station) => {
-        const [x, y] = project(station.lat, station.lon);
-        return (
-          `  { romanized: ${JSON.stringify(station.romanized)}, nameJa: ${JSON.stringify(station.nameJa)}, ` +
-          `x: ${x.toFixed(1)}, y: ${y.toFixed(1)} },`
-        );
-      }),
-      "];",
-      "",
-    ].join("\n");
-
-    const localitiesSource = [
-      `export const LOCALITY_COUNT = ${String(localities.length)};`,
-      "",
-      "export const LOCALITY_XY: readonly number[] = [",
-      ...chunk(
-        localities.map((locality) => {
-          const [x, y] = project(locality.lat, locality.lon);
-          return `${x.toFixed(1)}, ${y.toFixed(1)},`;
-        }),
-        6,
-      ).map((line) => `  ${line}`),
-      "];",
-      "",
-      "export function localityPoint(index: number): { x: number; y: number } {",
-      "  return { x: LOCALITY_XY[index * 2] ?? 0, y: LOCALITY_XY[index * 2 + 1] ?? 0 };",
-      "}",
-      "",
-      "export interface ExampleSearch {",
-      "  readonly destinationNameJa: string;",
-      "  readonly arrivalTime: string;",
-      "  readonly maxCommuteMinutes: number;",
-      "  readonly monthlyBudgetYen: number;",
-      "  readonly layout: string;",
-      "  readonly destination: { readonly x: number; readonly y: number };",
-      "  readonly matchedIndices: readonly number[];",
-      "  readonly funnel: {",
-      "    readonly considered: number;",
-      "    readonly excludedByCommute: number;",
-      "    readonly excludedByRent: number;",
-      "    readonly excludedByDisconnected: number;",
-      "    readonly qualified: number;",
-      "    readonly shortlisted: number;",
-      "  };",
-      "  readonly topResult: {",
-      "    readonly nameJa: string;",
-      "    readonly nameEn: string;",
-      "    readonly wardNameEn: string;",
-      "    readonly score: number;",
-      "    readonly commuteMinutes: number;",
-      "    readonly transfers: number;",
-      "    readonly rentLowYen: number;",
-      "    readonly rentHighYen: number;",
-      "    readonly strength: string;",
-      "    readonly weakest: { readonly label: string; readonly score: number };",
-      "  };",
-      "}",
-      "",
-      `export const EXAMPLE_SEARCH: ExampleSearch = ${JSON.stringify(
-        {
-          destinationNameJa: EXAMPLE_REQUEST.destinationNameJa,
-          arrivalTime: EXAMPLE_REQUEST.arrivalTime,
-          maxCommuteMinutes: EXAMPLE_REQUEST.maxCommuteMinutes,
-          monthlyBudgetYen: EXAMPLE_REQUEST.monthlyBudgetYen,
-          layout: EXAMPLE_REQUEST.layout,
-          destination: (() => {
-            const [x, y] = project(example.destination.lat, example.destination.lon);
-            return { x: Number(x.toFixed(1)), y: Number(y.toFixed(1)) };
-          })(),
-          matchedIndices: example.results
-            .map((result) =>
-              localities.findIndex((locality) => locality.locality_id === result.localityId),
-            )
-            .filter((index) => index >= 0),
-          funnel: {
-            considered: example.diagnostics.candidatesConsidered,
-            excludedByCommute: example.diagnostics.excludedByCommute,
-            excludedByRent: example.diagnostics.excludedByRent,
-            excludedByDisconnected: example.diagnostics.excludedByDisconnected,
-
-            qualified: example.diagnostics.feasibleCount,
-            shortlisted: example.results.length,
-          },
-          topResult: describeTopResult(example.results),
-        },
-        null,
-        2,
-      )};`,
-      "",
-      `export const INDEX_NAMES: readonly string[] = ${JSON.stringify(indexNames, null, 2)};`,
-      "",
-      "export interface AxisEvidence {",
-      "  readonly count: number;",
-      "  readonly unit: string;",
-      "}",
-      "",
-      `export const AXIS_EVIDENCE: Readonly<Record<string, AxisEvidence>> = ${JSON.stringify(
-        {
-          supermarkets: {
-            count: Number(evidence["supermarkets"]),
-            unit: "supermarkets and grocers",
-          },
-          restaurants: { count: Number(evidence["restaurants"]), unit: "restaurants and cafés" },
-          quietness: {
-            count: Number(evidence["zoning_areas"]) + Number(evidence["rail_edges"]),
-            unit: "zoning areas and rail segments",
-          },
-          konbini: { count: Number(evidence["konbini"]), unit: "convenience stores" },
-          cuisineVariety: { count: Number(evidence["cuisine_variety"]), unit: "distinct cuisines" },
-          greenSpace: { count: Number(evidence["green_space"]), unit: "parks and gardens" },
-          lateNight: { count: Number(evidence["late_night"]), unit: "places open past 23:00" },
-          health: { count: Number(evidence["health"]), unit: "clinics and pharmacies" },
-        },
-        null,
-        2,
-      )};`,
-      "",
-    ].join("\n");
-
-    return { wards: wardsSource, localities: localitiesSource };
+    return {
+      wards: buildWardsSource(wards, stations, project),
+      localities: buildLocalitiesSource(localities, example, evidence, indexNames, project),
+    };
   } finally {
     await pool.end();
   }
