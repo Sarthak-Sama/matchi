@@ -20,6 +20,8 @@
     "import:mlit": "tsx --env-file-if-exists=.env scripts/src/import-mlit.ts",
     "import:localities": "tsx --env-file-if-exists=.env scripts/src/import-localities.ts",
     "backfill:locality-names": "tsx --env-file-if-exists=.env scripts/src/backfill-locality-names.ts",
+    "build:station-romanization": "tsx --env-file-if-exists=.env scripts/src/build-station-romanization.ts",
+    "backfill:station-names": "tsx --env-file-if-exists=.env scripts/src/backfill-station-names.ts",
     "import:rent": "tsx --env-file-if-exists=.env scripts/src/import-rent.ts",
     "import:osm": "tsx --env-file-if-exists=.env scripts/src/import-osm.ts",
     "import:transit": "tsx --env-file-if-exists=.env scripts/src/import-transit.ts",
