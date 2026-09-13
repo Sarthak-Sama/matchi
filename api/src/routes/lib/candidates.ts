@@ -244,6 +244,8 @@ export function buildCandidate(
 
   return {
     localityId: row.localityId,
+    // The import and data:validate now guarantee a romanized name_en, so this
+    // fallback to nameJa should never fire in practice.
     nameEn: row.nameEn ?? row.nameJa,
     nameJa: row.nameJa,
     wardCode: row.wardCode,

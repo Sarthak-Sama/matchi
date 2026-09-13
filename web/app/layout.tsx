@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { Archivo, IBM_Plex_Mono, Newsreader } from "next/font/google";
 
 import "./globals.css";
+import { ExperienceFrame } from "./components/ExperienceFrame";
 
 const newsreader = Newsreader({
   subsets: ["latin"],
@@ -39,7 +40,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${newsreader.variable} ${archivo.variable} ${plexMono.variable}`}>
       <body>
-        {children}
+        <ExperienceFrame>{children}</ExperienceFrame>
         <Analytics />
       </body>
     </html>

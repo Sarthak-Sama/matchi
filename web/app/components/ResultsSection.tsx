@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useCallback, useState } from "react";
 
 import type { NeighborhoodResult, OptimizeResponse } from "@tokyo/shared";
@@ -29,6 +30,7 @@ export function ResultsSection({
   readonly headingRef: React.RefObject<HTMLHeadingElement | null>;
 }) {
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const reducedMotion = useReducedMotion();
   const [selectedResult, setSelectedResult] = useState<NeighborhoodResult | null>(null);
   const [mapExpanded, setMapExpanded] = useState(false);
 
@@ -75,16 +77,26 @@ export function ResultsSection({
         <p className="mt-3 font-mono text-[11px] text-ink-muted">{searchSummary}</p>
       </div>
 
-      {comparedResults.length > 0 && (
-        <ComparisonTable
-          results={comparedResults}
-          onRemove={(localityId) =>
-            setComparedIds((current) => current.filter((id) => id !== localityId))
-          }
-          onClear={() => setComparedIds([])}
-          headingId="comparison-heading"
-        />
-      )}
+      <AnimatePresence initial={false}>
+        {comparedResults.length > 0 && (
+          <motion.div
+            initial={reducedMotion ? false : { opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: reducedMotion ? 0 : 0.3, ease: [0.22, 0.61, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <ComparisonTable
+              results={comparedResults}
+              onRemove={(localityId) =>
+                setComparedIds((current) => current.filter((id) => id !== localityId))
+              }
+              onClear={() => setComparedIds([])}
+              headingId="comparison-heading"
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="mt-6 lg:hidden">
         <div className="border border-line-strong">

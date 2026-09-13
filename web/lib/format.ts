@@ -9,6 +9,22 @@ export function localityDisplayName(nameEn: string, nameJa: string): string {
   return nameEn && nameEn !== nameJa ? `${nameEn} (${nameJa})` : nameJa;
 }
 
+export function localitySecondaryLabel(result: NeighborhoodResult): string {
+  const ward = wardDisplayName(result.wardNameEn);
+  const nearest = result.nearbyStations.reduce<
+    NeighborhoodResult["nearbyStations"][number] | undefined
+  >((closest, station) => {
+    if (!closest || station.walkMinutes < closest.walkMinutes) return station;
+    return closest;
+  }, undefined);
+  if (!nearest) return ward;
+
+  const name = nearest.nameEn && nearest.nameEn !== nearest.nameJa ? nearest.nameEn : nearest.nameJa;
+  const minutes = Math.round(nearest.walkMinutes);
+  const suffix = /(?:Station|駅)$/u.test(name) ? "" : " Station";
+  return `${ward} · ${minutes} min walk to ${name}${suffix}`;
+}
+
 export function formatYenCompact(yen: number): string {
   if (yen >= 1_000_000) {
     const millions = yen / 1_000_000;

@@ -47,7 +47,7 @@ export function Reveal({
     };
   }, [mode, shown]);
 
-  if (reducedMotion) return <div className={className}>{children}</div>;
+  if (reducedMotion || mode === "mount") return <div className={className}>{children}</div>;
 
   return (
     <motion.div

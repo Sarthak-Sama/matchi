@@ -1,14 +1,15 @@
 "use client";
 
+import { motion, useReducedMotion } from "motion/react";
 import type { NeighborhoodResult } from "@tokyo/shared";
 
 import {
   commuteDisplayTerms,
   formatYenCompact,
   localityDisplayName,
+  localitySecondaryLabel,
   pickCompromise,
   pickStrength,
-  wardDisplayName,
 } from "../../lib/format";
 import { CompareToggle } from "./CompareToggle";
 import { GoogleMapsLink } from "./GoogleMapsLink";
@@ -31,15 +32,24 @@ export function ResultRow({
   readonly onHighlight: (id: string | null) => void;
   readonly onOpen: (result: NeighborhoodResult) => void;
 }) {
+  const reducedMotion = useReducedMotion();
   const commute = commuteDisplayTerms(result.commute);
   const strength = pickStrength(result);
   const compromise = pickCompromise(result);
   const rankLabel = String(result.rank).padStart(2, "0");
 
   const displayName = localityDisplayName(result.nameEn, result.nameJa);
+  const secondaryLabel = localitySecondaryLabel(result);
 
   return (
-    <li
+    <motion.li
+      initial={reducedMotion ? false : { opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        duration: reducedMotion ? 0 : 0.32,
+        delay: Math.min(result.rank - 1, 8) * 0.035,
+      }}
+      whileHover={reducedMotion ? undefined : { x: 4 }}
       className={`flex items-stretch transition-colors duration-150 motion-reduce:transition-none ${
         highlighted ? "bg-sage/50" : "hover:bg-paper-soft"
       }`}
@@ -59,16 +69,14 @@ export function ResultRow({
                 onClick={() => onOpen(result)}
                 onFocus={() => onHighlight(result.localityId)}
                 onBlur={() => onHighlight(null)}
-                aria-label={`Rank ${result.rank}: ${displayName}, ${wardDisplayName(result.wardNameEn)}. Open the neighborhood entry.`}
+                aria-label={`Rank ${result.rank}: ${displayName}. Open the neighborhood entry.`}
                 className="-my-2 py-2 font-serif text-[19px] leading-snug font-medium tracking-editorial break-words underline decoration-transparent underline-offset-4 transition-colors hover:text-vermilion-deep hover:decoration-vermilion-deep"
               >
                 {displayName}
               </button>
-              <span className="text-[12px] text-ink-muted">
-                {wardDisplayName(result.wardNameEn)}
-              </span>
               <GoogleMapsLink result={result} compact />
             </span>
+            <span className="mt-0.5 block text-[12px] text-ink-muted">{secondaryLabel}</span>
 
             <span className="mt-1.5 flex flex-col gap-0.5 text-[12.5px] leading-snug">
               {strength && (
@@ -122,6 +130,6 @@ export function ResultRow({
           name={displayName}
         />
       </div>
-    </li>
+    </motion.li>
   );
 }

@@ -5,12 +5,12 @@ import type {
   RentEstimateResult,
 } from "@tokyo/shared";
 import {
-  CATCHMENT_LABEL,
   factorEvidenceSchema,
   layoutSchema,
   mapLifestyleAxes,
   NEIGHBORHOOD_DEFAULT_LAYOUT,
   rentEstimateSchema,
+  STATION_CATCHMENT_LABEL,
 } from "@tokyo/shared";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -166,7 +166,7 @@ export function registerNeighborhoodRoute(app: FastifyInstance, deps: AppDeps): 
       centroid: { lat: row.lat, lon: row.lon },
       catchment: {
         radiusM: row.catchmentRadiusM,
-        label: CATCHMENT_LABEL,
+        label: STATION_CATCHMENT_LABEL,
         geoJson: row.catchmentGeoJson ? (JSON.parse(row.catchmentGeoJson) as unknown) : null,
       },
       rent,
