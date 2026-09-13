@@ -6,6 +6,7 @@ import { estimateCommute } from "../../domain/transit/commute.js";
 import type { DijkstraSeed } from "../../domain/transit/dijkstra.js";
 import type { reverseDijkstra } from "../../domain/transit/dijkstra.js";
 import type { Confidence, LayoutId } from "@tokyo/shared";
+import { haversineMeters } from "@tokyo/shared";
 import { walkMinutesForMetres } from "./access-stations.js";
 import type { LifestyleMetricColumns } from "./lifestyle-columns.js";
 import { readLifestyleNormScores, readLifestyleRawCounts } from "./lifestyle-columns.js";
@@ -84,22 +85,18 @@ export interface Destination {
   readonly point: { readonly lat: number; readonly lon: number } | null;
 }
 
-function metresBetween(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
-  const radians = Math.PI / 180;
-  const dLat = (b.lat - a.lat) * radians;
-  const dLon = (b.lon - a.lon) * radians;
-  const x =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(a.lat * radians) * Math.cos(b.lat * radians) * Math.sin(dLon / 2) ** 2;
-  return 6_371_000 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
-
 function estimateWalkCommute(
   destination: Destination,
   sample: LocalitySample,
 ): ReturnType<typeof estimateCommute> {
   if (destination.point === null) return null;
-  const minutes = walkMinutesForMetres(metresBetween(sample, destination.point));
+  const metres = haversineMeters(
+    sample.lat,
+    sample.lon,
+    destination.point.lat,
+    destination.point.lon,
+  );
+  const minutes = walkMinutesForMetres(metres);
   return {
     mode: "walk",
     totalMinutes: minutes,
