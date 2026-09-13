@@ -7,40 +7,23 @@ import type {
   Importance,
   Layout,
   LifestyleAxisId,
-  OptimizationRequest,
   OptimizeResponse,
   PlaceSuggestion,
   PlacesResponse,
   StationsResponse,
   StationSuggestion,
 } from "@tokyo/shared";
-import {
-  IMPORTANCE_OPTIONS,
-  LAYOUT_IDS,
-  LIFESTYLE_AXIS_IDS,
-  mapLifestyleAxes,
-  MAX_SELECTED_LIFESTYLE_AXES,
-  MIN_SELECTED_LIFESTYLE_AXES,
-} from "@tokyo/shared";
+import { LIFESTYLE_AXIS_IDS, mapLifestyleAxes } from "@tokyo/shared";
 
 import { getJson, postJson } from "./api";
 import { bilingualLabel } from "./format";
+import { buildOptimizationRequest, validateSearchInputs } from "./optimizeRequest";
 import { createRequestGeneration } from "./requestGeneration";
+import { buildSearchQueryString, parseSearchParams } from "./searchParams";
 
 export type SelectedDestination =
   | { readonly kind: "station"; readonly stationGroupId: string; readonly label: string }
   | { readonly kind: "point"; readonly lat: number; readonly lon: number; readonly label: string };
-
-const QUERY_KEYS = {
-  dest: "dest",
-  destLabel: "destLabel",
-  destLat: "destLat",
-  destLon: "destLon",
-  arrival: "arrival",
-  maxCommute: "maxCommute",
-  budget: "budget",
-  layout: "layout",
-} as const;
 
 export function useOptimizeSearch() {
   const autocompleteRequestGeneration = useRef(createRequestGeneration());
@@ -84,52 +67,21 @@ export function useOptimizeSearch() {
   } | null>(null);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const stationId = params.get(QUERY_KEYS.dest);
-    const lat = params.get(QUERY_KEYS.destLat);
-    const lon = params.get(QUERY_KEYS.destLon);
-    const label = params.get(QUERY_KEYS.destLabel);
-    const parsedLat = lat === null ? null : Number(lat);
-    const parsedLon = lon === null ? null : Number(lon);
-    if (
-      parsedLat !== null &&
-      parsedLon !== null &&
-      Number.isFinite(parsedLat) &&
-      Number.isFinite(parsedLon)
-    ) {
-      const resolvedLabel = label ?? "Destination point";
-      setSelectedDestination({
-        kind: "point",
-        lat: parsedLat,
-        lon: parsedLon,
-        label: resolvedLabel,
-      });
-      setDestQuery(resolvedLabel);
-      setCommittedQuery(resolvedLabel);
-      setDestinationCoords({ lat: parsedLat, lon: parsedLon });
-    } else if (stationId) {
-      const resolvedLabel = label ?? stationId;
-      setSelectedDestination({ kind: "station", stationGroupId: stationId, label: resolvedLabel });
-      setDestQuery(resolvedLabel);
-      setCommittedQuery(resolvedLabel);
+    const parsed = parseSearchParams(window.location.search);
+    if (parsed.destination) {
+      setSelectedDestination(parsed.destination);
+      setDestQuery(parsed.destination.label);
+      setCommittedQuery(parsed.destination.label);
+      if (parsed.destination.kind === "point") {
+        setDestinationCoords({ lat: parsed.destination.lat, lon: parsed.destination.lon });
+      }
     }
-    const arrival = params.get(QUERY_KEYS.arrival);
-    if (arrival) setArrivalTime(arrival);
-    const maxCommute = params.get(QUERY_KEYS.maxCommute);
-    if (maxCommute) setMaxCommuteMinutes(Number(maxCommute));
-    const budget = params.get(QUERY_KEYS.budget);
-    if (budget) setMonthlyBudgetYen(Number(budget));
-    const layoutParam = params.get(QUERY_KEYS.layout);
-    if (layoutParam && (LAYOUT_IDS as readonly string[]).includes(layoutParam)) {
-      setLayout(layoutParam as Layout);
-    }
+    if (parsed.arrivalTime !== null) setArrivalTime(parsed.arrivalTime);
+    if (parsed.maxCommuteMinutes !== null) setMaxCommuteMinutes(parsed.maxCommuteMinutes);
+    if (parsed.monthlyBudgetYen !== null) setMonthlyBudgetYen(parsed.monthlyBudgetYen);
+    if (parsed.layout !== null) setLayout(parsed.layout);
     setPreferences((current) =>
-      mapLifestyleAxes((id) => {
-        const value = params.get(id);
-        return value && IMPORTANCE_OPTIONS.includes(value as Importance)
-          ? (value as Importance)
-          : current[id];
-      }),
+      mapLifestyleAxes((id) => parsed.preferenceOverrides[id] ?? current[id]),
     );
     setHydrated(true);
   }, []);
@@ -290,61 +242,32 @@ export function useOptimizeSearch() {
     const generation = optimizationRequestGeneration.current.begin();
     const isCurrent = () => optimizationRequestGeneration.current.isCurrent(generation);
 
-    if (!selectedDestination) {
+    const validation = validateSearchInputs(selectedDestination, preferences);
+    if (!validation.ok) {
       setIsLoading(false);
-      setError(new Error("Choose a destination from the suggestions list first."));
+      setError(new Error(validation.message));
       return;
     }
+    const destination = validation.destination;
 
-    const selectedAxisCount = LIFESTYLE_AXIS_IDS.filter(
-      (id) => preferences[id] !== undefined,
-    ).length;
-    if (selectedAxisCount < MIN_SELECTED_LIFESTYLE_AXES) {
-      setIsLoading(false);
-      setError(new Error("Select at least one lifestyle priority before searching."));
-      return;
-    }
-    if (selectedAxisCount > MAX_SELECTED_LIFESTYLE_AXES) {
-      setIsLoading(false);
-      setError(new Error(`Select at most ${MAX_SELECTED_LIFESTYLE_AXES} lifestyle priorities.`));
-      return;
-    }
-
-    const request: OptimizationRequest = {
-      ...(selectedDestination.kind === "station"
-        ? { destinationStationGroupId: selectedDestination.stationGroupId }
-        : {
-            destinationPoint: {
-              lat: selectedDestination.lat,
-              lon: selectedDestination.lon,
-              label: selectedDestination.label,
-            },
-          }),
+    const request = buildOptimizationRequest({
+      selectedDestination: destination,
       arrivalTime,
       monthlyBudgetYen,
       layout,
       maxCommuteMinutes,
       preferences,
-    };
-
-    const params = new URLSearchParams({
-      [QUERY_KEYS.destLabel]: selectedDestination.label,
-      [QUERY_KEYS.arrival]: arrivalTime,
-      [QUERY_KEYS.maxCommute]: String(maxCommuteMinutes),
-      [QUERY_KEYS.budget]: String(monthlyBudgetYen),
-      [QUERY_KEYS.layout]: layout,
     });
-    if (selectedDestination.kind === "station") {
-      params.set(QUERY_KEYS.dest, selectedDestination.stationGroupId);
-    } else {
-      params.set(QUERY_KEYS.destLat, String(selectedDestination.lat));
-      params.set(QUERY_KEYS.destLon, String(selectedDestination.lon));
-    }
-    for (const id of LIFESTYLE_AXIS_IDS) {
-      const importance = preferences[id];
-      if (importance !== undefined) params.set(id, importance);
-    }
-    window.history.replaceState(null, "", `?${params.toString()}`);
+
+    const queryString = buildSearchQueryString({
+      selectedDestination: destination,
+      arrivalTime,
+      maxCommuteMinutes,
+      monthlyBudgetYen,
+      layout,
+      preferences,
+    });
+    window.history.replaceState(null, "", `?${queryString}`);
 
     setIsLoading(true);
     setError(null);
@@ -353,7 +276,7 @@ export function useOptimizeSearch() {
       const data = await postJson<OptimizeResponse>("/v1/optimize", request);
       if (!isCurrent()) return;
       setResponse(data);
-      setResultDestinationLabel(selectedDestination.label);
+      setResultDestinationLabel(destination.label);
     } catch (err) {
       if (!isCurrent()) return;
       setError(err instanceof Error ? err : new Error("Unknown error"));
