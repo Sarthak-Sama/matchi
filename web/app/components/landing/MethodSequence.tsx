@@ -3,6 +3,7 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
+import { bilingualLabel, wardDisplayName } from "../../../lib/format";
 import { DestinationMark } from "../icons";
 import { EXAMPLE_SEARCH } from "./tokyo-localities";
 
@@ -71,15 +72,17 @@ export function MethodSequence() {
           </p>
           <div className="px-4 py-4">
             <div className="flex items-baseline justify-between gap-4">
-              <p lang="ja" className="font-serif text-[26px] leading-none tracking-editorial">
-                {topResult.nameJa}
+              <p className="font-serif text-[26px] leading-none tracking-editorial">
+                {bilingualLabel(topResult.nameEn, topResult.nameJa)}
               </p>
               <p className="font-serif text-[22px] tnum">
                 {topResult.score}
                 <span className="ml-1 font-sans text-[11px] text-ink-muted">/ 100</span>
               </p>
             </div>
-            <p className="mt-1 text-[12px] text-ink-muted">{topResult.wardNameEn}-ku</p>
+            <p className="mt-1 text-[12px] text-ink-muted">
+              {wardDisplayName(topResult.wardNameEn)}
+            </p>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 border-y border-line py-2.5 text-[14px]">
               <div className="flex items-baseline justify-between">
                 <dt className="text-ink-muted">Commute</dt>

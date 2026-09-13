@@ -7,9 +7,9 @@ import {
   formatYenCompact,
   isLifestyleFactor,
   localityDisplayName,
+  localitySecondaryLabel,
   pickCompromise,
   pickStrength,
-  wardDisplayName,
 } from "../../lib/format";
 import { CloseIcon } from "./icons";
 
@@ -227,7 +227,7 @@ export function ComparisonTable({
                             {localityDisplayName(result.nameEn, result.nameJa)}
                           </span>
                           <span className="mt-0.5 block text-[12px] text-ink-muted">
-                            {wardDisplayName(result.wardNameEn)}
+                            {localitySecondaryLabel(result)}
                           </span>
                         </span>
                         <button

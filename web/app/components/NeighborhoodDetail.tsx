@@ -12,9 +12,9 @@ import {
   formatSourceDate,
   formatYenFull,
   localityDisplayName,
+  localitySecondaryLabel,
   pickCompromise,
   sentenceCase,
-  wardDisplayName,
 } from "../../lib/format";
 import { CloseIcon } from "./icons";
 import { GoogleMapsLink } from "./GoogleMapsLink";
@@ -117,12 +117,7 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
                 </h2>
                 <GoogleMapsLink result={result} />
               </div>
-              <p className="mt-2 text-[14px] text-ink-muted">
-                {wardDisplayName(result.wardNameEn)}
-                <span lang="ja" className="ml-2">
-                  {result.wardNameJa}
-                </span>
-              </p>
+              <p className="mt-2 text-[14px] text-ink-muted">{localitySecondaryLabel(result)}</p>
               <p className="mt-1.5 font-mono text-[11px] text-ink-muted">
                 {formatCoordinates(result.centroid.lat, result.centroid.lon)}
               </p>
