@@ -166,13 +166,13 @@ export function ComparisonTable({
   const rows = buildRows(results);
 
   return (
-    <section aria-labelledby={headingId} className="mt-10 border-t-2 border-ink pt-5">
+    <section aria-labelledby={headingId} className="mt-10 border-t-[6px] border-moss pt-5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
         <div>
           <p className="label-utility text-vermilion-deep">Side by side</p>
           <h3
             id={headingId}
-            className="mt-2 font-serif text-2xl font-medium tracking-editorial sm:text-3xl"
+            className="mt-2 font-display text-2xl font-semibold tracking-editorial sm:text-3xl"
           >
             {results.length === 1
               ? "Pick one more to compare"
@@ -223,7 +223,7 @@ export function ComparisonTable({
                           <span className="block font-mono text-[11px] text-vermilion-deep">
                             {String(result.rank).padStart(2, "0")}
                           </span>
-                          <span className="mt-0.5 block font-serif text-[19px] leading-snug font-medium tracking-editorial break-words">
+                          <span className="mt-0.5 block font-display text-[19px] leading-snug font-semibold tracking-editorial break-words">
                             {localityDisplayName(result.nameEn, result.nameJa)}
                           </span>
                           <span className="mt-0.5 block text-[12px] text-ink-muted">

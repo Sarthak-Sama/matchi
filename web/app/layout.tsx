@@ -1,23 +1,26 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Analytics } from "@vercel/analytics/next";
-import { Archivo, IBM_Plex_Mono, Newsreader } from "next/font/google";
+import { Archivo, IBM_Plex_Mono, Zen_Kaku_Gothic_New } from "next/font/google";
 
 import "./globals.css";
 import { ExperienceFrame } from "./components/ExperienceFrame";
 
-const newsreader = Newsreader({
-  subsets: ["latin"],
-  variable: "--font-newsreader",
-  style: ["normal", "italic"],
-  axes: ["opsz"],
-  display: "swap",
-});
-
 const archivo = Archivo({
   subsets: ["latin"],
   variable: "--font-archivo",
+  axes: ["wdth"],
   display: "swap",
+});
+
+// Kanji fallback for platforms without a good system gothic. Google serves it
+// in unicode-range slices, so only the glyphs a page actually uses download.
+const zenKaku = Zen_Kaku_Gothic_New({
+  weight: ["500", "700"],
+  subsets: ["latin"],
+  variable: "--font-zen-kaku",
+  display: "swap",
+  preload: false,
 });
 
 const plexMono = IBM_Plex_Mono({
@@ -38,7 +41,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${newsreader.variable} ${archivo.variable} ${plexMono.variable}`}>
+    <html lang="en" className={`${archivo.variable} ${zenKaku.variable} ${plexMono.variable}`}>
       <body>
         <ExperienceFrame>{children}</ExperienceFrame>
         <Analytics />

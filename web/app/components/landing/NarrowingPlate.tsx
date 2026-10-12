@@ -1,7 +1,7 @@
 "use client";
 
-import { motion, useReducedMotion } from "motion/react";
-import { useEffect, useState } from "react";
+import { AnimatePresence, motion, useInView, useReducedMotion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
 
 import { WARD_PLATE_VIEWBOX, WARD_SHAPES } from "../tokyo-wards";
 import { EXAMPLE_SEARCH, LOCALITY_COUNT, localityPoint } from "./tokyo-localities";
@@ -24,23 +24,33 @@ const BEATS: readonly Beat[] = [
   },
 ];
 
-export function NarrowingPlate() {
+export function NarrowingPlate({
+  highlight = null,
+  showCaption = true,
+}: {
+  /** A shortlisted stop to call out on the plate, e.g. while its board row is hovered. */
+  readonly highlight?: { readonly x: number; readonly y: number; readonly label: string } | null;
+  readonly showCaption?: boolean;
+} = {}) {
   const reducedMotion = useReducedMotion();
 
   const [beat, setBeat] = useState(() => (reducedMotion ? BEATS.length - 1 : -1));
+  const figureRef = useRef<HTMLElement>(null);
+  const inView = useInView(figureRef, { once: true, amount: 0.35 });
 
   useEffect(() => {
     if (reducedMotion) {
       setBeat(BEATS.length - 1);
       return;
     }
+    if (!inView) return;
     const timers = BEATS.map((_, index) =>
       setTimeout(() => setBeat(index), 350 + index * STAGE_MS),
     );
     return () => {
       for (const timer of timers) clearTimeout(timer);
     };
-  }, [reducedMotion]);
+  }, [reducedMotion, inView]);
 
   const { width, height } = WARD_PLATE_VIEWBOX;
   const showField = beat >= 1;
@@ -55,8 +65,8 @@ export function NarrowingPlate() {
     ) + 20;
 
   return (
-    <figure className="m-0">
-      <div className="relative border border-line-strong bg-sage">
+    <figure ref={figureRef} className="m-0">
+      <div className="relative border border-line-strong bg-sage/60">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           role="img"
@@ -139,6 +149,50 @@ export function NarrowingPlate() {
               );
             })}
 
+          <AnimatePresence>
+            {showMatches && highlight && (
+              <motion.g
+                key={highlight.label}
+                initial={{ opacity: 0, scale: reducedMotion ? 1 : 0.6 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: reducedMotion ? 0 : 0.22, ease: "easeOut" }}
+                style={{ transformOrigin: `${highlight.x}px ${highlight.y}px` }}
+              >
+                <line
+                  x1={highlight.x}
+                  y1={highlight.y}
+                  x2={EXAMPLE_SEARCH.destination.x}
+                  y2={EXAMPLE_SEARCH.destination.y}
+                  className="stroke-moss"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                />
+                <circle cx={highlight.x} cy={highlight.y} r="9" className="fill-vermilion/20" />
+                <circle
+                  cx={highlight.x}
+                  cy={highlight.y}
+                  r="5"
+                  className="fill-paper-soft stroke-vermilion"
+                  strokeWidth="2.5"
+                />
+                <text
+                  x={highlight.x - 12}
+                  y={highlight.y + 5}
+                  textAnchor="end"
+                  className="fill-ink font-display"
+                  fontSize="15"
+                  fontWeight="700"
+                  paintOrder="stroke"
+                  stroke="var(--color-paper-soft)"
+                  strokeWidth="4"
+                >
+                  {highlight.label}
+                </text>
+              </motion.g>
+            )}
+          </AnimatePresence>
+
           {showSweep && (
             <motion.g
               initial={{ opacity: reducedMotion ? 1 : 0 }}
@@ -156,8 +210,9 @@ export function NarrowingPlate() {
               <text
                 x={EXAMPLE_SEARCH.destination.x + 12}
                 y={EXAMPLE_SEARCH.destination.y + 4}
-                className="fill-ink font-serif"
+                className="fill-ink font-display"
                 fontSize="15"
+                fontWeight="700"
               >
                 {EXAMPLE_SEARCH.destinationNameJa}
               </text>
@@ -190,16 +245,18 @@ export function NarrowingPlate() {
         </div>
       </div>
 
-      <figcaption className="mt-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-ink-muted">
-        <span className="text-[12px]">
-          A real search, run against the live engine — not an illustration.
-        </span>
-        <span className="font-mono text-[10px] text-stone">
-          {EXAMPLE_SEARCH.destinationNameJa} · {EXAMPLE_SEARCH.arrivalTime} · &le;
-          {EXAMPLE_SEARCH.maxCommuteMinutes}min · &yen;
-          {(EXAMPLE_SEARCH.monthlyBudgetYen / 1000).toFixed(0)}k · {EXAMPLE_SEARCH.layout}
-        </span>
-      </figcaption>
+      {showCaption && (
+        <figcaption className="mt-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-ink-muted">
+          <span className="text-[12px]">
+            A real search, run against the live engine — not an illustration.
+          </span>
+          <span className="font-mono text-[10px] text-stone">
+            {EXAMPLE_SEARCH.destinationNameJa} · {EXAMPLE_SEARCH.arrivalTime} · &le;
+            {EXAMPLE_SEARCH.maxCommuteMinutes}min · &yen;
+            {(EXAMPLE_SEARCH.monthlyBudgetYen / 1000).toFixed(0)}k · {EXAMPLE_SEARCH.layout}
+          </span>
+        </figcaption>
+      )}
     </figure>
   );
 }

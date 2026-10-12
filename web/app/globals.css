@@ -1,40 +1,48 @@
 @import "tailwindcss";
 
 /*
- * THE FIELD GUIDE — design tokens
- * A warm editorial system: paper canvas, ink text, moss actions,
- * vermilion accents, hairline rules instead of card shadows.
+ * THE MATCHI LINE — design tokens
+ * Tokyo rail signage as a visual system: platform-concrete canvas, white
+ * sign faces, the logo's forest green as the line colour, and its signal red
+ * reserved for "you are here" — destinations, the current stop, focus.
+ * Hairline rules and hard edges, never soft cards.
  */
 @theme {
-  /* Palette */
-  --color-paper: #f5f0e6;
-  --color-paper-soft: #fbf8f1;
-  --color-ink: #28241f;
-  --color-ink-muted: #5f574b;
-  --color-moss: #2e3f34;
-  --color-moss-deep: #223026;
-  --color-vermilion: #b7472a;
-  --color-vermilion-deep: #9a3a22;
-  --color-stone: #a89e90;
-  --color-sage: #dde2d8;
-  --color-sage-deep: #c3ccbd;
-  --color-warning: #f3e2cf;
-  --color-brick: #8c2b1d;
-  --color-line: #d9d1c1;
-  --color-line-strong: #b9ae9a;
+  /* Palette — names kept from the first system; values are the logo's. */
+  --color-paper: #e9ece7;
+  --color-paper-soft: #fbfcfa;
+  --color-ink: #0e1a13;
+  --color-ink-muted: #4a5750;
+  --color-moss: #1f4a2e;
+  --color-moss-deep: #143520;
+  --color-vermilion: #ee3524;
+  --color-vermilion-deep: #c12417;
+  --color-stone: #7f8a83;
+  --color-sage: #d2ddce;
+  --color-sage-deep: #a8bba2;
+  --color-warning: #fbe6cc;
+  --color-brick: #a3241a;
+  --color-line: #d2d8d0;
+  --color-line-strong: #a7b1a9;
 
-  /* Type roles */
-  --font-serif:
-    var(--font-newsreader), "Hiragino Mincho ProN", "Hiragino Mincho Pro", "Yu Mincho", "YuMincho",
-    "Noto Serif JP", serif;
+  /* The departure board: near-black glass and LED amber. */
+  --color-board: #0a0f0c;
+  --color-board-line: #1d2621;
+  --color-led: #ffb21e;
+  --color-led-dim: #6b4e12;
+
+  /* Type roles — display is Archivo pushed wide, the way station names are set. */
+  --font-display:
+    var(--font-archivo), var(--font-zen-kaku), "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+    "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+  --font-display--font-variation-settings: "wdth" 116;
   --font-sans:
-    var(--font-archivo), "Hiragino Sans", "Yu Gothic", "YuGothic", "Noto Sans JP", system-ui,
-    sans-serif;
+    var(--font-archivo), var(--font-zen-kaku), "Hiragino Sans", "Yu Gothic", "YuGothic",
+    "Noto Sans JP", system-ui, sans-serif;
   --font-mono: var(--font-plex-mono), "SF Mono", ui-monospace, "Menlo", monospace;
 
-  /* Tracking presets used across the editorial system */
-  --tracking-utility: 0.16em;
-  --tracking-editorial: -0.028em;
+  --tracking-utility: 0.14em;
+  --tracking-editorial: -0.022em;
 }
 
 @layer base {
@@ -50,7 +58,6 @@
 
   body {
     @apply bg-paper font-sans text-ink antialiased;
-    /* Warmer, slightly darker than pure white canvas; text renders in ink. */
     text-rendering: optimizeLegibility;
   }
 
@@ -71,7 +78,7 @@
     color: #fff;
   }
 
-  /* Native number-input spinners fight the editorial field styling. */
+  /* Native number-input spinners fight the signage field styling. */
   input[type="number"]::-webkit-outer-spin-button,
   input[type="number"]::-webkit-inner-spin-button {
     -webkit-appearance: none;
@@ -125,10 +132,10 @@
   text-wrap: balance;
 }
 
-/* Compact uppercase utility label — the workhorse of the editorial system. */
+/* Compact uppercase utility label — the workhorse of the signage system. */
 @utility label-utility {
   font-size: 0.6875rem;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: var(--tracking-utility);
   text-transform: uppercase;
 }
@@ -152,62 +159,20 @@
   }
 }
 
+/* A stretch of line filling in between two stops while a search runs. */
+@keyframes line-fill {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
 /* Score ring fill transition */
 @utility transition-ring {
   transition: stroke-dashoffset 180ms ease-out;
   @media (prefers-reduced-motion: reduce) {
     transition: none;
-  }
-}
-
-/*
- * The index band's drift.
- *
- * A CSS keyframe loop rather than a JS one: an infinite linear marquee is
- * exactly what `animation-play-state` was made for, and pausing it on
- * hover or focus — so a reader can actually stop and read a name — is one
- * declaration here versus a pile of imperative playback control. The
- * page's other motion is JS-driven, where interruption and sequencing
- * genuinely need it.
- *
- * The list is rendered twice end to end and travels exactly half its own
- * width, so the loop closes on itself with no visible jump.
- */
-@keyframes index-drift-left {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-50%);
-  }
-}
-
-@keyframes index-drift-right {
-  from {
-    transform: translateX(-50%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-
-@layer components {
-  .index-drift {
-    animation: index-drift-left linear infinite;
-  }
-
-  .index-drift-reverse {
-    animation-name: index-drift-right;
-  }
-
-  .index-row:hover .index-drift,
-  .index-row:focus-within .index-drift {
-    animation-play-state: paused;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .index-drift {
-      animation: none;
-    }
   }
 }

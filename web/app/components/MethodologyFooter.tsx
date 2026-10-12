@@ -9,7 +9,7 @@ export function MethodologyFooter({ response }: { readonly response: OptimizeRes
       <div className="mx-auto grid max-w-[1360px] gap-10 px-5 py-10 sm:px-8 lg:grid-cols-[1.2fr_1fr]">
         <div>
           <p className="label-utility text-vermilion-deep">How it works</p>
-          <h2 className="mt-2 font-serif text-2xl font-medium tracking-editorial">
+          <h2 className="mt-2 font-display text-2xl font-semibold tracking-editorial">
             A guide, not a listing feed
           </h2>
           <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-ink-muted">

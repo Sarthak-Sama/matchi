@@ -63,10 +63,17 @@ interface OptimizeResult {
   readonly nameJa: string;
   readonly nameEn: string;
   readonly wardNameEn: string;
+  readonly wardNameJa: string;
   readonly rank: number;
   readonly overallScore: number;
+  readonly centroid: { readonly lat: number; readonly lon: number };
+  readonly nearbyStations: readonly { readonly nameJa: string; readonly nameEn: string }[];
   readonly rent: { readonly lowYen: number; readonly highYen: number };
-  readonly commute: { readonly totalMinutes: number; readonly transferCount: number };
+  readonly commute: {
+    readonly totalMinutes: number;
+    readonly transferCount: number;
+    readonly path: readonly { readonly lineName: string | null }[];
+  };
   readonly factors: readonly {
     readonly key: string;
     readonly label: string;
@@ -145,6 +152,34 @@ function describeTopResult(results: readonly OptimizeResult[]): unknown {
     strength: strongest.rawValueLabel,
     weakest: { label: weakest.label, score: Math.round(weakest.componentScore) },
   };
+}
+
+const SHORTLIST_LENGTH = 8;
+
+function describeShortlist(
+  results: readonly OptimizeResult[],
+  pointOf: (result: OptimizeResult) => { x: number; y: number },
+): unknown[] {
+  return results.slice(0, SHORTLIST_LENGTH).map((result) => {
+    const station = result.nearbyStations[0];
+    const firstLeg = result.commute.path.find((stop) => stop.lineName !== null);
+    return {
+      nameJa: result.nameJa,
+      nameEn: result.nameEn,
+      wardNameJa: result.wardNameJa,
+      wardNameEn: result.wardNameEn,
+      score: Math.round(result.overallScore),
+      commuteMinutes: Math.round(result.commute.totalMinutes),
+      transfers: result.commute.transferCount,
+      rentLowYen: result.rent.lowYen,
+      rentHighYen: result.rent.highYen,
+      stationJa: station?.nameJa ?? null,
+      stationEn: station?.nameEn ?? null,
+      // Line ids are "<source>-<operator>-<line>"; the sign shows the line alone.
+      lineName: firstLeg?.lineName?.split("-").at(-1) ?? null,
+      point: pointOf(result),
+    };
+  });
 }
 
 function chunk(items: readonly string[], perLine: number): string[] {
@@ -330,6 +365,23 @@ function buildLocalitiesSource(
     "    readonly strength: string;",
     "    readonly weakest: { readonly label: string; readonly score: number };",
     "  };",
+    "  readonly shortlist: readonly ShortlistStop[];",
+    "}",
+    "",
+    "export interface ShortlistStop {",
+    "  readonly nameJa: string;",
+    "  readonly nameEn: string;",
+    "  readonly wardNameJa: string;",
+    "  readonly wardNameEn: string;",
+    "  readonly score: number;",
+    "  readonly commuteMinutes: number;",
+    "  readonly transfers: number;",
+    "  readonly rentLowYen: number;",
+    "  readonly rentHighYen: number;",
+    "  readonly stationJa: string | null;",
+    "  readonly stationEn: string | null;",
+    "  readonly lineName: string | null;",
+    "  readonly point: { readonly x: number; readonly y: number };",
     "}",
     "",
     `export const EXAMPLE_SEARCH: ExampleSearch = ${JSON.stringify(
@@ -358,6 +410,10 @@ function buildLocalitiesSource(
           shortlisted: example.results.length,
         },
         topResult: describeTopResult(example.results),
+        shortlist: describeShortlist(example.results, (result) => {
+          const [x, y] = project(result.centroid.lat, result.centroid.lon);
+          return { x: Number(x.toFixed(1)), y: Number(y.toFixed(1)) };
+        }),
       },
       null,
       2,

@@ -192,6 +192,23 @@ export interface ExampleSearch {
     readonly strength: string;
     readonly weakest: { readonly label: string; readonly score: number };
   };
+  readonly shortlist: readonly ShortlistStop[];
+}
+
+export interface ShortlistStop {
+  readonly nameJa: string;
+  readonly nameEn: string;
+  readonly wardNameJa: string;
+  readonly wardNameEn: string;
+  readonly score: number;
+  readonly commuteMinutes: number;
+  readonly transfers: number;
+  readonly rentLowYen: number;
+  readonly rentHighYen: number;
+  readonly stationJa: string | null;
+  readonly stationEn: string | null;
+  readonly lineName: string | null;
+  readonly point: { readonly x: number; readonly y: number };
 }
 
 export const EXAMPLE_SEARCH: ExampleSearch = {
@@ -248,7 +265,153 @@ export const EXAMPLE_SEARCH: ExampleSearch = {
       "label": "Quietness",
       "score": 72
     }
-  }
+  },
+  "shortlist": [
+    {
+      "nameJa": "五本木",
+      "nameEn": "Gohongi",
+      "wardNameJa": "目黒区",
+      "wardNameEn": "Meguro",
+      "score": 92,
+      "commuteMinutes": 16,
+      "transfers": 0,
+      "rentLowYen": 99444,
+      "rentHighYen": 167713,
+      "stationJa": "祐天寺",
+      "stationEn": "Yutenji",
+      "lineName": "東横線",
+      "point": {
+        "x": 230.3,
+        "y": 350.3
+      }
+    },
+    {
+      "nameJa": "駒場",
+      "nameEn": "Komaba",
+      "wardNameJa": "目黒区",
+      "wardNameEn": "Meguro",
+      "score": 90,
+      "commuteMinutes": 14,
+      "transfers": 0,
+      "rentLowYen": 104731,
+      "rentHighYen": 176800,
+      "stationJa": "駒場東大前",
+      "stationEn": "Komaba-Todaimae",
+      "lineName": "井の頭線",
+      "point": {
+        "x": 223.2,
+        "y": 304.5
+      }
+    },
+    {
+      "nameJa": "代沢",
+      "nameEn": "Daizawa",
+      "wardNameJa": "世田谷区",
+      "wardNameEn": "Setagaya",
+      "score": 90,
+      "commuteMinutes": 17,
+      "transfers": 0,
+      "rentLowYen": 85163,
+      "rentHighYen": 143586,
+      "stationJa": "池ノ上",
+      "stationEn": "Ikenoue",
+      "lineName": "井の頭線",
+      "point": {
+        "x": 207.9,
+        "y": 311.6
+      }
+    },
+    {
+      "nameJa": "祐天寺",
+      "nameEn": "Yutenji",
+      "wardNameJa": "目黒区",
+      "wardNameEn": "Meguro",
+      "score": 90,
+      "commuteMinutes": 16,
+      "transfers": 0,
+      "rentLowYen": 101663,
+      "rentHighYen": 171527,
+      "stationJa": "祐天寺",
+      "stationEn": "Yutenji",
+      "lineName": "東横線",
+      "point": {
+        "x": 240.2,
+        "y": 343.8
+      }
+    },
+    {
+      "nameJa": "鷹番",
+      "nameEn": "Takaban",
+      "wardNameJa": "目黒区",
+      "wardNameEn": "Meguro",
+      "score": 89,
+      "commuteMinutes": 18,
+      "transfers": 0,
+      "rentLowYen": 99444,
+      "rentHighYen": 167713,
+      "stationJa": "学芸大学",
+      "stationEn": "Gakugei-daigaku",
+      "lineName": "東横線",
+      "point": {
+        "x": 227.8,
+        "y": 363.4
+      }
+    },
+    {
+      "nameJa": "中央町",
+      "nameEn": "Chuocho",
+      "wardNameJa": "目黒区",
+      "wardNameEn": "Meguro",
+      "score": 89,
+      "commuteMinutes": 18,
+      "transfers": 0,
+      "rentLowYen": 99444,
+      "rentHighYen": 167713,
+      "stationJa": "祐天寺",
+      "stationEn": "Yutenji",
+      "lineName": "東横線",
+      "point": {
+        "x": 236.2,
+        "y": 358.4
+      }
+    },
+    {
+      "nameJa": "北沢",
+      "nameEn": "Kitazawa",
+      "wardNameJa": "世田谷区",
+      "wardNameEn": "Setagaya",
+      "score": 89,
+      "commuteMinutes": 16,
+      "transfers": 0,
+      "rentLowYen": 84250,
+      "rentHighYen": 142016,
+      "stationJa": "池ノ上",
+      "stationEn": "Ikenoue",
+      "lineName": "井の頭線",
+      "point": {
+        "x": 203.1,
+        "y": 293.9
+      }
+    },
+    {
+      "nameJa": "大橋",
+      "nameEn": "Ohashi",
+      "wardNameJa": "目黒区",
+      "wardNameEn": "Meguro",
+      "score": 88,
+      "commuteMinutes": 14,
+      "transfers": 0,
+      "rentLowYen": 101842,
+      "rentHighYen": 171833,
+      "stationJa": "池尻大橋",
+      "stationEn": "Ikejiri-Ohashi",
+      "lineName": "井の頭線",
+      "point": {
+        "x": 228.6,
+        "y": 316.8
+      }
+    }
+  ]
 };
 
 export const INDEX_NAMES: readonly string[] = [

@@ -17,7 +17,7 @@ export default function Error({
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-6 py-16">
       <div className="border-t-2 border-ink pt-5">
         <p className="label-utility text-vermilion-deep">Something broke</p>
-        <h1 className="mt-2 font-serif text-3xl leading-tight font-medium tracking-editorial text-balance sm:text-4xl">
+        <h1 className="mt-2 font-display text-3xl leading-tight font-semibold tracking-editorial text-balance sm:text-4xl">
           This page didn’t load
         </h1>
         <p className="mt-3 text-[15px] leading-relaxed text-ink-muted">
