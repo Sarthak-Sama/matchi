@@ -59,20 +59,21 @@ export function ResultsSection({
 
   return (
     <section aria-labelledby="results-heading" className="mt-14">
-      <div className="border-t-2 border-ink pt-5">
-        <p className="label-utility text-vermilion-deep">The shortlist</p>
+      <div className="border-t-[6px] border-moss pt-5">
+        <p className="label-utility flex items-center gap-2.5 text-vermilion-deep">
+          <span aria-hidden="true" className="size-2 rotate-45 bg-vermilion" />
+          The shortlist
+        </p>
         <h2
           id="results-heading"
           ref={headingRef}
           tabIndex={-1}
-          className="mt-2 max-w-2xl font-serif text-3xl leading-tight font-medium tracking-editorial text-balance outline-none sm:text-4xl"
+          className="mt-2 max-w-2xl font-display text-3xl leading-[1.05] font-bold tracking-editorial text-balance outline-none sm:text-4xl"
         >
           {results.length} neighborhood{results.length === 1 ? "" : "s"} fit your search
         </h2>
         {pattern && (
-          <p className="mt-2 max-w-2xl font-serif text-[17px] leading-snug text-ink-muted italic">
-            {pattern}
-          </p>
+          <p className="mt-3 max-w-2xl text-[17px] leading-snug text-ink-muted">{pattern}</p>
         )}
         <p className="mt-3 font-mono text-[11px] text-ink-muted">{searchSummary}</p>
       </div>

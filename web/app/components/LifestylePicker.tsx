@@ -9,6 +9,7 @@ import {
   MAX_SELECTED_LIFESTYLE_AXES,
 } from "@tokyo/shared";
 
+import { AxisPictogram } from "./AxisPictogram";
 import { CheckIcon } from "./icons";
 import { SegmentedControl } from "./SegmentedControl";
 
@@ -53,7 +54,11 @@ export function LifestylePicker({ preferences, onChange }: LifestylePickerProps)
         </p>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Lifestyle priorities">
+      <div
+        className="mt-3 grid grid-cols-2 gap-px border border-line-strong bg-line-strong sm:grid-cols-4"
+        role="group"
+        aria-label="Lifestyle priorities"
+      >
         {LIFESTYLE_AXIS_IDS.map((id) => {
           const isSelected = preferences[id] !== undefined;
           const disabled = !isSelected && selectedCount >= MAX_SELECTED_LIFESTYLE_AXES;
@@ -65,15 +70,33 @@ export function LifestylePicker({ preferences, onChange }: LifestylePickerProps)
               aria-pressed={isSelected}
               disabled={disabled}
               onClick={() => toggleAxis(id)}
-              whileTap={reducedMotion || disabled ? undefined : { scale: 0.96 }}
-              className={`flex min-h-11 items-center gap-2 border px-3.5 text-[13px] font-medium transition-colors ${
+              whileTap={reducedMotion || disabled ? undefined : { scale: 0.97 }}
+              className={`group relative flex min-h-24 flex-col items-start justify-between gap-3 p-3 text-left text-[12.5px] leading-tight font-semibold transition-colors ${
                 isSelected
-                  ? "border-moss bg-moss text-white"
-                  : "border-line-strong text-ink hover:border-ink disabled:cursor-not-allowed disabled:opacity-40"
+                  ? "bg-moss text-paper-soft"
+                  : "bg-paper-soft text-ink hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               }`}
             >
-              {isSelected && <CheckIcon className="size-3.5" />}
+              <AxisPictogram
+                axis={id}
+                tone={isSelected ? "inverse" : "solid"}
+                className={`size-9 transition-colors ${isSelected ? "" : "group-hover:bg-moss"}`}
+              />
               {LIFESTYLE_AXES[id].label}
+              <AnimatePresence>
+                {isSelected && (
+                  <motion.span
+                    aria-hidden="true"
+                    className="absolute top-2.5 right-2.5 grid size-5 place-items-center bg-vermilion text-white"
+                    initial={reducedMotion ? false : { scale: 0, rotate: -45 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    exit={{ scale: 0, opacity: 0 }}
+                    transition={{ type: "spring", stiffness: 520, damping: 26 }}
+                  >
+                    <CheckIcon className="size-3.5" />
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </motion.button>
           );
         })}
@@ -93,7 +116,10 @@ export function LifestylePicker({ preferences, onChange }: LifestylePickerProps)
                 key={id}
                 className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
               >
-                <span className="text-[14px] font-medium">{LIFESTYLE_AXES[id].label}</span>
+                <span className="flex items-center gap-2.5 text-[14px] font-semibold">
+                  <AxisPictogram axis={id} className="size-6" />
+                  {LIFESTYLE_AXES[id].label}
+                </span>
                 <SegmentedControl<Importance>
                   legend={`${LIFESTYLE_AXES[id].label} importance`}
                   value={preferences[id] ?? DEFAULT_IMPORTANCE}

@@ -42,7 +42,7 @@ export function ScoreRing({
       </svg>
       <span
         aria-hidden="true"
-        className="absolute font-serif text-[1.15em] font-medium tnum"
+        className="absolute font-display text-[1.15em] font-semibold tnum"
         style={{ fontSize: size * 0.3 }}
       >
         {rounded}

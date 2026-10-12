@@ -17,6 +17,7 @@ import { CompareToggle } from "./CompareToggle";
 import { GoogleMapsLink } from "./GoogleMapsLink";
 import { ArrowRightIcon } from "./icons";
 import { ScoreRing } from "./ScoreRing";
+import { StationNumber } from "./StationNumber";
 
 export function FeaturedResult({
   result,
@@ -47,17 +48,16 @@ export function FeaturedResult({
     <article
       onMouseEnter={() => onHighlight(result.localityId)}
       onMouseLeave={() => onHighlight(null)}
-      className={`border transition-colors duration-200 motion-reduce:transition-none ${
-        highlighted ? "border-vermilion" : "border-line-strong"
+      className={`border border-t-[6px] border-t-moss shadow-[0_18px_40px_-30px_rgb(14_26_19/0.5)] transition-colors duration-200 motion-reduce:transition-none ${
+        highlighted ? "border-vermilion" : "border-ink/70"
       } bg-paper-soft`}
     >
-      <div className="flex items-center justify-between border-b border-line px-5 py-2.5 sm:px-7">
-        <p className="label-utility whitespace-nowrap text-vermilion-deep">
-          <span className="font-mono tracking-normal">01</span>
-          <span className="mx-2 text-line-strong" aria-hidden="true">
-            /
+      <div className="flex items-center justify-between border-b border-line px-5 py-3 sm:px-7">
+        <p className="label-utility flex items-center gap-3 whitespace-nowrap text-vermilion-deep">
+          <StationNumber code="01" active={highlighted} />
+          <span>
+            <span className="sr-only">Rank 1: </span>Best overall fit
           </span>
-          Best overall fit
         </p>
         <div className="flex items-center gap-4">
           <CompareToggle
@@ -74,8 +74,16 @@ export function FeaturedResult({
         <div className="flex items-start justify-between gap-5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <h3 className="font-serif text-3xl leading-tight font-medium tracking-editorial text-balance break-words sm:text-4xl">
-                {localityDisplayName(result.nameEn, result.nameJa)}
+              <h3 className="font-display text-[1.8rem] leading-[1.02] font-bold tracking-editorial break-words hyphens-auto sm:text-[2.5rem]">
+                {result.nameEn || result.nameJa}
+                {result.nameEn && result.nameJa && result.nameEn !== result.nameJa && (
+                  <span
+                    lang="ja"
+                    className="mt-1 block text-[0.6em] tracking-[0.08em] text-ink-muted"
+                  >
+                    {result.nameJa}
+                  </span>
+                )}
               </h3>
               <GoogleMapsLink result={result} />
             </div>
@@ -93,7 +101,7 @@ export function FeaturedResult({
           </div>
         </div>
         {descriptor && (
-          <p className="mt-4 max-w-lg font-serif text-[18px] leading-snug text-vermilion-deep italic">
+          <p className="mt-5 max-w-lg border-l-4 border-vermilion pl-4 text-[17px] leading-snug font-semibold">
             {sentenceCase(descriptor)} &mdash; {commute.total} minutes from{" "}
             {destinationLabel ?? "your destination"}.
           </p>
@@ -102,7 +110,7 @@ export function FeaturedResult({
         <dl className="mt-5 grid grid-cols-3 divide-x divide-line border-y border-line">
           <div className="py-3 pr-3">
             <dt className="label-utility text-[9px] text-ink-muted">Commute</dt>
-            <dd className="mt-1.5 font-serif text-2xl tnum sm:text-[1.7rem]">
+            <dd className="mt-1.5 font-display text-2xl font-bold tnum sm:text-[1.6rem]">
               {commute.total}
               <span className="ml-1 font-sans text-[12px] text-ink-muted">min</span>
             </dd>
@@ -113,7 +121,7 @@ export function FeaturedResult({
           </div>
           <div className="px-3 py-3">
             <dt className="label-utility text-[9px] text-ink-muted">Modeled rent</dt>
-            <dd className="mt-1.5 font-serif text-2xl tnum sm:text-[1.7rem]">
+            <dd className="mt-1.5 font-display text-2xl font-bold tnum sm:text-[1.6rem]">
               {formatYenCompact(result.rent.lowYen)}–{formatYenCompact(result.rent.highYen)}
             </dd>
             <dd className="mt-0.5 text-[11px] text-ink-muted">
@@ -122,7 +130,7 @@ export function FeaturedResult({
           </div>
           <div className="py-3 pl-3">
             <dt className="label-utility text-[9px] text-ink-muted">Transfers</dt>
-            <dd className="mt-1.5 font-serif text-2xl tnum sm:text-[1.7rem]">
+            <dd className="mt-1.5 font-display text-2xl font-bold tnum sm:text-[1.6rem]">
               {result.commute.mode === "walk" ? "—" : result.commute.transferCount}
             </dd>
             <dd className="mt-0.5 text-[11px] text-ink-muted">
@@ -155,15 +163,17 @@ export function FeaturedResult({
           onClick={() => onOpen(result)}
           whileHover={reducedMotion ? undefined : "hover"}
           whileTap={reducedMotion ? undefined : { scale: 0.985 }}
-          className="mt-6 flex min-h-12 w-full items-center justify-between gap-3 bg-moss px-5 py-3.5 text-[13px] font-semibold tracking-[0.08em] text-white uppercase transition-colors hover:bg-moss-deep sm:w-auto sm:min-w-64"
+          className="mt-6 flex min-h-13 w-full items-center justify-between gap-5 bg-moss py-1.5 pr-1.5 pl-5 text-[15px] font-bold text-paper-soft shadow-[inset_0_-4px_0_rgb(0_0_0/0.22)] transition-colors hover:bg-moss-deep sm:w-auto sm:min-w-72"
         >
           Read the neighborhood entry
           <motion.span
-            className="inline-flex"
-            variants={{ hover: { x: 5 } }}
+            aria-hidden="true"
+            className="grid h-10 w-12 place-items-center bg-paper-soft text-moss"
+            style={{ clipPath: "polygon(0 0, 70% 0, 100% 50%, 70% 100%, 0 100%)" }}
+            variants={{ hover: { x: 4 } }}
             transition={{ duration: 0.18, ease: [0.22, 0.61, 0.36, 1] }}
           >
-            <ArrowRightIcon />
+            <ArrowRightIcon className="size-4 -translate-x-1" />
           </motion.span>
         </motion.button>
       </div>

@@ -12,6 +12,7 @@ import { ArrowRightIcon, ChevronDownIcon } from "./icons";
 import { DestinationField } from "./DestinationField";
 import { LifestylePicker } from "./LifestylePicker";
 import { SegmentedControl } from "./SegmentedControl";
+import { StationNumber } from "./StationNumber";
 import { TimePicker } from "./TimePicker";
 
 export function SearchForm({ search }: { search: OptimizeSearch }) {
@@ -47,7 +48,7 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div>
             <p className="label-utility text-vermilion-deep">Your Tokyo brief</p>
-            <p className="mt-1 font-serif text-[17px] tracking-editorial text-ink-muted">
+            <p className="mt-1 font-display text-[17px] font-semibold tracking-editorial text-ink">
               Three decisions. One considered shortlist.
             </p>
           </div>
@@ -59,9 +60,9 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
         </div>
       </div>
       <fieldset id="search">
-        <legend className="flex items-baseline gap-3">
-          <span className="font-mono text-[11px] text-vermilion-deep">01</span>
-          <span className="font-serif text-xl font-medium tracking-editorial">The journey</span>
+        <legend className="flex items-center gap-3">
+          <StationNumber code="01" line={null} size="sm" />
+          <span className="font-display text-xl font-bold tracking-editorial">The journey</span>
         </legend>
         <div className="mt-4">
           <DestinationField
@@ -126,9 +127,9 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
       </fieldset>
 
       <fieldset className="mt-8">
-        <legend className="flex items-baseline gap-3">
-          <span className="font-mono text-[11px] text-vermilion-deep">02</span>
-          <span className="font-serif text-xl font-medium tracking-editorial">The home</span>
+        <legend className="flex items-center gap-3">
+          <StationNumber code="02" line={null} size="sm" />
+          <span className="font-display text-xl font-bold tracking-editorial">The home</span>
         </legend>
         <div className="mt-4">
           <label htmlFor="monthlyBudgetYen" className="label-utility text-ink">
@@ -188,13 +189,13 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
             onClick={() => setPrioritiesOpen((open) => !open)}
             className="flex min-h-11 w-full items-center justify-between gap-3 text-left"
           >
-            <span className="flex items-baseline gap-3">
-              <span className="font-mono text-[11px] text-vermilion-deep">03</span>
-              <span className="font-serif text-xl font-medium tracking-editorial">
+            <span className="flex items-center gap-3">
+              <StationNumber code="03" line={null} size="sm" />
+              <span className="font-display text-xl font-bold tracking-editorial">
                 Everyday priorities
               </span>
               {!prioritiesOpen && selectedPriorityCount > 0 && (
-                <span className="label-utility text-[10px] text-ink-muted">
+                <span className="label-utility text-[10px] whitespace-nowrap text-ink-muted">
                   {selectedPriorityCount} selected
                 </span>
               )}
@@ -241,15 +242,32 @@ export function SearchForm({ search }: { search: OptimizeSearch }) {
           disabled={search.isLoading}
           whileHover={reducedMotion || search.isLoading ? undefined : "hover"}
           whileTap={reducedMotion || search.isLoading ? undefined : { scale: 0.988 }}
-          className="group flex min-h-13 w-full items-center justify-between gap-3 bg-moss px-5 py-4 text-[15px] font-semibold text-white transition-colors hover:bg-moss-deep disabled:cursor-wait disabled:opacity-70 sm:w-auto sm:min-w-72"
+          className="group flex min-h-14 w-full items-center justify-between gap-6 bg-moss py-2 pr-2 pl-6 text-[16px] font-bold text-paper-soft shadow-[inset_0_-4px_0_rgb(0_0_0/0.22)] transition-colors hover:bg-moss-deep disabled:cursor-wait disabled:opacity-80 sm:w-auto sm:min-w-80"
         >
-          {search.isLoading ? "Reading the city…" : "Find my Matchi"}
+          <span className="flex items-center gap-3">
+            <motion.span
+              aria-hidden="true"
+              className="size-2.5 bg-vermilion"
+              initial={{ rotate: 45 }}
+              animate={
+                search.isLoading && !reducedMotion
+                  ? {
+                      rotate: [45, 225],
+                      transition: { repeat: Infinity, duration: 0.9, ease: "easeInOut" },
+                    }
+                  : { rotate: 45 }
+              }
+            />
+            {search.isLoading ? "Reading the city…" : "Find my Matchi"}
+          </span>
           <motion.span
-            className="inline-flex"
-            variants={{ hover: { x: 5 } }}
+            aria-hidden="true"
+            className="grid h-10 w-12 place-items-center bg-paper-soft text-moss"
+            style={{ clipPath: "polygon(0 0, 70% 0, 100% 50%, 70% 100%, 0 100%)" }}
+            variants={{ hover: { x: 4 } }}
             transition={{ duration: 0.18, ease: [0.22, 0.61, 0.36, 1] }}
           >
-            <ArrowRightIcon />
+            <ArrowRightIcon className="size-4 -translate-x-1" />
           </motion.span>
         </motion.button>
         <p className="mt-3 max-w-md text-[12px] leading-relaxed text-ink-muted">

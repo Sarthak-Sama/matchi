@@ -11,14 +11,15 @@ import {
   formatCoordinates,
   formatSourceDate,
   formatYenFull,
-  localityDisplayName,
   localitySecondaryLabel,
   pickCompromise,
   sentenceCase,
 } from "../../lib/format";
 import { CloseIcon } from "./icons";
 import { GoogleMapsLink } from "./GoogleMapsLink";
+import { RouteDiagram } from "./RouteDiagram";
 import { ScoreRing } from "./ScoreRing";
+import { StationNumber } from "./StationNumber";
 
 interface NeighborhoodDetailProps {
   readonly result: NeighborhoodResult;
@@ -83,18 +84,15 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
         role="dialog"
         aria-modal="true"
         aria-labelledby="neighborhood-entry-title"
-        className="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l border-line-strong bg-paper shadow-[-24px_0_60px_rgba(40,36,31,0.25)]"
+        className="absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l-[6px] border-moss bg-paper shadow-[-24px_0_60px_rgb(14_26_19/0.3)]"
       >
         <div className="border-b border-line px-5 pt-5 pb-5 sm:px-8">
           <div className="flex items-center justify-between gap-3">
-            <p className="label-utility text-vermilion-deep">
-              <span className="font-mono tracking-normal">
-                {String(result.rank).padStart(2, "0")}
+            <p className="label-utility flex items-center gap-3 text-vermilion-deep">
+              <StationNumber code={String(result.rank).padStart(2, "0")} active />
+              <span>
+                <span className="sr-only">Rank {result.rank}: </span>Neighborhood entry
               </span>
-              <span className="mx-2 text-line-strong" aria-hidden="true">
-                /
-              </span>
-              Neighborhood entry
             </p>
             <button
               ref={closeRef}
@@ -111,9 +109,17 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                 <h2
                   id="neighborhood-entry-title"
-                  className="font-serif text-4xl leading-[1.05] font-medium tracking-editorial break-words"
+                  className="font-display text-4xl leading-[1.02] font-bold tracking-editorial [overflow-wrap:anywhere]"
                 >
-                  {localityDisplayName(result.nameEn, result.nameJa)}
+                  {result.nameEn || result.nameJa}
+                  {result.nameEn && result.nameJa && result.nameEn !== result.nameJa && (
+                    <span
+                      lang="ja"
+                      className="mt-1 block text-[1.4rem] font-bold tracking-[0.08em] text-ink-muted"
+                    >
+                      {result.nameJa}
+                    </span>
+                  )}
                 </h2>
                 <GoogleMapsLink result={result} />
               </div>
@@ -132,7 +138,7 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
             </div>
           </div>
           {descriptor && (
-            <p className="mt-4 max-w-md font-serif text-[17px] leading-snug text-vermilion-deep italic">
+            <p className="mt-4 max-w-md border-l-4 border-vermilion pl-4 text-[16px] leading-snug font-semibold text-ink">
               {sentenceCase(descriptor)}.
             </p>
           )}
@@ -204,17 +210,7 @@ export function NeighborhoodDetail({ result, destinationLabel, onClose }: Neighb
                     />
                   )}
                 </ol>
-                {result.commute.path.length > 1 && (
-                  <p className="mt-4 text-[13px] leading-relaxed text-ink-muted">
-                    <span className="label-utility mr-2 text-[9px]">Route</span>
-                    {result.commute.path.map((stop, index) => (
-                      <span key={`${stop.stationGroupId}-${index}`}>
-                        {index > 0 && <span aria-hidden="true"> → </span>}
-                        <span lang="ja">{stop.nameJa}</span>
-                      </span>
-                    ))}
-                  </p>
-                )}
+                {result.commute.path.length > 1 && <RouteDiagram path={result.commute.path} />}
               </>
             )}
             <p className="mt-3 text-[12px] text-ink-muted">
@@ -344,7 +340,7 @@ function MetricCell({
   return (
     <div className={`px-4 py-4 ${span}`}>
       <dt className="label-utility text-[9px] text-ink-muted">{label}</dt>
-      <dd className="mt-1.5 font-serif text-[17px] leading-snug tnum">{value}</dd>
+      <dd className="mt-1.5 font-display text-[17px] leading-snug tnum">{value}</dd>
       <dd className="mt-1 text-[11px] text-ink-muted">{note}</dd>
     </div>
   );

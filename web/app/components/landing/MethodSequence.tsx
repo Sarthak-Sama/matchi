@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { bilingualLabel, wardDisplayName } from "../../../lib/format";
 import { DestinationMark } from "../icons";
+import { StationNumber } from "../StationNumber";
 import { EXAMPLE_SEARCH } from "./tokyo-localities";
 
 const YEN = (value: number) => `¥${Math.round(value / 1000)}k`;
@@ -13,11 +14,11 @@ export function MethodSequence() {
   const { funnel, topResult } = EXAMPLE_SEARCH;
 
   return (
-    <ol className="mt-12 space-y-px">
+    <ol className="relative mt-12">
       <Step
-        step="01"
+        marker="depart"
         title="Say where you have to be"
-        body="A station, an office, a campus — anywhere with a name. The guide works backwards from the one point in your week that is not negotiable, and the morning you have to make it by."
+        body="A station, an office, a campus — anywhere with a name. Matchi works backwards from the one point in your week that is not negotiable, and the morning you have to make it by."
       >
         <div className="flex min-h-13 items-center gap-3 border border-moss bg-paper px-4 py-2.5">
           <span className="text-vermilion">
@@ -38,9 +39,9 @@ export function MethodSequence() {
       </Step>
 
       <Step
-        step="02"
+        marker="stop"
         title="Set the limits you actually have"
-        body="A budget, a layout, a commute you can stand twice a day. These are hard filters — an area that misses one is out — and the guide always tells you how many that cost you."
+        body="A budget, a layout, a commute you can stand twice a day. These are hard filters — an area that misses one is out — and Matchi always tells you how many that cost you."
       >
         <Funnel
           considered={funnel.considered}
@@ -58,24 +59,21 @@ export function MethodSequence() {
       </Step>
 
       <Step
-        step="03"
+        marker="arrive"
         title="Read the shortlist, and the compromise"
         body="Every recommendation arrives with what it costs you, not just what it offers — the weakest component named, the confidence stated, and the date the data was collected."
       >
         <div className="border border-line-strong bg-paper">
-          <p className="label-utility border-b border-line px-4 py-2 text-vermilion-deep">
-            <span className="font-mono tracking-normal">01</span>
-            <span className="mx-2 text-line-strong" aria-hidden="true">
-              /
-            </span>
+          <p className="label-utility flex items-center gap-3 border-b border-line px-4 py-2.5 text-vermilion-deep">
+            <StationNumber code="01" size="sm" line={null} />
             Best overall fit
           </p>
           <div className="px-4 py-4">
             <div className="flex items-baseline justify-between gap-4">
-              <p className="font-serif text-[26px] leading-none tracking-editorial">
+              <p className="font-display text-[24px] leading-[1.05] font-bold tracking-editorial">
                 {bilingualLabel(topResult.nameEn, topResult.nameJa)}
               </p>
-              <p className="font-serif text-[22px] tnum">
+              <p className="shrink-0 font-display text-[24px] font-bold whitespace-nowrap tnum">
                 {topResult.score}
                 <span className="ml-1 font-sans text-[11px] text-ink-muted">/ 100</span>
               </p>
@@ -117,27 +115,37 @@ export function MethodSequence() {
 }
 
 function Step({
-  step,
+  marker,
   title,
   body,
   children,
 }: {
-  readonly step: string;
+  readonly marker: "depart" | "stop" | "arrive";
   readonly title: string;
   readonly body: string;
   readonly children: React.ReactNode;
 }) {
   return (
-    <li className="border-t border-line py-8 last:border-b lg:py-10">
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:gap-14">
-        <div className="flex gap-5">
-          <span className="font-mono text-[12px] text-vermilion-deep">{step}</span>
-          <div>
-            <h3 className="font-serif text-[1.6rem] leading-snug font-medium tracking-editorial text-balance sm:text-[1.9rem]">
-              {title}
-            </h3>
-            <p className="mt-3 max-w-md text-[14.5px] leading-relaxed text-ink-muted">{body}</p>
-          </div>
+    <li className="relative grid grid-cols-[2rem_minmax(0,1fr)] gap-x-4 sm:grid-cols-[3rem_minmax(0,1fr)] sm:gap-x-6">
+      {/* The route line: one continuous green track threading the three steps. */}
+      <span aria-hidden="true" className="relative flex justify-center">
+        <span
+          className={`absolute w-1.5 bg-moss ${
+            marker === "depart" ? "top-3 bottom-0" : marker === "arrive" ? "top-0 h-3" : "inset-y-0"
+          }`}
+        />
+        {marker === "arrive" ? (
+          <span className="relative mt-1 size-5 rotate-45 bg-vermilion ring-4 ring-paper-soft" />
+        ) : (
+          <span className="relative mt-1 size-5 rounded-full border-[5px] border-moss bg-paper-soft" />
+        )}
+      </span>
+      <div className="grid gap-6 pb-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,27rem)] lg:gap-14 lg:pb-16">
+        <div>
+          <h3 className="font-display text-[1.55rem] leading-[1.1] font-bold tracking-editorial text-balance sm:text-[1.9rem]">
+            {title}
+          </h3>
+          <p className="mt-3 max-w-md text-[15px] leading-relaxed text-ink-muted">{body}</p>
         </div>
         <div className="lg:pt-1">{children}</div>
       </div>
@@ -216,7 +224,7 @@ function Funnel({
         ))}
       </dl>
       <p className="mt-3.5 border-t border-line pt-3 text-[13px] leading-relaxed text-ink-muted">
-        {qualified.toLocaleString("en-US")} areas cleared every limit. The guide ranks those and
+        {qualified.toLocaleString("en-US")} areas cleared every limit. Matchi ranks those and
         returns the best <span className="font-medium text-ink">{shortlisted}</span>.
       </p>
     </div>

@@ -11,7 +11,7 @@ export function Masthead({ variant = "search" }: { readonly variant?: "search" |
   const reducedMotion = useReducedMotion();
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line bg-paper/95 backdrop-blur-sm">
+    <header className="sticky top-0 z-40 border-b border-ink/15 bg-paper-soft/92 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-[1360px] items-center justify-between px-5 sm:px-8">
         <Link href="/" aria-label="Matchi home" className="group flex items-center gap-2.5">
           <motion.span
@@ -29,10 +29,13 @@ export function Masthead({ variant = "search" }: { readonly variant?: "search" |
               className="size-8 shrink-0"
             />
           </motion.span>
-          <span className="font-serif text-lg leading-none font-semibold tracking-editorial">
+          <span className="font-display text-[19px] leading-none font-extrabold tracking-[-0.02em]">
             Matchi
           </span>
-          <span lang="ja" className="font-serif text-sm leading-none text-vermilion-deep">
+          <span
+            lang="ja"
+            className="grid h-5 place-items-center bg-ink px-1 text-[11px] leading-none font-bold text-paper-soft transition-colors group-hover:bg-vermilion-deep"
+          >
             街
           </span>
         </Link>
@@ -48,8 +51,9 @@ export function Masthead({ variant = "search" }: { readonly variant?: "search" |
               </a>
               <Link
                 href="/find"
-                className="group flex min-h-10 items-center gap-2 bg-moss px-3.5 text-white transition-colors hover:bg-moss-deep"
+                className="group flex min-h-10 items-center gap-2.5 bg-moss px-3.5 text-paper-soft transition-colors hover:bg-moss-deep"
               >
+                <span aria-hidden="true" className="size-1.5 rotate-45 bg-vermilion" />
                 <span className="label-utility">Find my Matchi</span>
                 <ArrowRightIcon className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5 motion-reduce:transition-none" />
               </Link>
@@ -64,7 +68,7 @@ export function Masthead({ variant = "search" }: { readonly variant?: "search" |
               </a>
               <a
                 href="#search"
-                className="label-utility border border-line-strong px-3 py-2 text-ink transition-colors hover:border-ink"
+                className="label-utility border border-ink/30 px-3 py-2 text-ink transition-colors hover:border-ink hover:bg-ink hover:text-paper-soft"
               >
                 New search
               </a>

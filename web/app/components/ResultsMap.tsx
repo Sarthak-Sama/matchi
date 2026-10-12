@@ -268,7 +268,7 @@ export function ResultsMap({
 
       <div className="pointer-events-none absolute top-3 left-3 z-30 border-l-2 border-vermilion bg-paper/95 px-3 py-2 shadow-[0_2px_12px_rgba(40,36,31,0.08)] sm:top-4 sm:left-4">
         <p className="label-utility text-[9px] text-vermilion-deep">Candidate map</p>
-        <p className="mt-0.5 font-serif text-[15px] leading-none tracking-editorial text-ink">
+        <p className="mt-0.5 font-display text-[15px] leading-none tracking-editorial text-ink">
           {results.length} places, ranked
         </p>
       </div>
@@ -371,7 +371,7 @@ export function ResultsMap({
 
             {isTop && !isHighlighted && (
               <span className="pointer-events-none absolute top-1/2 left-[calc(100%-0.15rem)] hidden -translate-y-1/2 border-l-2 border-vermilion bg-paper/95 px-2.5 py-1.5 text-left shadow-[0_2px_10px_rgba(40,36,31,0.12)] sm:block">
-                <span className="block max-w-36 truncate font-serif text-[13px] leading-none tracking-editorial text-ink">
+                <span className="block max-w-36 truncate font-display text-[13px] leading-none tracking-editorial text-ink">
                   {displayName}
                 </span>
                 <span className="mt-1 block font-mono text-[9px] tracking-wide whitespace-nowrap text-ink-muted uppercase">
@@ -386,7 +386,7 @@ export function ResultsMap({
                 tooltipOnLeft ? "right-9" : "left-9"
               } ${tooltipBelow ? "top-7" : "bottom-7"}`}
             >
-              <span className="block font-serif text-[15px] leading-tight tracking-editorial">
+              <span className="block font-display text-[15px] leading-tight tracking-editorial">
                 {displayName}
               </span>
               <span className="mt-1 block text-[10px] leading-relaxed text-sage">
