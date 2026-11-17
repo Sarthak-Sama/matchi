@@ -151,7 +151,7 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
           a.supermarkets * $3::double precision + a.groceries * $4::double precision
             + a.convenience * $5::double precision AS supermarket_equiv,
           a.restaurants, a.cafes, a.convenience, a.cuisine, a.late_night, a.health,
-          am.green_share,
+          am.green_share, am.residential_share, am.road_rail_share, a.nightlife,
           100 * (
             $6::double precision * am.residential_share
             + $7::double precision * (1 - am.road_rail_share)
@@ -171,7 +171,10 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
           percentile_cont(0.5) WITHIN GROUP (ORDER BY late_night) AS late_night,
           percentile_cont(0.5) WITHIN GROUP (ORDER BY health) AS health,
           percentile_cont(0.5) WITHIN GROUP (ORDER BY green_share) AS green_share,
-          percentile_cont(0.5) WITHIN GROUP (ORDER BY quietness) AS quietness
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY quietness) AS quietness,
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY residential_share) AS residential_share,
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY road_rail_share) AS road_rail_share,
+          percentile_cont(0.5) WITHIN GROUP (ORDER BY nightlife) AS nightlife
         FROM per_sample GROUP BY locality_id
       ), source_vintage AS (
         SELECT jsonb_strip_nulls(jsonb_build_object(
@@ -186,7 +189,8 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
         locality_id, supermarket_count, restaurant_count, cafe_count, convenience_count, cuisine_variety_count,
         late_night_count, health_count, green_space_share, norm_amenity_supermarket, norm_amenity_restaurant,
         norm_amenity_convenience, norm_amenity_cuisine_variety, norm_amenity_late_night, norm_amenity_health,
-        norm_green_space, norm_quietness, source_dates, derived_at
+        norm_green_space, norm_quietness, residential_zoning_share, road_rail_exposure_share,
+        bar_count, quietness_raw, source_dates, derived_at
       )
       SELECT locality_id, round(supermarket_equiv)::integer, round(restaurants)::integer, round(cafes)::integer, round(convenience)::integer,
         round(cuisine)::integer, round(late_night)::integer, round(health)::integer, green_share,
@@ -197,7 +201,8 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
         LEAST(100, 100 * ln(1 + late_night) / ln(1 + $13::double precision)),
         LEAST(100, 100 * ln(1 + health) / ln(1 + $14::double precision)),
         LEAST(100, 100 * ln(1 + green_share) / ln(1 + $15::double precision)),
-        quietness, sv.dates, now()
+        quietness, residential_share, road_rail_share, round(nightlife)::integer, quietness / 100,
+        sv.dates, now()
       FROM medians CROSS JOIN source_vintage sv
       ON CONFLICT (locality_id) DO UPDATE SET
         supermarket_count = EXCLUDED.supermarket_count, restaurant_count = EXCLUDED.restaurant_count,
@@ -211,6 +216,10 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
         norm_amenity_late_night = EXCLUDED.norm_amenity_late_night,
         norm_amenity_health = EXCLUDED.norm_amenity_health, norm_green_space = EXCLUDED.norm_green_space,
         norm_quietness = EXCLUDED.norm_quietness,
+        residential_zoning_share = EXCLUDED.residential_zoning_share,
+        road_rail_exposure_share = EXCLUDED.road_rail_exposure_share,
+        bar_count = EXCLUDED.bar_count,
+        quietness_raw = EXCLUDED.quietness_raw,
         source_dates = EXCLUDED.source_dates,
         derived_at = EXCLUDED.derived_at`,
       [

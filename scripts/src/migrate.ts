@@ -16,6 +16,18 @@ async function ensureMigrationsTable(pool: ReturnType<typeof createPool>): Promi
   `);
 }
 
+export const DEFAULT_AGENT_SCHEMA = "agent";
+
+// Migrations name the agent-facing schema with the psql variable syntax
+// :"agent_schema" so the same file runs under `psql -v agent_schema=agent -f`
+// and here. Tests point it at a scratch schema so they never touch the real one.
+export function substituteMigrationVariables(sql: string, agentSchema: string): string {
+  if (!/^[a-z_][a-z0-9_]*$/.test(agentSchema)) {
+    throw new Error(`migrate: agent schema "${agentSchema}" is not a plain lower-case identifier`);
+  }
+  return sql.replaceAll(':"agent_schema"', `"${agentSchema}"`);
+}
+
 async function listMigrationFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir);
   return entries.filter((name) => name.endsWith(".sql")).sort((a, b) => a.localeCompare(b));
@@ -26,7 +38,11 @@ async function listAppliedFilenames(pool: ReturnType<typeof createPool>): Promis
   return new Set(rows.map((row) => row.filename));
 }
 
-export async function runMigrations(options: { dryRun: boolean }): Promise<void> {
+export async function runMigrations(options: {
+  dryRun: boolean;
+  agentSchema?: string;
+}): Promise<void> {
+  const agentSchema = options.agentSchema ?? DEFAULT_AGENT_SCHEMA;
   const pool = createPool();
   try {
     await ensureMigrationsTable(pool);
@@ -46,7 +62,10 @@ export async function runMigrations(options: { dryRun: boolean }): Promise<void>
         continue;
       }
 
-      const sql = await readFile(path.join(MIGRATIONS_DIR, file), "utf8");
+      const sql = substituteMigrationVariables(
+        await readFile(path.join(MIGRATIONS_DIR, file), "utf8"),
+        agentSchema,
+      );
       await withTransaction(pool, async (client) => {
         await client.query(sql);
         await client.query("INSERT INTO schema_migrations (filename) VALUES ($1)", [file]);

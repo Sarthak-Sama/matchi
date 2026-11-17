@@ -14,7 +14,7 @@ import { runImport } from "./lib/import-run.js";
 const SOURCE = "estat-boundaries";
 const SOURCE_UPDATED_AT = new Date("2022-06-24T00:00:00Z");
 
-type GeoJsonFeature = {
+export type GeoJsonFeature = {
   readonly properties?: Record<string, unknown>;
   readonly geometry?: { readonly type: string; readonly coordinates: unknown } | null;
 };
@@ -39,20 +39,32 @@ export function normalizeLocalityName(name: string): string {
     .trim();
 }
 
-function localityId(wardCode: string, nameJa: string): string {
+export function localityId(wardCode: string, nameJa: string): string {
   return `${wardCode}:${createHash("sha256").update(nameJa).digest("hex").slice(0, 16)}`;
 }
 
-export async function importLocalities(
-  pool: Pool,
-  path = "data/localities.geojson",
-  romanizationPath = "data/locality-romanization.csv",
-): Promise<number> {
-  const parsed = JSON.parse(await readFile(path, "utf8")) as { features?: GeoJsonFeature[] };
-  if (!Array.isArray(parsed.features))
-    throw new Error(`${path}: expected GeoJSON FeatureCollection`);
-  const grouped = new Map<string, { wardCode: string; nameJa: string; geometries: string[] }>();
-  for (const feature of parsed.features) {
+export interface LocalityGroup {
+  readonly wardCode: string;
+  readonly nameJa: string;
+  readonly geometries: string[];
+  population: number;
+  households: number;
+  areaSqm: number;
+}
+
+function count(properties: Record<string, unknown> | undefined, key: string): number {
+  const raw = Number(properties?.[key] ?? 0);
+  return Number.isFinite(raw) ? raw : 0;
+}
+
+// Groups census town/chome polygons into localities. JINKO, SETAI and AREA
+// are summed: when one town code has several polygons the census puts the
+// counts on the first and zeros on the rest, so a plain sum is right.
+export function groupLocalityFeatures(
+  features: readonly GeoJsonFeature[],
+): Map<string, LocalityGroup> {
+  const grouped = new Map<string, LocalityGroup>();
+  for (const feature of features) {
     if (!feature.geometry || !["Polygon", "MultiPolygon"].includes(feature.geometry.type)) continue;
     const rawWardCode = value(feature.properties, ["ward_code", "N03_007", "KEY_CODE", "CITYCODE"]);
 
@@ -62,10 +74,36 @@ export async function importLocalities(
     const nameJa = normalizeLocalityName(rawName);
     if (!nameJa) continue;
     const key = `${wardCode}\u0000${nameJa}`;
-    const entry = grouped.get(key) ?? { wardCode, nameJa, geometries: [] };
+    const entry = grouped.get(key) ?? {
+      wardCode,
+      nameJa,
+      geometries: [],
+      population: 0,
+      households: 0,
+      areaSqm: 0,
+    };
     entry.geometries.push(JSON.stringify(feature.geometry));
+    entry.population += count(feature.properties, "JINKO");
+    entry.households += count(feature.properties, "SETAI");
+    entry.areaSqm += count(feature.properties, "AREA");
     grouped.set(key, entry);
   }
+  return grouped;
+}
+
+export async function readLocalityFeatures(path: string): Promise<GeoJsonFeature[]> {
+  const parsed = JSON.parse(await readFile(path, "utf8")) as { features?: GeoJsonFeature[] };
+  if (!Array.isArray(parsed.features))
+    throw new Error(`${path}: expected GeoJSON FeatureCollection`);
+  return parsed.features;
+}
+
+export async function importLocalities(
+  pool: Pool,
+  path = "data/localities.geojson",
+  romanizationPath = "data/locality-romanization.csv",
+): Promise<number> {
+  const grouped = groupLocalityFeatures(await readLocalityFeatures(path));
   if (grouped.size === 0)
     throw new Error(`${path}: no Tokyo 23-ward town/chome features recognized`);
 
@@ -119,10 +157,22 @@ export async function importLocalities(
            SELECT ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Intersection(d.geom, w.geom)), 3)) AS geom
            FROM dissolved d JOIN wards w ON w.ward_code=$2
          )
-         INSERT INTO localities (locality_id, ward_code, name_ja, name_en, geom, centroid, source, source_updated_at)
-         SELECT $1, $2, $3, $7, geom, ST_PointOnSurface(geom), $5, $6
+         INSERT INTO localities (locality_id, ward_code, name_ja, name_en, geom, centroid, source,
+           source_updated_at, population, households, area_sqm)
+         SELECT $1, $2, $3, $7, geom, ST_PointOnSurface(geom), $5, $6, $8, $9, $10
          FROM clipped WHERE NOT ST_IsEmpty(geom)`,
-        [id, entry.wardCode, entry.nameJa, entry.geometries, SOURCE, SOURCE_UPDATED_AT, nameEn],
+        [
+          id,
+          entry.wardCode,
+          entry.nameJa,
+          entry.geometries,
+          SOURCE,
+          SOURCE_UPDATED_AT,
+          nameEn,
+          entry.population,
+          entry.households,
+          entry.areaSqm,
+        ],
       );
       written += rowCount ?? 0;
     }
