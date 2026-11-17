@@ -6,9 +6,14 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 
+import { createEngine } from "@tokyo/shared";
+
+import { createAgentRuntimeGetter } from "./agent/session.js";
 import type { Config } from "./config.js";
 import type { DbPool } from "./db.js";
 import type { TransitGraphs } from "./domain/transit/graph.js";
+import { registerAgentRoute } from "./routes/agent.js";
+import { registerAgentDirectRoute } from "./routes/agent-direct.js";
 import { registerDataStatusRoute } from "./routes/data-status.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerNeighborhoodRoute } from "./routes/neighborhoods.js";
@@ -56,7 +61,10 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     contentSecurityPolicy: false,
   });
 
-  void app.register(cors, { origin: deps.config.CORS_ORIGIN });
+  void app.register(cors, {
+    origin: deps.config.CORS_ORIGIN,
+    methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
+  });
 
   void app.register(rateLimit, {
     max: deps.config.RATE_LIMIT_MAX,
@@ -108,6 +116,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     registerNeighborhoodRoute(instance, deps);
     registerLocalityRoute(instance, deps);
     registerDataStatusRoute(instance, deps);
+    const getAgentRuntime = createAgentRuntimeGetter(deps, createEngine);
+    registerAgentDirectRoute(instance, { getRuntime: getAgentRuntime });
+    registerAgentRoute(instance, { getRuntime: getAgentRuntime, pool: deps.pool });
     done();
   });
 

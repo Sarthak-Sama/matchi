@@ -69,7 +69,7 @@ export default defineConfig({
           // Runs before every file in this project — see the setup
           // file for why this is global rather than per-suite.
           setupFiles: ["../vitest.setup.database-guard.ts"],
-          include: ["lib/**/*.test.ts"],
+          include: ["lib/**/*.test.ts", "app/agent/**/*.test.ts"],
         },
       },
     ],

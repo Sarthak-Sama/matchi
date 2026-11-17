@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>How Matchi Works</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout concept: a transit-map page. The sections are stops on one line, in the order data flows:
+   database, value of an area, belief, evidence, shortlist, asking, explaining, harness, evaluation. */
+:root {
+  --bg: #F3F6F7;
+  --surface: #FFFFFF;
+  --surface-2: #E8EEF0;
+  --ink: #14212A;
+  --ink-2: #485A65;
+  --line: #CFD9DE;
+  --accent: #0A6C8B;
+  --accent-soft: #D7EDF4;
+  --warm: #C84E08;
+  --warm-soft: #FBE5D6;
+  --good: #1D7A4B;
+  --good-soft: #D8EFE2;
+  --font-display: "Bricolage Grotesque", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  --font-body: "Instrument Sans", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D1519; --surface: #142126; --surface-2: #1B2D35; --ink: #E5EEF1; --ink-2: #9DB1BB;
+    --line: #29404A; --accent: #55C3E4; --accent-soft: #11373F; --warm: #FF9858; --warm-soft: #3A2314;
+    --good: #5FD39A; --good-soft: #123325; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D1519; --surface: #142126; --surface-2: #1B2D35; --ink: #E5EEF1; --ink-2: #9DB1BB;
+  --line: #29404A; --accent: #55C3E4; --accent-soft: #11373F; --warm: #FF9858; --warm-soft: #3A2314;
+  --good: #5FD39A; --good-soft: #123325; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+@media (prefers-color-scheme: dark) { html { color-scheme: dark; } }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.15; text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); font-weight: 700; }
+h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); font-weight: 700; }
+h3 { font-size: 1.15rem; font-weight: 700; margin-top: 2rem; }
+p { margin: 0.8em 0; max-width: 68ch; }
+a { color: var(--accent); }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--surface-2); padding: 0.1em 0.35em; border-radius: 4px; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 48px; max-width: 1180px; margin: 0 auto;
+  padding-block: 32px 96px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+/* route map navigation */
+.rail { position: sticky; top: 24px; align-self: start; font-size: 14px; }
+.rail .brand { font-family: var(--font-display); font-weight: 700; font-size: 1.25rem; margin-bottom: 14px; }
+.rail ol { list-style: none; margin: 0; padding: 0 0 0 22px; position: relative; }
+.rail ol::before { content: ""; position: absolute; left: 6px; top: 8px; bottom: 8px; width: 4px; border-radius: 2px; background: var(--accent); }
+.rail li { position: relative; padding: 5px 0; }
+.rail li::before { content: ""; position: absolute; left: -22px; top: 10px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); border: 3px solid var(--accent); }
+.rail li.on::before { background: var(--warm); border-color: var(--warm); }
+.rail a { color: var(--ink-2); text-decoration: none; }
+.rail li.on a, .rail a:hover { color: var(--ink); font-weight: 600; }
+main { min-width: 0; }
+section { padding-top: 56px; scroll-margin-top: 12px; }
+section:first-of-type { padding-top: 0; }
+.kicker { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 8px; }
+.lede { font-size: 1.15rem; color: var(--ink-2); max-width: 62ch; }
+
+.callout { background: var(--accent-soft); border-radius: 10px; padding: 14px 18px; margin: 20px 0; max-width: 72ch; }
+.callout.warm { background: var(--warm-soft); }
+.callout.good { background: var(--good-soft); }
+.callout p { margin: 0.4em 0; }
+.callout strong:first-child { display: block; font-family: var(--font-display); }
+
+.eq { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 16px 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif; font-size: 1.12rem; overflow-x: auto; white-space: nowrap; }
+.eq var { font-style: italic; }
+.eq sub, .eq sup { font-size: 0.7em; line-height: 0; }
+.eq .cap { display: block; font-family: var(--font-body); font-size: 13px; color: var(--ink-2); white-space: normal; margin-top: 8px; }
+
+.scroll { overflow-x: auto; margin: 16px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-2); background: var(--surface-2); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.scroll table { min-width: 560px; }
+
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 22px 0; padding: 0; list-style: none; counter-reset: s; }
+.steps li { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; counter-increment: s; font-size: 14.5px; }
+.steps li::before { content: counter(s); display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--bg); font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+.steps b { display: block; font-family: var(--font-display); }
+
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; margin: 20px 0; }
+.node { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; flex: 1 1 140px; font-size: 14px; min-width: 0; }
+.node b { display: block; font-family: var(--font-display); font-size: 15px; }
+.node small { color: var(--ink-2); }
+.node.hl { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.arrow { align-self: center; color: var(--accent); font-weight: 700; }
+
+.lanes { display: grid; gap: 14px; margin: 22px 0; }
+.lane { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: var(--surface); }
+.lane h4 { margin: 0 0 10px; font-family: var(--font-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); font-weight: 500; }
+.lane .flow { margin: 0; }
+.lane.words h4 { color: var(--warm); }
+.lane.numbers h4 { color: var(--accent); }
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 18px 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0; }
+.panel h3 { margin-top: 0; }
+
+/* interactive widgets */
+.widget { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin: 22px 0; }
+.widget > .title { font-family: var(--font-display); font-weight: 700; font-size: 1.05rem; margin-bottom: 2px; }
+.widget > .sub { color: var(--ink-2); font-size: 14px; margin: 0 0 14px; }
+.sliders { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px 22px; }
+.sliders label { display: block; font-size: 13.5px; }
+.sliders label span { display: flex; justify-content: space-between; gap: 8px; color: var(--ink-2); }
+.sliders output { font-family: var(--font-mono); color: var(--ink); font-size: 13px; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.result { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; margin-top: 16px; align-items: start; }
+.terms { list-style: none; margin: 0; padding: 0; font-size: 14.5px; }
+.terms li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.terms li.total { border-bottom: 0; border-top: 2px solid var(--ink); font-weight: 600; margin-top: 4px; padding-top: 10px; }
+.terms .v { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pos { color: var(--good); } .neg { color: var(--warm); }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+button { font: inherit; font-size: 14px; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; min-height: 34px; margin: 8px 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); border-radius: 999px; padding: 4px 6px 4px 12px; font-size: 13.5px; }
+.chip button { border: 0; background: transparent; padding: 0 6px; font-size: 16px; line-height: 1; color: var(--ink-2); }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 14px; color: var(--ink-2); }
+.stats b { color: var(--ink); font-family: var(--font-mono); font-weight: 500; }
+svg { max-width: 100%; height: auto; display: block; }
+svg text { font-family: var(--font-body); fill: var(--ink-2); font-size: 11px; }
+.axis { stroke: var(--line); } .gridline { stroke: var(--line); stroke-dasharray: 3 3; }
+
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; margin: 16px 0; }
+summary { cursor: pointer; font-weight: 600; }
+ul.tight { padding-left: 1.2em; margin: 0.5em 0; } ul.tight li { margin: 0.25em 0; max-width: 68ch; }
+.tag { display: inline-block; font-family: var(--font-mono); font-size: 11.5px; padding: 1px 7px; border-radius: 4px; background: var(--surface-2); color: var(--ink-2); }
+.tag.built { background: var(--good-soft); color: var(--good); }
+.tag.todo { background: var(--warm-soft); color: var(--warm); }
+footer { margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 14px; }
+
+@media (max-width: 900px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .rail { position: static; }
+  .rail ol { display: flex; flex-wrap: wrap; gap: 4px 16px; padding-left: 0; }
+  .rail ol::before { display: none; }
+  .rail li { padding: 2px 0; } .rail li::before { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+
+<div class="shell">
+<nav class="rail" aria-label="Sections">
+  <div class="brand">Matchi</div>
+  <ol id="nav">
+    <li><a href="#overview">Big picture</a></li>
+    <li><a href="#data">The database</a></li>
+    <li><a href="#value">Value of an area</a></li>
+    <li><a href="#belief">Belief about you</a></li>
+    <li><a href="#evidence">Evidence</a></li>
+    <li><a href="#shortlist">The shortlist</a></li>
+    <li><a href="#ask">Ask or stop</a></li>
+    <li><a href="#explain">Explanations</a></li>
+    <li><a href="#harness">Agent harness</a></li>
+    <li><a href="#eval">Testing it</a></li>
+    <li><a href="#limits">Known limits</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ============ OVERVIEW ============ -->
+<section id="overview">
+  <div class="kicker">Underlying logic, in plain language</div>
+  <h1>How Matchi decides where you should live</h1>
+  <p class="lede">Matchi helps one person choose a place to live in Tokyo's 23 wards. It does not rank areas with one fixed score. It keeps a set of guesses about what you value, measured in yen per month, and narrows those guesses every time you say or tap something.</p>
+
+  <div class="lanes">
+    <div class="lane words"><h4>Words travel along this row</h4>
+      <div class="flow">
+        <div class="node"><b>You</b><small>type a messy sentence, tap a card</small></div><span class="arrow">⇄</span>
+        <div class="node"><b>Page</b><small>chat, shortlist, belief bars, chips, trace</small></div><span class="arrow">⇄</span>
+        <div class="node hl"><b>Harness</b><small>the loop in the API that talks to everyone</small></div><span class="arrow">⇄</span>
+        <div class="node"><b>Language model</b><small>turns speech into evidence, results into sentences</small></div>
+      </div>
+    </div>
+    <div class="lane numbers"><h4>Numbers travel along this row</h4>
+      <div class="flow">
+        <div class="node hl"><b>Harness</b><small>validates and records every tool call</small></div><span class="arrow">⇄</span>
+        <div class="node"><b>Nine tools</b><small>the only door to the numbers</small></div><span class="arrow">⇄</span>
+        <div class="node"><b>Engine</b><small>pure TypeScript maths, no model, no database</small></div><span class="arrow">⇄</span>
+        <div class="node"><b>Database</b><small>937 localities, rent, rail, amenities</small></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout warm"><strong>The one rule everything else serves</strong>
+    <p>The language model never states a number, an area fact or a ranking of its own. Each one comes from a tool result in the same turn, and the harness checks that the reply matches.</p></div>
+
+  <h3>One turn, in five steps</h3>
+  <ol class="steps">
+    <li><b>Listen</b>The model turns what you said into typed evidence items.</li>
+    <li><b>Reweight</b>Each item reweights about 4,000 sampled versions of you.</li>
+    <li><b>Value</b>Every area gets a monthly yen value under every version.</li>
+    <li><b>Shortlist</b>Pick the five areas that, as a set, serve the most versions of you.</li>
+    <li><b>Ask or stop</b>Report how much is still at risk. If it is large, ask. If small, commit.</li>
+  </ol>
+  <p>Three properties hold throughout. Every area fact comes from the database. Every quantity is in yen per month or minutes, so any trade-off can be said in plain words. A fixed random seed means the same evidence always gives the same shortlist.</p>
+</section>
+
+<!-- ============ DATABASE ============ -->
+<section id="data">
+  <div class="kicker">Stop 1 · Where the facts live</div>
+  <h2>The database and how everything connects to it</h2>
+  <p class="lede">The engine does no routing and no SQL. Everything it knows about Tokyo is one table of 937 rows that the database prepares in advance.</p>
+
+  <h3>From raw sources to one table</h3>
+  <div class="flow">
+    <div class="node"><b>Public data</b><small>MLIT land prices, zoning and rail · e-Stat rent and census · OpenStreetMap places · Japan Post names</small></div><span class="arrow">→</span>
+    <div class="node"><b>Import scripts</b><small><code>import:mlit</code>, <code>import:rent</code>, <code>import:osm</code>, <code>import:transit</code></small></div><span class="arrow">→</span>
+    <div class="node"><b>PostGIS tables</b><small>localities, pois, land_prices, rent_stats, rail_edges…</small></div><span class="arrow">→</span>
+    <div class="node"><b><code>pnpm derive</code></b><small>measures each locality: counts, shares, travel times</small></div><span class="arrow">→</span>
+    <div class="node hl"><b><code>agent.area_features</code></b><small>a view: 937 rows, 53 columns</small></div>
+  </div>
+  <p>Each import checks its columns and row counts, then replaces its tables in one transaction and writes a line to <code>import_runs</code> saying when it ran and whether it worked. The unit is a <b>locality</b>: an official town polygon from the 2020 census, with the chōme sub-blocks combined. There are 937 of them across 23 wards.</p>
+
+  <h3>The tables that matter</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Table or view</th><th>What one row is</th><th>Where it comes from</th></tr></thead>
+    <tbody>
+      <tr><td><code>localities</code></td><td>A town polygon with a Japanese and English name</td><td>e-Stat census polygons, Japan Post romanization</td></tr>
+      <tr><td><code>locality_metrics</code></td><td>Everything measured for a locality: rent, shop counts, green share</td><td>Derived from the tables below</td></tr>
+      <tr><td><code>locality_samples</code>, <code>locality_sample_stations</code></td><td>9 sample points inside each locality, and their 3 nearest stations with walk minutes</td><td>Derived; used so one odd corner does not decide a whole locality</td></tr>
+      <tr><td><code>pois</code></td><td>One shop, restaurant, bar, clinic or park</td><td>OpenStreetMap</td></tr>
+      <tr><td><code>land_prices</code></td><td>One residential land-price point</td><td>MLIT (official land price survey)</td></tr>
+      <tr><td><code>rent_stats</code></td><td>Rent per m² and management fee for one ward</td><td>e-Stat 2023 Housing and Land Survey</td></tr>
+      <tr><td><code>rail_edges</code>, <code>rail_lines</code></td><td>One hop between two stations on a line, with peak and off-peak minutes</td><td>MLIT rail topology with a speed model</td></tr>
+      <tr><td><code>station_travel_times</code></td><td>Fastest rail time between two stations, for peak or off-peak (480,208 rows)</td><td>Derived by running shortest-path search over <code>rail_edges</code></td></tr>
+      <tr><td><code>model_params</code></td><td>Fitted constants, for example the rent elasticity 0.3555</td><td>Fitted by a derive step; 7 rows</td></tr>
+      <tr><td><code>import_runs</code></td><td>One import attempt and its outcome</td><td>Written by every import</td></tr>
+    </tbody></table></div>
+
+  <h3>What is inside <code>agent.area_features</code></h3>
+  <p>It lives in its own <code>agent</code> schema, as views, with a plain-English comment on every column. The model reads those comments in its system prompt. The 53 columns fall into groups:</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Group</th><th>Examples</th><th>Careful with</th></tr></thead>
+    <tbody>
+      <tr><td>Identity</td><td><code>locality_id</code>, <code>name_ja</code>, <code>ward_code</code>, <code>lat</code>, <code>lon</code></td><td>Local <code>name_en</code> is empty in all 937 rows</td></tr>
+      <tr><td>Rent</td><td><code>rent_per_sqm_yen</code>, <code>management_fee_yen</code>, <code>land_value_yen_per_sqm</code></td><td>Rent is a <b>ward</b> average, identical for every locality in a ward</td></tr>
+      <tr><td>Everyday places within 800 m</td><td><code>supermarket_count</code>, <code>restaurant_count</code>, <code>convenience_count</code>, <code>health_count</code></td><td>OpenStreetMap coverage varies</td></tr>
+      <tr><td>Quiet and green</td><td><code>residential_zoning_share</code>, <code>road_rail_exposure_share</code>, <code>bar_count</code>, <code>green_space_share</code></td><td>Quietness is a proxy, not a noise reading</td></tr>
+      <tr><td>Access</td><td><code>min_to_shinjuku</code> and 7 other hubs, <code>line_count</code>, <code>stations_within_30_min</code></td><td>Modelled minutes, not timetabled. 11 localities have none</td></tr>
+      <tr><td>Rail-reachable amenities</td><td><code>reach_restaurant</code>, <code>reach_late_night</code>, <code>reach_green</code></td><td>An index, not a head count</td></tr>
+      <tr><td>People</td><td><code>population</code>, <code>population_density_per_km2</code>, <code>persons_per_household</code></td><td>2020 census</td></tr>
+    </tbody></table></div>
+  <p>The old optimizer and the new agent share these tables. The agent only reads the <code>agent</code> views.</p>
+
+  <h3>How the running app touches the database</h3>
+  <div class="cols">
+    <div class="panel"><h3>At startup, once</h3>
+      <ul class="tight">
+        <li>The API opens a Postgres pool.</li>
+        <li><code>loadFeatureStore</code> reads all 937 rows of <code>agent.area_features</code> and <code>model_params</code> into memory.</li>
+        <li>The rail graph (peak and off-peak) loads from <code>rail_edges</code>.</li>
+      </ul></div>
+    <div class="panel"><h3>When you set an anchor</h3>
+      <ul class="tight">
+        <li>You name a workplace or school (a station or a point).</li>
+        <li>The API runs a reverse shortest-path search from that spot over the in-memory graph.</li>
+        <li>Result: one-way minutes from every locality to it. Unreachable ones get NaN.</li>
+        <li>These go into <code>engine.setProfile</code>. The engine never routes itself.</li>
+      </ul></div>
+    <div class="panel"><h3>On every turn</h3>
+      <ul class="tight">
+        <li>No database round trip. The engine works on arrays in memory.</li>
+        <li>The only exception is <code>query_areas</code>, an optional SQL tool, off unless <code>AGENT_QUERY_AREAS=1</code>. It runs read-only with a 5 second timeout.</li>
+      </ul></div>
+  </div>
+
+  <div class="callout"><strong>How travel time to a locality is estimated</strong>
+    <p>For each of a locality's 9 sample points, take the best of its 3 nearest stations: walk to the station (straight-line distance × 1.3 at 80 m per minute), ride, then walk at the other end. Rail time includes a 4 minute wait at peak (6 off-peak) and 5 minutes per transfer. Take the median across the 9 points. Peak means arriving 07:30 to 10:00.</p></div>
+</section>
+
+<!-- ============ VALUE ============ -->
+<section id="value">
+  <div class="kicker">Stop 2 · The maths, part one</div>
+  <h2>What an area is worth to you, in yen a month</h2>
+  <p class="lede">Every area gets one number: what living there is worth to a particular version of you. Amenities add. Rent, travel time and broken soft limits subtract.</p>
+
+  <div class="eq"><var>U</var><sub>θ</sub>(<var>a</var>) = −<var>R</var>(<var>a</var>) − <var>c</var><sub>T</sub>·<var>T</var>(<var>a</var>) + Σ<sub><var>j</var></sub> <var>w</var><sub><var>j</var></sub>·<var>s</var><sub><var>j</var></sub>(<var>x</var><sub><var>aj</var></sub>) − <var>λ</var><sub>B</sub>·[<var>R</var>(<var>a</var>) − <var>B</var>]<sub>+</sub> − <var>γ</var>·<var>c</var><sub>T</sub>·[<var>T</var><sub>1</sub>(<var>a</var>) − <var>T</var><sub>C</sub>]<sub>+</sub>
+    <span class="cap">θ is one version of you (a full set of preferences). A bracket with a plus sign means "zero if negative".</span></div>
+
+  <div class="scroll"><table>
+    <thead><tr><th>Symbol</th><th>In plain words</th><th>Unit</th></tr></thead>
+    <tbody>
+      <tr><td><var>R</var>(a)</td><td>Modelled monthly rent for your chosen layout</td><td>yen</td></tr>
+      <tr><td><var>T</var>(a)</td><td>Hours per month you would spend travelling, across all your anchors</td><td>hours</td></tr>
+      <tr><td><var>c</var><sub>T</sub></td><td>What one hour of your travel time costs you</td><td>yen per hour</td></tr>
+      <tr><td><var>x</var><sub>aj</sub>, <var>s</var><sub>j</sub></td><td>How much of feature j the area has, and a curve that squashes it into 0 to 1</td><td>none</td></tr>
+      <tr><td><var>w</var><sub>j</sub></td><td>What having plenty of feature j is worth to you compared with none. Can be negative (noise)</td><td>yen per month</td></tr>
+      <tr><td><var>B</var>, <var>λ</var><sub>B</sub></td><td>Your budget, and how much extra each yen over it hurts</td><td>yen, ratio</td></tr>
+      <tr><td><var>T</var><sub>1</sub>, <var>T</var><sub>C</sub>, <var>γ</var></td><td>Hours to your main anchor, the hours your stated commute cap allows, and an extra cost multiplier on time beyond the cap</td><td>hours, ratio</td></tr>
+    </tbody></table></div>
+  <p>A <b>firm</b> limit is not a penalty. Areas that break it are removed before scoring. Only <b>soft</b> limits become the two penalty terms.</p>
+
+  <h3>Rent</h3>
+  <div class="eq"><var>R</var>(<var>a</var>) = <var>r</var><sub>ward</sub> · <var>m</var>(<var>a</var>) · <var>A</var><sub>layout</sub> + <var>f</var><sub>ward</sub>,&nbsp;&nbsp; <var>m</var>(<var>a</var>) = clip( (<var>L</var><sub>a</sub> / <var>L̃</var><sub>ward</sub>)<sup><var>ε</var></sup>, 0.7, 1.4 )</div>
+  <p>Start with the ward's rent per m², scale it by the layout's size (a 1K is about 24 m²), add the ward's management fee. Then shift it for the locality: <var>L</var> is the local land value and <var>L̃</var> the median land value in the ward. A locality with pricier land gets a higher rent multiplier. The exponent ε is 0.3555, fitted across the 23 wards. The multiplier is clipped to 0.7 to 1.4 because 129 localities sat on the old 0.85 to 1.15 limit.</p>
+
+  <h3>Travel time</h3>
+  <div class="eq"><var>T</var>(<var>a</var>) = (52 / 12) · Σ<sub><var>m</var></sub> <var>n</var><sub><var>m</var></sub> · 2<var>t</var><sub><var>m</var></sub>(<var>a</var>) / 60</div>
+  <p>For each anchor <var>m</var>: round trips per week <var>n</var> times one-way minutes <var>t</var>, doubled for the return, divided by 60, then scaled from weeks to months (52/12). Each anchor reads its own period, so a daytime school and a late shift can differ.</p>
+
+  <h3>Saturation: more helps less and less</h3>
+  <div class="eq"><var>s</var>(<var>x</var>) = 1 − 10<sup>−<var>x</var> / <var>h</var></sup></div>
+  <p><var>h</var> is the amount that counts as "enough". At <var>x = h</var> the curve is at 0.9. A neighbourhood with 4 supermarkets is nearly as good as one with 20, unless you say otherwise.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Feature</th><th>Column</th><th class="num">Enough (h)</th><th>Sign of w</th></tr></thead>
+    <tbody>
+      <tr><td>Supermarkets</td><td><code>supermarket_count</code></td><td class="num">4</td><td>+</td></tr>
+      <tr><td>Restaurants and cafes</td><td><code>restaurant_count + cafe_count</code></td><td class="num">40</td><td>+</td></tr>
+      <tr><td>Konbini</td><td><code>convenience_count</code></td><td class="num">10</td><td>+</td></tr>
+      <tr><td>Cuisine variety</td><td><code>cuisine_variety_count</code></td><td class="num">12</td><td>+</td></tr>
+      <tr><td>Late-night food</td><td><code>late_night_count</code></td><td class="num">6</td><td>+</td></tr>
+      <tr><td>Everyday health</td><td><code>health_count</code></td><td class="num">8</td><td>+</td></tr>
+      <tr><td>Green space</td><td><code>green_space_share</code></td><td class="num">0.15</td><td>+</td></tr>
+      <tr><td>Residential calm</td><td><code>residential_zoning_share</code></td><td class="num">0.6</td><td>+</td></tr>
+      <tr><td>Road and rail exposure</td><td><code>road_rail_exposure_share</code></td><td class="num">0.5</td><td>−</td></tr>
+      <tr><td>Bars nearby</td><td><code>bar_count</code></td><td class="num">6</td><td>either</td></tr>
+      <tr><td>Dining a short ride away</td><td><code>reach_restaurant</code></td><td class="num">75th percentile</td><td>+</td></tr>
+      <tr><td>Connectedness</td><td><code>line_count</code></td><td class="num">3</td><td>+</td></tr>
+    </tbody></table></div>
+
+  <div class="widget" id="calc">
+    <div class="title">Try it: value one area for one imagined person</div>
+    <p class="sub">The numbers below are examples you can move. They are not data from the database.</p>
+    <div class="sliders">
+      <label>Monthly rent <span>¥<output id="c_rent"></output></span><input type="range" id="i_rent" min="40000" max="160000" step="1000" value="82000"></label>
+      <label>One-way commute <span><output id="c_min"></output> min</span><input type="range" id="i_min" min="5" max="70" step="1" value="25"></label>
+      <label>Trips per week <span><output id="c_trips"></output></span><input type="range" id="i_trips" min="1" max="10" step="1" value="5"></label>
+      <label>Cost of an hour of travel, c<sub>T</sub> <span>¥<output id="c_ct"></output></span><input type="range" id="i_ct" min="200" max="2000" step="50" value="750"></label>
+      <label>Supermarkets within 800 m <span><output id="c_sup"></output></span><input type="range" id="i_sup" min="0" max="15" step="1" value="6"></label>
+      <label>Worth of plenty of supermarkets, w <span>¥<output id="c_w"></output></span><input type="range" id="i_w" min="0" max="8000" step="250" value="3000"></label>
+      <label>Soft budget, B <span>¥<output id="c_b"></output></span><input type="range" id="i_b" min="40000" max="160000" step="1000" value="100000"></label>
+      <label>Soft commute cap <span><output id="c_cap"></output> min</span><input type="range" id="i_cap" min="10" max="70" step="1" value="40"></label>
+    </div>
+    <div class="result">
+      <ul class="terms" id="calc_terms" aria-live="polite"></ul>
+      <div>
+        <svg id="sat" viewBox="0 0 320 190" role="img" aria-label="Saturation curve for supermarkets"></svg>
+        <p class="sub" style="margin:6px 0 0">The curve for supermarkets (h = 4). The dot is where this area sits.</p>
+      </div>
+    </div>
+    <p class="sub" style="margin-top:12px">Here λ<sub>B</sub> = 2 and γ = 3, the prior medians. The total is negative because rent is subtracted. Only differences between areas matter, and the engine compares areas by these totals.</p>
+  </div>
+
+  <h3>Rent and travel time are guesses, so the engine treats them as guesses</h3>
+  <div class="eq"><var>R</var><sub><var>i</var></sub>(<var>a</var>) = <var>R</var>(<var>a</var>)·e<sup><var>σ</var><sub>R</sub> <var>z</var></sup>,&nbsp;&nbsp; <var>t</var><sub><var>i</var></sub>(<var>a</var>) = <var>t</var>(<var>a</var>) + max(3, 0.15·<var>t</var>(<var>a</var>))·<var>z</var></div>
+  <p>Each sampled version of you sees slightly different rent and travel times (<var>z</var> is a random draw from a bell curve, fixed for the whole session). <var>σ</var><sub>R</sub> is 8% when a land-price point is within 300 m and 12% otherwise. Travel time is off by 15%, at least 3 minutes. The effect: two areas three minutes apart count as a near tie, which is honest, since every rail time is modelled.</p>
+</section>
+
+<!-- ============ BELIEF ============ -->
+<section id="belief">
+  <div class="kicker">Stop 3 · The maths, part two</div>
+  <h2>The belief: 4,000 plausible versions of you</h2>
+  <p class="lede">The engine never knows your true preferences. It holds 4,000 guesses, each a full set of numbers (<var>c</var><sub>T</sub>, the twelve <var>w</var> values, <var>λ</var><sub>B</sub>, <var>γ</var>). Each guess has a weight. All weights start equal. Evidence changes the weights, never the guesses.</p>
+
+  <h3>Where the guesses start (the prior)</h3>
+  <p>Every yen figure is drawn as a fraction of your budget <var>B</var>, so one prior serves a ¥70,000 student and a ¥250,000 couple. With no budget given, the engine uses the median modelled rent of the reachable areas instead.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Parameter</th><th>How it is drawn</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><var>c</var><sub>T</sub> (cost of an hour)</td><td>(<var>B</var> / 133) × archetype factor × lognormal(0, 0.7)</td><td>Rent is about a third of take-home pay, about 160 paid hours a month, travel valued near 40% of hourly pay. At ¥100,000 the median is about ¥750 per hour</td></tr>
+      <tr><td><var>w</var><sub>j</sub> (one-sided)</td><td><var>B</var> × (archetype percent / 100) × lognormal(0, 0.8)</td><td>Wide on purpose. The sign is fixed by the feature</td></tr>
+      <tr><td><var>w</var><sub>j</sub> (bars, either sign)</td><td>Normal, mean from archetype, spread 3% of <var>B</var></td><td>Some people like bars, some avoid them</td></tr>
+      <tr><td><var>λ</var><sub>B</sub></td><td>lognormal around 1</td><td>A yen over budget hurts about twice a yen under it</td></tr>
+      <tr><td><var>γ</var></td><td>lognormal around 3</td><td>Minutes beyond the cap cost 3 times extra</td></tr>
+    </tbody></table></div>
+  <p>Each guess is also assigned one of five <b>archetypes</b> at random (student, young professional, couple, family, remote worker), which sets where its medians sit. For example a family guess values green space at 5% of budget and a student guess at 1%. These tables are hand-set starting points. They only need to be plausible and wide, because the first two or three pieces of evidence move the weights to the right mixture.</p>
+  <details><summary>Show the archetype table (percent of budget)</summary>
+    <div class="scroll"><table>
+      <thead><tr><th>Feature</th><th class="num">Student</th><th class="num">Young pro</th><th class="num">Couple</th><th class="num">Family</th><th class="num">Remote</th></tr></thead>
+      <tbody>
+        <tr><td>Supermarkets</td><td class="num">3</td><td class="num">2</td><td class="num">4</td><td class="num">5</td><td class="num">4</td></tr>
+        <tr><td>Restaurants and cafes</td><td class="num">2</td><td class="num">4</td><td class="num">4</td><td class="num">2</td><td class="num">4</td></tr>
+        <tr><td>Konbini</td><td class="num">3</td><td class="num">3</td><td class="num">1</td><td class="num">1</td><td class="num">2</td></tr>
+        <tr><td>Cuisine variety</td><td class="num">1</td><td class="num">3</td><td class="num">3</td><td class="num">1</td><td class="num">2</td></tr>
+        <tr><td>Late-night food</td><td class="num">3</td><td class="num">3</td><td class="num">1</td><td class="num">0.5</td><td class="num">1</td></tr>
+        <tr><td>Everyday health</td><td class="num">1</td><td class="num">1</td><td class="num">2</td><td class="num">4</td><td class="num">2</td></tr>
+        <tr><td>Green space</td><td class="num">1</td><td class="num">2</td><td class="num">3</td><td class="num">5</td><td class="num">4</td></tr>
+        <tr><td>Residential calm</td><td class="num">1</td><td class="num">2</td><td class="num">3</td><td class="num">5</td><td class="num">4</td></tr>
+        <tr><td>Road and rail exposure</td><td class="num">−1</td><td class="num">−2</td><td class="num">−3</td><td class="num">−4</td><td class="num">−4</td></tr>
+        <tr><td>Bars nearby</td><td class="num">+2</td><td class="num">+2</td><td class="num">0</td><td class="num">−3</td><td class="num">0</td></tr>
+        <tr><td>Dining a short ride away</td><td class="num">2</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">2</td></tr>
+        <tr><td>Connectedness</td><td class="num">2</td><td class="num">3</td><td class="num">2</td><td class="num">1</td><td class="num">1</td></tr>
+        <tr><td>Time multiplier for c<sub>T</sub></td><td class="num">0.7</td><td class="num">1.3</td><td class="num">1.0</td><td class="num">1.0</td><td class="num">0.5</td></tr>
+      </tbody></table></div></details>
+
+  <h3>How evidence moves the weights</h3>
+  <div class="eq"><var>π</var><sub><var>i</var></sub> ← <var>π</var><sub><var>i</var></sub> · ( (1 − <var>ε</var>)·<var>L</var><sub><var>e</var></sub>(<var>θ</var><sub><var>i</var></sub>) + <var>ε</var> )<sup><var>α</var><sub><var>e</var></sub></sup>,&nbsp;&nbsp; <var>ε</var> = 0.05
+    <span class="cap">Then divide by the total so the weights sum to 1. π is a guess's weight. L is how likely your statement would be if you were that guess. α is strength: 0.5 weak, 1 normal, 2 strong.</span></div>
+  <p>A guess that would have said what you said gains weight. One that would not loses weight. The 0.05 floor assumes a 5% chance any statement was misheard, so one odd remark never wipes out the belief.</p>
+
+  <div class="widget" id="belief_demo">
+    <div class="title">Try it: watch a belief learn</div>
+    <p class="sub">One question only: how much do you value having bars nearby? Each dot is one of 80 guesses (the real engine uses 4,000 over twelve features). Bigger dot means more weight. Add evidence, then remove an item to see the replay.</p>
+    <svg id="belief_svg" viewBox="0 0 640 150" role="img" aria-label="Dot strip showing weighted guesses of how much the person values bars"></svg>
+    <div class="btns" id="belief_btns">
+      <button data-k="love">"I like a lively street"</button>
+      <button data-k="avoid">"I avoid bars"</button>
+      <button data-k="avoidStrong">"I really hate bars" (strong)</button>
+      <button data-k="matters">"Bars matter a lot to me" (essential)</button>
+    </div>
+    <div class="chips" id="belief_chips" aria-label="Evidence in the log"></div>
+    <div class="stats" id="belief_stats"></div>
+    <p class="sub" style="margin-top:10px">Notice that "matters a lot" alone makes two clusters, one liking bars and one avoiding them. It says how big, not which direction. Adding a direction resolves it.</p>
+  </div>
+
+  <h3>Replay, not accumulation</h3>
+  <p>The belief is always the prior multiplied by the likelihoods of the items <i>currently</i> in the log. Add, edit or delete an item and the engine recomputes from the prior. So order never matters, and deleting a chip on the page exactly undoes it. The log, with the words you used, is the whole memory of the session.</p>
+
+  <h3>How healthy is the belief?</h3>
+  <div class="eq">ESS = 1 / Σ<sub><var>i</var></sub> <var>π</var><sub><var>i</var></sub><sup>2</sup></div>
+  <p>The effective sample size says how many guesses still carry weight. It starts at 4,000. If it drops below 200 the design redraws a fresh set of guesses from the current belief. That redraw is <span class="tag todo">not built yet</span>: for now the page shows a low-confidence badge. The page shows, for each parameter, the weighted median and the 10th to 90th percentile range as a share of budget. That range narrowing is learning, made visible.</p>
+</section>
+
+<!-- ============ EVIDENCE ============ -->
+<section id="evidence">
+  <div class="kicker">Stop 4 · Turning words into maths</div>
+  <h2>Evidence: nine kinds of statement</h2>
+  <p class="lede">The language model's job is to translate what you say into one of nine typed items. Each type has a fixed likelihood formula in the engine. The model never touches the maths.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Type</th><th>You might say</th><th>How likely if you were guess θ</th></tr></thead>
+    <tbody>
+      <tr><td><code>prefer_area</code></td><td>"I'd take Koenji over Nakano"</td><td>logistic of (U(a) − U(b)) / β</td></tr>
+      <tr><td><code>pick_from_set</code></td><td>You tap one of five cards</td><td>exp(U(c)/β) divided by the sum over the cards</td></tr>
+      <tr><td><code>reject_area</code></td><td>"Not that one"</td><td>1 minus the chance you would pick it</td></tr>
+      <tr><td><code>direction</code></td><td>"I hate noise"</td><td>logistic of sign × w<sub>j</sub> / τ</td></tr>
+      <tr><td><code>magnitude</code></td><td>"Green space is essential"</td><td>high if |w<sub>j</sub>| is near the tier size</td></tr>
+      <tr><td><code>compare_importance</code></td><td>"Quiet matters more than food"</td><td>logistic of (|w<sub>j</sub>| − |w<sub>k</sub>|) / τ</td></tr>
+      <tr><td><code>time_tradeoff</code></td><td>"I'd pay ¥10,000 more to save 15 minutes each way"</td><td>c<sub>T</sub> is above or below the hourly rate the sentence implies</td></tr>
+      <tr><td><code>like_area</code></td><td>"Somewhere like Shimokitazawa"</td><td>q(x)², where q is the area's percentile rank on everything except rent</td></tr>
+      <tr><td><code>dislike_area</code></td><td>"Nothing like Roppongi"</td><td>(1 − q(x))²</td></tr>
+    </tbody></table></div>
+  <ul class="tight">
+    <li><b>Noise scales.</b> β is 3% of budget for choosing between areas, τ is 1% for statements about weights.</li>
+    <li><b>Magnitude tiers</b> are low 1%, medium 2%, high 4%, essential 8% of budget. They double each step, matching the old importance values 1, 2, 4, 8.</li>
+    <li><b>Reactions to cards.</b> "Too far" or "too suburban" become weak <code>time_tradeoff</code> or <code>direction</code> items.</li>
+    <li><b>Facts about your life are not evidence.</b> Where you go, how often, layout, budget and commute cap (firm or soft) go into the <i>profile</i>. Firm limits filter areas. Soft ones become penalty terms.</li>
+    <li><b>"But cheaper"</b> needs no evidence at all, because the rent term already rewards it.</li>
+  </ul>
+
+  <h3>Surprise: noticing when you contradict yourself</h3>
+  <div class="eq"><var>p</var><sub><var>e</var></sub> = Σ<sub><var>i</var></sub> <var>π</var><sub><var>i</var></sub> · ( (1 − <var>ε</var>)·<var>L</var><sub><var>e</var></sub>(<var>θ</var><sub><var>i</var></sub>) + <var>ε</var> )</div>
+  <p>Before applying an item, the engine asks how expected it was under the current belief. Below 0.15 it flags the item as surprising and names the earlier item it clashes with most (the one whose removal would make the new item more expected). The agent then says it out loud: "you said budget is firm, but you keep preferring places above it." Magnitude, like and dislike items are exempt from the flag.</p>
+</section>
+
+<!-- ============ SHORTLIST ============ -->
+<section id="shortlist">
+  <div class="kicker">Stop 5 · Choosing what to show</div>
+  <h2>The shortlist: five areas chosen as a team</h2>
+  <p class="lede">Taking the five highest-scoring areas would give five near-copies. Instead the engine picks the set of five that gives the highest expected value when you choose your own favourite among them.</p>
+  <div class="eq">EUS(<var>S</var>) = Σ<sub><var>i</var></sub> <var>π</var><sub><var>i</var></sub> · max<sub><var>a</var> ∈ <var>S</var></sub> <var>U</var><sub><var>i</var></sub>(<var>a</var>)</div>
+  <p><b>Algorithm.</b> Take the feasible areas (those passing every firm limit with usable travel data). Start with an empty set. Five times, add the area that raises EUS the most. A near-duplicate of an area already chosen adds almost nothing, so the list diversifies by itself: each area is there because it is the best answer for some share of the plausible versions of you. This greedy method is guaranteed to reach at least 63% of the best possible set.</p>
+  <p><b>Cost.</b> Utilities sit in a 4,000 × 937 array. One shortlist is about 19 million operations. Measured on the real data, <code>recommend</code> takes 32 to 55 ms.</p>
+
+  <h3>What each card carries</h3>
+  <div class="eq"><var>P</var><sub>best</sub>(<var>a</var>) = Σ<sub><var>i</var></sub> <var>π</var><sub><var>i</var></sub> · 𝟙[<var>a</var> is best for <var>θ</var><sub><var>i</var></sub>],&nbsp;&nbsp; Regret(<var>a</var>) = Σ<sub><var>i</var></sub> <var>π</var><sub><var>i</var></sub> ( max<sub><var>b</var></sub> <var>U</var><sub><var>i</var></sub>(<var>b</var>) − <var>U</var><sub><var>i</var></sub>(<var>a</var>) )</div>
+  <div class="scroll"><table>
+    <thead><tr><th>Output</th><th>Meaning</th><th>Shown as</th></tr></thead>
+    <tbody>
+      <tr><td>Chance of being best</td><td>Share of plausible versions of you for whom this area wins</td><td>"Top pick in 41% of plausible versions of you" (an example)</td></tr>
+      <tr><td>Regret</td><td>Yen per month lost on average by choosing it over the true best</td><td>"About ¥3,000 a month from ideal" (an example)</td></tr>
+      <tr><td>Role</td><td>The one parameter that most distinguishes the versions of you where this card wins</td><td>"Best if your time matters most"</td></tr>
+      <tr><td>Breakdown</td><td>Each term of U in yen, compared with the median feasible area</td><td>Rent, time cost, each amenity</td></tr>
+      <tr><td>Confidence</td><td>How trustworthy the inputs are</td><td>A plain label per number</td></tr>
+    </tbody></table></div>
+  <div class="callout"><strong>Two utilities, on purpose</strong>
+    <p>The shortlist, risk and regret use the noise-free utility, so rent and travel noise cannot put a floor under the risk number. The noisy utility is used only for P<sub>best</sub> (over the top 20 areas) and for "a beats b" in comparisons.</p></div>
+</section>
+
+<!-- ============ ASK ============ -->
+<section id="ask">
+  <div class="kicker">Stop 6 · Knowing when to stop</div>
+  <h2>Ask another question, or commit</h2>
+  <p class="lede">The engine asks only while an answer could change the recommendation by an amount worth your time, measured in yen per month.</p>
+  <div class="eq">Risk(<var>S</var>) = Σ<sub><var>i</var></sub> <var>π</var><sub><var>i</var></sub> ( max<sub><var>b</var> ∈ <var>F</var></sub> <var>U</var><sub><var>i</var></sub>(<var>b</var>) − max<sub><var>a</var> ∈ <var>S</var></sub> <var>U</var><sub><var>i</var></sub>(<var>a</var>) )
+    <span class="cap">The average amount you lose by having only this shortlist to choose from, instead of every feasible area F.</span></div>
+  <p>The agent can then say something plain, such as "what I still don't know about you is worth under ¥1,000 a month", using whatever figure the engine reports.</p>
+
+  <h3>The stop rule as built</h3>
+  <ul class="tight">
+    <li>Stop when six questions have been asked, or when risk is under 1% of budget <i>and</i> at least two questions have been asked.</li>
+    <li>Also stop if no question can be formed (no missing fact and fewer than two shortlisted areas).</li>
+  </ul>
+  <div class="callout warm"><strong>Why the minimum of two questions exists</strong>
+    <p>The design said "stop when risk is under 1% of budget". On real data the risk was only ¥70 to ¥300 (under 0.3% of budget) from the very first turn, even though the top area won in only 9 to 14% of samples. So the engine would have never asked anything. The rule now needs at least two questions first. Risk is still reported truthfully.</p></div>
+
+  <h3>Which question comes first</h3>
+  <ol class="tight">
+    <li><b>A missing profile fact:</b> anchor, layout or budget. Nothing else can be asked well without these.</li>
+    <li><b>The shortlist itself:</b> "Which of these feels closest?" Reading the tap is the default question. Showing the set that maximises EUS is also close to the most informative thing to show (a result from the preference-elicitation research).</li>
+    <li><b>A pair of real areas:</b> the pair from the shortlist whose chance of "a beats b" is closest to one half, among areas with P<sub>best</sub> above 0.05. If fewer than two qualify, the top two by expected utility.</li>
+  </ol>
+  <div class="eq">EVOI(<var>q</var>) = Σ<sub><var>o</var></sub> <var>P</var>(<var>o</var>) · max<sub><var>a</var></sub> E[<var>U</var>(<var>a</var>) | <var>o</var>] − max<sub><var>a</var></sub> E[<var>U</var>(<var>a</var>)]
+    <span class="cap">The full "expected value of information" formula. It is designed but <b>not built</b>. The pair rule above is the shortcut used instead.</span></div>
+  <p>Questions always use real areas and real figures, never abstract sliders: "Koenji at ¥82,000 and 38 minutes, or Kami-Igusa at ¥74,000 and 52?" (placeholder figures).</p>
+</section>
+
+<!-- ============ EXPLAIN ============ -->
+<section id="explain">
+  <div class="kicker">Stop 7 · Reasons you can check</div>
+  <h2>Explanations come from the same numbers</h2>
+  <p class="lede">Every explanation is computed from the same samples and utilities as the recommendation, so it cannot disagree with it. The agent only phrases what these functions return.</p>
+  <div class="cols">
+    <div class="panel"><h3>Why this area</h3><p>The yen breakdown at your average parameters, with the two biggest gains and two biggest losses against the median feasible area. Shape: "¥8,000 a month cheaper than typical for you, 5 hours a month more travel."</p></div>
+    <div class="panel"><h3>Why not area X</h3>
+      <ol class="tight">
+        <li>If X breaks a firm limit, say which and by how much.</li>
+        <li>If X wins for at least 1% of the plausible versions of you, name the parameter that matters most for them.</li>
+        <li>Otherwise say the smallest change that would make X win: the weight on one term would need to grow by some factor.</li>
+        <li>If X is no better on anything you value, say so.</li>
+      </ol></div>
+    <div class="panel"><h3>Relax</h3><p>For each limit, try fixed steps (budget +5%, +10%, +20%; commute cap +5, +10, +15 minutes). Report how many areas become feasible and how much the best expected value rises, in yen. If nothing fits, you get these options and never just "nothing found".</p></div>
+    <div class="panel"><h3>Compare A and B</h3><p>The term-by-term yen difference at your average parameters, plus the chance that A beats B across all samples.</p></div>
+    <div class="panel"><h3>If I'm wrong about you</h3><p>One extra card: among the samples where the top pick is not best, the area that wins most often, and the parameter that distinguishes those samples.</p></div>
+  </div>
+
+  <h3>Edge cases the engine defines</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Situation</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td>No area passes the firm limits</td><td>Empty shortlist with the relax table attached</td></tr>
+      <tr><td>Anchor outside the 23 wards</td><td>Refused with a reason. The agent asks for a nearby station inside coverage</td></tr>
+      <tr><td>Locality with missing access data</td><td>Left out and counted in an "excluded" summary</td></tr>
+      <tr><td>Station not connected to your anchor</td><td>That area is infeasible for the anchor</td></tr>
+      <tr><td>Two anchors at different times</td><td>Each uses its own peak or off-peak time</td></tr>
+      <tr><td>Late-night return trips</td><td>Time is computed but flagged, since last trains are not in the data</td></tr>
+      <tr><td>No budget given</td><td>Median rent of reachable areas stands in for the scale; no budget penalty</td></tr>
+      <tr><td>Contradictory evidence</td><td>The 5% floor keeps the belief alive and the item is flagged</td></tr>
+      <tr><td>Evidence deleted or edited</td><td>Full replay from the prior</td></tr>
+      <tr><td>Bad or unknown evidence type</td><td>Rejected with a typed error, nothing applied</td></tr>
+      <tr><td>Same session reopened</td><td>Rebuilt from profile, evidence log and seed. The belief is recomputed, not stored</td></tr>
+    </tbody></table></div>
+</section>
+
+<!-- ============ HARNESS ============ -->
+<section id="harness">
+  <div class="kicker">Stop 8 · The agent around the model</div>
+  <h2>The agent harness</h2>
+  <p class="lede">The harness is the code in the API that sits between the page, the model and the tools. It is the only part that talks to all three. The model reaches the engine and database only through a tool call that the harness validates, runs and records.</p>
+
+  <h3>The nine tools</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Tool</th><th>What it does</th><th>Permission</th></tr></thead>
+    <tbody>
+      <tr><td><code>lookup</code></td><td>Find an area, station or place by name. Up to 5 matches. Every id used elsewhere comes from here</td><td>Runs freely</td></tr>
+      <tr><td><code>set_profile</code></td><td>Store anchors, layout, budget, commute cap (each firm or soft). Reports refused anchors and the count of feasible areas</td><td>Runs, always shown</td></tr>
+      <tr><td><code>observe</code></td><td>Add evidence items with their quoted words. Returns how surprising each was and what it conflicts with</td><td>Runs, always shown as a chip</td></tr>
+      <tr><td><code>remove_evidence</code></td><td>Delete an item, the belief replays. The page can call this directly</td><td>Runs, always shown</td></tr>
+      <tr><td><code>recommend</code></td><td>The shortlist, risk, stop flag and next question. The only source of rankings</td><td>Runs freely</td></tr>
+      <tr><td><code>why_not</code></td><td>The four-step "why not X" procedure</td><td>Runs freely</td></tr>
+      <tr><td><code>relax</code></td><td>What loosening each limit would gain</td><td>Runs freely</td></tr>
+      <tr><td><code>compare</code></td><td>Term-by-term difference of two areas</td><td>Runs freely</td></tr>
+      <tr><td><code>query_areas</code></td><td>One SQL SELECT against the <code>agent</code> schema, up to 50 rows. Off by default</td><td>Sandboxed</td></tr>
+    </tbody></table></div>
+  <p>Each tool checks its input with a schema and returns compact JSON. Errors come back as typed results the model can act on, never as exceptions. Figures are rounded before they are returned: rent to the nearest ¥1,000, minutes to whole minutes, probabilities to whole percents. Every figure carries its unit and label, such as <code>{"rent_yen": 82000, "rent_label": "modelled, ward-level"}</code>. Place names from OpenStreetMap could contain anything, so free text travels in a field called <code>untrusted_text</code> and the model is told never to follow instructions found there.</p>
+
+  <h3>One turn through the loop</h3>
+  <ol class="steps">
+    <li><b>Load</b>Session: profile, evidence log, seed, recent turns.</li>
+    <li><b>Build</b>System prompt, state summary, last 8 exchanges, your message.</li>
+    <li><b>Call</b>The model, with tool definitions.</li>
+    <li><b>Run tools</b>Validate, run, record. Up to 6 calls per turn.</li>
+    <li><b>Auto-recommend</b>After any profile or evidence change, the harness runs <code>recommend</code> itself. A stale shortlist never reaches the page.</li>
+    <li><b>Ground</b>Check every figure in the reply against this turn's tool results.</li>
+    <li><b>Stream</b>Send the state, then done, and save the turn.</li>
+  </ol>
+  <p>Events sent to the page: <code>text</code>, <code>tool_call</code>, <code>tool_result</code>, <code>state</code>, <code>grounding</code>, <code>done</code>, <code>error</code>. As built, each model answer is checked first and sent as one <code>text</code> event, so a failed draft never reaches the page.</p>
+
+  <h3>The grounding check</h3>
+  <div class="flow">
+    <div class="node"><b>Collect</b><small>every number in this turn's tool results and your profile</small></div><span class="arrow">→</span>
+    <div class="node"><b>Extract</b><small>every number in the reply that carries a unit: yen, minutes, percent, a count of areas</small></div><span class="arrow">→</span>
+    <div class="node"><b>Match</b><small>each must equal a collected value after the same rounding</small></div><span class="arrow">→</span>
+    <div class="node hl"><b>On a miss</b><small>one correction message and a second answer. If it fails again, the bad sentence is dropped and the cards are shown</small></div>
+  </div>
+  <div class="callout warm"><strong>Known gap</strong>
+    <p>The check matches a figure against any collected number. A real figure attached to the wrong label (for example a rent quoted as a commute time) would pass. It catches invented figures, not mislabelled ones.</p></div>
+
+  <h3>Memory: the profile and the evidence log, not the transcript</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Tier</th><th>Holds</th><th>Lifetime</th></tr></thead>
+    <tbody>
+      <tr><td>Session state</td><td>Profile, evidence log with your quotes, random seed</td><td>The session. The belief is recomputed, never stored</td></tr>
+      <tr><td>Conversation window</td><td>Last 8 exchanges, without old tool results</td><td>Rolling</td></tr>
+      <tr><td>Tool results</td><td>Full JSON of this turn's calls</td><td>This turn only</td></tr>
+      <tr><td>Reference</td><td>Column comments from <code>agent.area_features</code>, the feature list, the evidence types</td><td>Loaded at startup, part of the system prompt</td></tr>
+    </tbody></table></div>
+  <p>Every turn the model also gets a state summary of under about 400 tokens: your profile, each evidence item as type, quote and strength, the widest and narrowest belief ranges, the current shortlist with chances, risk, and questions asked. Normally a long chat forces a lossy summary. Here the evidence log is a lossless record of what was learned, each item tied to your own words, so old turns can drop out and only tone is lost. You can see every item as a chip and delete it.</p>
+
+  <h3>Permissions and limits</h3>
+  <div class="cols">
+    <div class="panel"><h3 style="margin-top:0">What the agent can do</h3>
+      <ul class="tight">
+        <li>Read and reason freely.</li>
+        <li>Change only its own session state, and every change shows as a chip you can delete.</li>
+        <li>No write tools against the database and no network tools.</li>
+        <li>It can produce a listings-site link, but nothing is opened or fetched by the agent. You click.</li>
+      </ul></div>
+    <div class="panel"><h3 style="margin-top:0">The SQL guard for <code>query_areas</code></h3>
+      <ol class="tight">
+        <li>One statement, starting with SELECT or WITH.</li>
+        <li>No semicolons, comments or write words.</li>
+        <li>Only tables and functions in the <code>agent</code> schema.</li>
+        <li>Wrapped as <code>SELECT * FROM (…) q LIMIT 50</code>.</li>
+        <li>Run in a read-only transaction with a 5 second timeout.</li>
+      </ol>
+      <p>The guard is pattern-based, so it is the first line. A read-only database role is meant to be the second, and is not wired in yet.</p></div>
+    <div class="panel"><h3 style="margin-top:0">Budgets</h3>
+      <ul class="tight">
+        <li>6 tool calls per turn</li>
+        <li>4 model calls per turn, including one grounding retry</li>
+        <li>50 rows per query</li>
+        <li>40 turns per session</li>
+        <li>20 requests per minute on the turn route</li>
+      </ul></div>
+  </div>
+
+  <h3>The model connection</h3>
+  <p>One interface, one implementation that speaks the OpenAI-compatible chat format with tool calling. Three environment variables choose the provider: <code>AGENT_MODEL_BASE_URL</code>, <code>AGENT_MODEL_API_KEY</code>, <code>AGENT_MODEL</code>. A scripted fake model with the same interface is used in tests. With no model configured, the page still works in <b>engine-only mode</b>: buttons add evidence directly (quieter, cheaper, closer, tap a card), and the shortlist, belief panel and chips all update. That is also the fallback if the model API fails.</p>
+</section>
+
+<!-- ============ EVAL ============ -->
+<section id="eval">
+  <div class="kicker">Stop 9 · Does it work?</div>
+  <h2>Three layers of testing</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>Layer</th><th>Question</th><th>Needs a model?</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Invariant tests</td><td>Is the engine correct?</td><td>No</td><td><span class="tag built">built · 67 engine tests pass</span></td></tr>
+      <tr><td>Simulated users</td><td>Does asking questions beat the fixed form?</td><td>No</td><td><span class="tag built">built · form baseline missing</span></td></tr>
+      <tr><td>Scripted personas</td><td>Does the whole agent behave?</td><td>Yes</td><td><span class="tag todo">written · not run live</span></td></tr>
+    </tbody></table></div>
+
+  <h3>Ten invariants that must always hold</h3>
+  <ul class="tight">
+    <li>Weights are non-negative and sum to 1 after every operation.</li>
+    <li>With no evidence, the belief equals the prior.</li>
+    <li>Adding then removing an item restores the earlier weights exactly.</li>
+    <li>Applying the same items in any order gives the same weights.</li>
+    <li>No area that breaks a firm limit ever appears in a shortlist.</li>
+    <li>P<sub>best</sub> over the feasible set sums to 1.</li>
+    <li>Risk is never negative and does not rise when the shortlist grows.</li>
+    <li>Raising the budget never reduces the number of feasible areas.</li>
+    <li>The same seed, profile and evidence give an identical shortlist.</li>
+    <li>A "prefer a over b" item never lowers the chance that a beats b.</li>
+  </ul>
+
+  <h3>Simulated users: regret falls as the engine asks</h3>
+  <p>Draw 200 hidden people from the prior, each with true preferences the engine cannot see. Each answers a shortlist by picking their true favourite, with the same choice noise the engine assumes. After 0 to 6 answers, measure the hidden person's <b>true regret</b>: the value of their real best area minus the value of the engine's top pick, in yen per month. This run used the real 937 areas (768 feasible), an anchor at Shinjuku, a 1K layout and a ¥100,000 soft budget.</p>
+  <div class="widget">
+    <svg id="regret" viewBox="0 0 640 270" role="img" aria-label="Bar chart of median and 90th percentile regret by number of questions asked"></svg>
+    <div class="scroll"><table>
+      <thead><tr><th>Questions asked</th><th class="num">0</th><th class="num">1</th><th class="num">2</th><th class="num">3</th><th class="num">4</th><th class="num">5</th><th class="num">6</th></tr></thead>
+      <tbody>
+        <tr><td>Median regret (¥/month)</td><td class="num">4,757</td><td class="num">404</td><td class="num">120</td><td class="num">85</td><td class="num">33</td><td class="num">24</td><td class="num">0</td></tr>
+        <tr><td>90th percentile (¥/month)</td><td class="num">23,516</td><td class="num">6,699</td><td class="num">3,709</td><td class="num">3,853</td><td class="num">3,570</td><td class="num">3,427</td><td class="num">3,138</td></tr>
+      </tbody></table></div>
+  </div>
+  <div class="callout warm"><strong>Read this fairly</strong>
+    <p>The simulated people behave exactly as the engine assumes, so this shows the machinery works. It does not show that real people are modelled well. The planned comparison against the old fixed form (<code>/v1/optimize</code>) was not done, so there is no flat baseline line yet.</p></div>
+
+  <h3>Scripted personas</h3>
+  <p>Seven short scripts replay against the live loop, with checks on the transcript: a student on a tight firm budget; school plus a late shift; two commutes in opposite directions; "like Shimokitazawa but cheaper"; the contradictor who says quiet is essential then picks the liveliest card twice; an anchor in Yokohama; and impossible limits (a 1LDK for ¥50,000 within 15 minutes). Checks on every transcript: the grounding check passes, no area breaking a firm limit is recommended, every tool call validates, and no turn goes over the tool budget.</p>
+</section>
+
+<!-- ============ LIMITS ============ -->
+<section id="limits">
+  <div class="kicker">Last stop · Honest edges</div>
+  <h2>What is guessed, and what is still missing</h2>
+  <div class="cols">
+    <div class="panel"><h3 style="margin-top:0">Hand-set or modelled</h3>
+      <ul class="tight">
+        <li>The archetype table, the value-of-time rule and the noise scales are starting assumptions to replace once real sessions exist.</li>
+        <li>Utility is additive. It cannot say "this only matters if…".</li>
+        <li>Rent is a ward average nudged by land value. There is no listing data.</li>
+        <li>Every travel time is an estimate. Local access confidence is "low" for 926 of 937 localities.</li>
+        <li>There is no safety or flood data.</li>
+      </ul></div>
+    <div class="panel"><h3 style="margin-top:0">Designed, not built</h3>
+      <ul class="tight">
+        <li>Full expected-value-of-information questions</li>
+        <li>Adaptive redraw when the effective sample size drops</li>
+        <li>"Similar nearby" cards</li>
+        <li>Confirm step for firm limits and strong evidence</li>
+        <li>Sessions table, read-only database role, deployment of the agent route</li>
+        <li>A learned prior, on-demand criteria, two-person mode</li>
+      </ul></div>
+    <div class="panel"><h3 style="margin-top:0">Not yet verified</h3>
+      <ul class="tight">
+        <li>Chat with a real model, and the live personas run</li>
+        <li>Name search for "why not" (needs an area-name lookup)</li>
+        <li>Several page buttons were checked by curl but not clicked in a browser</li>
+      </ul></div>
+  </div>
+  <footer>Built from the project docs: <code>engine-spec.md</code>, <code>agent-harness-plan.md</code>, <code>progress.md</code> and the migrations. Where the design and the code differ, this page describes the code. Map data © OpenStreetMap contributors; rent, census and land data from e-Stat and MLIT.</footer>
+</section>
+
+</main>
+</div>
+
+<script>
+(function () {
+  var fmt = function (n) { return Math.round(n).toLocaleString("en-US"); };
+  var money = function (n) { return (n < 0 ? "−" : n > 0 ? "+" : "") + "¥" + fmt(Math.abs(n)); };
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------- value calculator ---------- */
+  var ids = ["rent", "min", "trips", "ct", "sup", "w", "b", "cap"];
+  var H = 4, LAMBDA = 2, GAMMA = 3;
+  function calc() {
+    var v = {};
+    ids.forEach(function (k) { v[k] = Number($("i_" + k).value); $("c_" + k).textContent = k === "rent" || k === "ct" || k === "w" || k === "b" ? fmt(v[k]) : v[k]; });
+    var hours = (52 / 12) * v.trips * (2 * v.min / 60);
+    var capHours = (52 / 12) * v.trips * (2 * v.cap / 60);
+    var timeCost = v.ct * hours;
+    var s = 1 - Math.pow(10, -v.sup / H);
+    var amen = v.w * s;
+    var over = Math.max(0, v.rent - v.b) * LAMBDA;
+    var capPen = GAMMA * v.ct * Math.max(0, hours - capHours);
+    var total = -v.rent - timeCost + amen - over - capPen;
+    var rows = [
+      ["Rent", -v.rent, "R"],
+      ["Travel time (" + hours.toFixed(1) + " h a month)", -timeCost, "c_T × T"],
+      ["Supermarkets (curve at " + s.toFixed(2) + ")", amen, "w × s(x)"],
+      ["Over budget", -over, "λ × yen over B"],
+      ["Past the commute cap", -capPen, "γ × c_T × hours over"]
+    ];
+    var html = rows.map(function (r) {
+      var cls = r[1] > 0 ? "pos" : r[1] < 0 ? "neg" : "";
+      return '<li><span>' + r[0] + '</span><span class="v ' + cls + '">' + (r[1] === 0 ? "¥0" : money(r[1])) + '</span></li>';
+    }).join("");
+    html += '<li class="total"><span>Value of this area to this person</span><span class="v">' + (total < 0 ? "−" : "") + "¥" + fmt(Math.abs(total)) + '</span></li>';
+    $("calc_terms").innerHTML = html;
+    drawSat(v.sup);
+  }
+  function drawSat(x) {
+    var W = 320, Hh = 190, l = 36, r = 10, t = 10, b = 30, xmax = 15;
+    var X = function (u) { return l + (u / xmax) * (W - l - r); };
+    var Y = function (s) { return t + (1 - s) * (Hh - t - b); };
+    var d = "";
+    for (var u = 0; u <= xmax; u += 0.25) d += (u === 0 ? "M" : "L") + X(u).toFixed(1) + " " + Y(1 - Math.pow(10, -u / H)).toFixed(1);
+    var s = '<line class="axis" x1="' + l + '" y1="' + Y(0) + '" x2="' + (W - r) + '" y2="' + Y(0) + '"/>';
+    [0, 0.5, 0.9, 1].forEach(function (g) { s += '<line class="gridline" x1="' + l + '" y1="' + Y(g) + '" x2="' + (W - r) + '" y2="' + Y(g) + '"/><text x="' + (l - 6) + '" y="' + (Y(g) + 4) + '" text-anchor="end">' + g + '</text>'; });
+    [0, 5, 10, 15].forEach(function (g) { s += '<text x="' + X(g) + '" y="' + (Hh - 12) + '" text-anchor="middle">' + g + '</text>'; });
+    s += '<text x="' + (W / 2) + '" y="' + (Hh - 0) + '" text-anchor="middle">supermarkets within 800 m</text>';
+    s += '<path d="' + d + '" fill="none" stroke="var(--accent)" stroke-width="2.5"/>';
+    s += '<circle cx="' + X(x) + '" cy="' + Y(1 - Math.pow(10, -x / H)) + '" r="5.5" fill="var(--warm)" stroke="var(--surface)" stroke-width="2"/>';
+    $("sat").innerHTML = s;
+  }
+  ids.forEach(function (k) { $("i_" + k).addEventListener("input", calc); });
+  calc();
+
+  /* ---------- belief toy (replay from the prior every time) ---------- */
+  function rng(seed) { return function () { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; var t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+  var N = 80, rnd = rng(7), W = [], Y = [];
+  function normal() { var u = Math.max(rnd(), 1e-9), v = rnd(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+  for (var i = 0; i < N; i++) { W.push(normal() * 4); Y.push(rnd()); }
+  var sig = function (z) { return 1 / (1 + Math.exp(-z)); };
+  var TAU = 1, EPS = 0.05;
+  var KINDS = {
+    love: { label: "likes lively street", alpha: 1, L: function (w) { return sig(w / TAU); } },
+    avoid: { label: "avoids bars", alpha: 1, L: function (w) { return sig(-w / TAU); } },
+    avoidStrong: { label: "really hates bars (strong)", alpha: 2, L: function (w) { return sig(-w / TAU); } },
+    matters: { label: "bars matter (essential, 8%)", alpha: 1, L: function (w) { var a = Math.max(Math.abs(w), 1e-6); var d = Math.log(a) - Math.log(8); return Math.exp(-d * d / (2 * 0.36)); } }
+  };
+  var log = [];
+  function weights() {
+    var p = W.map(function () { return 1 / N; });
+    log.forEach(function (k) { var K = KINDS[k]; p = p.map(function (pi, i) { return pi * Math.pow((1 - EPS) * K.L(W[i]) + EPS, K.alpha); }); });
+    var s = p.reduce(function (a, b) { return a + b; }, 0);
+    return p.map(function (x) { return x / s; });
+  }
+  function wq(p, q) { var idx = W.map(function (_, i) { return i; }).sort(function (a, b) { return W[a] - W[b]; }); var c = 0; for (var j = 0; j < idx.length; j++) { c += p[idx[j]]; if (c >= q) return W[idx[j]]; } return W[idx[idx.length - 1]]; }
+  function drawBelief() {
+    var p = weights();
+    var x0 = 24, x1 = 616, R = 12, X = function (w) { return x0 + (Math.max(-R, Math.min(R, w)) + R) / (2 * R) * (x1 - x0); };
+    var s = '<line class="axis" x1="' + x0 + '" y1="120" x2="' + x1 + '" y2="120"/>';
+    [-10, -5, 0, 5, 10].forEach(function (g) { s += '<line class="gridline" x1="' + X(g) + '" y1="10" x2="' + X(g) + '" y2="120"/><text x="' + X(g) + '" y="136" text-anchor="middle">' + (g > 0 ? "+" : "") + g + "%</text>"; });
+    s += '<text x="' + x0 + '" y="148">avoids bars</text><text x="' + x1 + '" y="148" text-anchor="end">likes bars</text>';
+    p.forEach(function (pi, i) { var r = Math.min(11, Math.max(1.6, 2.4 * Math.sqrt(pi * N))); var cy = 24 + Y[i] * 80; s += '<circle cx="' + X(W[i]).toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="var(--accent)" fill-opacity="0.55" stroke="var(--accent)"/>'; });
+    $("belief_svg").innerHTML = s;
+    var ess = 1 / p.reduce(function (a, b) { return a + b * b; }, 0);
+    var f = function (n) { return (n > 0 ? "+" : "") + n.toFixed(1) + "%"; };
+    $("belief_stats").innerHTML = "<span>Weighted median <b>" + f(wq(p, 0.5)) + "</b></span><span>10th to 90th percentile <b>" + f(wq(p, 0.1)) + " to " + f(wq(p, 0.9)) + "</b></span><span>Effective sample size <b>" + ess.toFixed(0) + " of " + N + "</b></span>";
+    $("belief_chips").innerHTML = log.length ? log.map(function (k, i) { return '<span class="chip">' + KINDS[k].label + ' <button data-rm="' + i + '" aria-label="Remove ' + KINDS[k].label + '">×</button></span>'; }).join("") : '<span class="sub" style="margin:0;color:var(--ink-2);font-size:14px">No evidence yet. This is the prior.</span>';
+  }
+  $("belief_btns").addEventListener("click", function (e) { var k = e.target.getAttribute("data-k"); if (k) { log.push(k); drawBelief(); } });
+  $("belief_chips").addEventListener("click", function (e) { var i = e.target.getAttribute("data-rm"); if (i !== null) { log.splice(Number(i), 1); drawBelief(); } });
+  drawBelief();
+
+  /* ---------- regret chart ---------- */
+  (function () {
+    var med = [4757, 404, 120, 85, 33, 24, 0], p90 = [23516, 6699, 3709, 3853, 3570, 3427, 3138];
+    var L = 54, T = 16, Wd = 640, Ht = 270, B = 44, plotH = Ht - T - B, plotW = Wd - L - 10, max = 25000;
+    var Yv = function (v) { return T + plotH - (v / max) * plotH; };
+    var s = "";
+    [0, 5000, 10000, 15000, 20000, 25000].forEach(function (g) { s += '<line class="gridline" x1="' + L + '" y1="' + Yv(g) + '" x2="' + (Wd - 10) + '" y2="' + Yv(g) + '"/><text x="' + (L - 6) + '" y="' + (Yv(g) + 4) + '" text-anchor="end">' + (g / 1000) + 'k</text>'; });
+    var gw = plotW / 7;
+    for (var i = 0; i < 7; i++) {
+      var gx = L + i * gw + gw * 0.12, bw = gw * 0.34;
+      s += '<rect x="' + gx + '" y="' + Yv(p90[i]) + '" width="' + bw + '" height="' + (T + plotH - Yv(p90[i])) + '" fill="var(--warm)" fill-opacity="0.8"/>';
+      s += '<rect x="' + (gx + bw + 3) + '" y="' + Yv(med[i]) + '" width="' + bw + '" height="' + Math.max(1.5, T + plotH - Yv(med[i])) + '" fill="var(--accent)"/>';
+      s += '<text x="' + (gx + bw / 2) + '" y="' + (Yv(p90[i]) - 4) + '" text-anchor="middle">' + (p90[i] / 1000).toFixed(1) + 'k</text>';
+      s += '<text x="' + (gx + bw * 1.5 + 3) + '" y="' + (T + plotH + 14) + '" text-anchor="middle">' + i + '</text>';
+    }
+    s += '<text x="' + (L + plotW / 2) + '" y="' + (Ht - 18) + '" text-anchor="middle">questions answered</text>';
+    s += '<rect x="' + (Wd - 230) + '" y="' + (T + 2) + '" width="10" height="10" fill="var(--accent)"/><text x="' + (Wd - 215) + '" y="' + (T + 11) + '">median regret</text>';
+    s += '<rect x="' + (Wd - 130) + '" y="' + (T + 2) + '" width="10" height="10" fill="var(--warm)" fill-opacity="0.8"/><text x="' + (Wd - 115) + '" y="' + (T + 11) + '">90th percentile</text>';
+    s += '<text x="12" y="' + (T + plotH / 2) + '" transform="rotate(-90 12 ' + (T + plotH / 2) + ')" text-anchor="middle">yen per month</text>';
+    $("regret").innerHTML = s;
+  })();
+
+  /* ---------- nav highlight ---------- */
+  try {
+    var links = Array.prototype.slice.call(document.querySelectorAll("#nav li"));
+    var map = {};
+    links.forEach(function (li) { map[li.firstElementChild.getAttribute("href").slice(1)] = li; });
+    links[0].classList.add("on");
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { links.forEach(function (l) { l.classList.remove("on"); }); map[e.target.id].classList.add("on"); } });
+    }, { rootMargin: "-20% 0px -70% 0px" });
+    document.querySelectorAll("main section").forEach(function (s) { io.observe(s); });
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
