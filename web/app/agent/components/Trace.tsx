@@ -1,7 +1,7 @@
 "use client";
 
 import type { TraceEntry } from "../lib/trace";
-import { panel } from "./ui";
+
 
 const TONE: Record<TraceEntry["tone"], string> = {
   neutral: "border-line-strong",
@@ -11,7 +11,7 @@ const TONE: Record<TraceEntry["tone"], string> = {
 
 export function Trace({ entries }: { entries: readonly TraceEntry[] }) {
   return (
-    <section aria-label="Trace" className={panel}>
+    <section aria-label="Trace" className="py-3">
       <h2 className="label-utility text-ink">Trace</h2>
       {entries.length === 0 ? (
         <p className="mt-2 text-[14px] text-ink-muted">Tool calls, engine calls and the grounding check show here.</p>

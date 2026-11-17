@@ -2,14 +2,14 @@
 
 import { describeEvidence, makeNameOf } from "../lib/evidence";
 import type { AgentController } from "../lib/useAgent";
-import { panel } from "./ui";
+
 
 export function EvidenceChips({ agent }: { agent: AgentController }) {
   const evidence = agent.view?.evidence ?? [];
   const names = makeNameOf(agent.view?.recommendation?.shortlist ?? []);
 
   return (
-    <section aria-label="Evidence" className={panel}>
+    <section aria-label="Evidence" className="py-3">
       <h2 className="label-utility text-ink">What you have told me</h2>
       {evidence.length === 0 ? (
         <p className="mt-2 text-[14px] text-ink-muted">Nothing yet. Say what you like, or use the quick answers.</p>

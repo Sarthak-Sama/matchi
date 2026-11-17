@@ -1,72 +1,16 @@
 "use client";
-
-import { Masthead } from "../components/Masthead";
-import { BeliefPanel } from "./components/BeliefPanel";
+import { useEffect, useState } from "react";
+import { AgentHeader } from "./components/AgentHeader";
 import { Chat } from "./components/Chat";
-import { EngineControls } from "./components/EngineControls";
-import { EvidenceChips } from "./components/EvidenceChips";
-import { ProfileForm } from "./components/ProfileForm";
+import { DetailsSheet } from "./components/DetailsSheet";
 import { Shortlist } from "./components/Shortlist";
-import { Trace } from "./components/Trace";
+import { WorkingDrawer } from "./components/WorkingDrawer";
+import { Toasts } from "./components/Toasts";
 import { btn } from "./components/ui";
 import { useAgent } from "./lib/useAgent";
-
 export default function AgentPage() {
-  const agent = useAgent();
-
-  return (
-    <div className="min-h-screen">
-      <Masthead />
-      <main className="mx-auto max-w-[1360px] px-5 pt-8 pb-14 sm:px-8">
-        <p className="label-utility text-vermilion-deep">Matchi guide</p>
-        <h1 className="mt-2 font-serif text-4xl leading-tight font-medium tracking-editorial text-balance">
-          Tell the guide about your life. Watch the shortlist change.
-        </h1>
-
-        {agent.sessionError && (
-          <div className="mt-4 border border-brick bg-warning/60 p-3 text-[14px]" role="alert">
-            <p className="font-medium">Could not start a session.</p>
-            <p className="text-ink-muted">{agent.sessionError}</p>
-            <button type="button" className={`${btn} mt-2`} onClick={() => void agent.startSession()}>
-              Try again
-            </button>
-          </div>
-        )}
-
-        {agent.notices.length > 0 && (
-          <ul className="mt-4 space-y-1" aria-live="polite">
-            {agent.notices.map((n, i) => (
-              <li key={`${i}-${n}`} className="flex items-start justify-between gap-3 border border-line bg-warning/50 px-3 py-1.5 text-[13px]">
-                <span>{n}</span>
-                <button type="button" aria-label="Dismiss" className="text-ink-muted" onClick={() => agent.dismissNotice(i)}>
-                  &times;
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-          <div className="space-y-4">
-            <Chat agent={agent} />
-            <ProfileForm agent={agent} />
-            <EngineControls agent={agent} />
-            <Trace entries={agent.trace} />
-          </div>
-          <div className="space-y-4">
-            <Shortlist agent={agent} />
-            <EvidenceChips agent={agent} />
-            <BeliefPanel belief={agent.view?.belief ?? null} />
-          </div>
-        </div>
-
-        <div className="mt-6 flex items-center gap-3 text-[12px] text-ink-muted">
-          <span>Session {agent.sessionId ?? "not started"}</span>
-          <button type="button" className={btn} disabled={agent.busy} onClick={() => void agent.startSession()}>
-            Start over
-          </button>
-        </div>
-      </main>
-    </div>
-  );
+ const agent=useAgent(); const [detailsOpen,setDetailsOpen]=useState(false); const [workingOpen,setWorkingOpen]=useState(false);
+ useEffect(() => {try{setWorkingOpen(localStorage.getItem("matchi.agent.working")==="true");}catch{}},[]);
+ function working(open:boolean){setWorkingOpen(open);try{localStorage.setItem("matchi.agent.working",String(open));}catch{}}
+ return <div className="h-dvh overflow-hidden"><AgentHeader busy={agent.busy||agent.streaming} workingOpen={workingOpen} onWorking={() => working(!workingOpen)} onRestart={() => void agent.startSession()}/><main className="mx-auto grid h-[calc(100dvh-3.5rem)] max-w-[1360px] grid-cols-1 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]"><h1 className="sr-only">Matchi guide</h1><section aria-label="Conversation" className="min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-8">{agent.sessionError ? <div role="alert"><h2 className="font-serif text-3xl">I couldn’t reach the guide.</h2><p className="my-4 text-sm text-ink-muted">{agent.sessionError}</p><button className={btn} onClick={() => void agent.startSession()}>Try again</button></div>:<Chat agent={agent}/>}<button className={`${btn} mt-4`} onClick={() => setDetailsOpen(true)}>Edit details</button></section><section aria-label="Your shortlist" className="hidden min-h-0 overflow-y-auto overscroll-contain border-l border-line p-5 sm:p-8 lg:block"><Shortlist agent={agent}/></section></main><DetailsSheet key={agent.sessionId} agent={agent} open={detailsOpen} onClose={() => setDetailsOpen(false)}/><WorkingDrawer agent={agent} open={workingOpen} onClose={() => working(false)}/><Toasts notices={agent.notices} dismissNotice={agent.dismissNotice} local={[]} dismissLocal={() => {}}/></div>;
 }
