@@ -6,3 +6,5 @@ export * from "./domain/rent.js";
 export * from "./domain/transit/graph.js";
 export * from "./domain/transit/dijkstra.js";
 export * from "./config/access.js";
+export * from './engine/types.js';
+export { createRng } from './engine/rng.js';
