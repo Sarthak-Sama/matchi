@@ -11,9 +11,11 @@ import { btn, btnPrimary } from "./ui";
 export function QuestionTurn({
   agent,
   onDetails,
+  hideAreaChoices = false,
 }: {
   agent: AgentController;
   onDetails: () => void;
+  hideAreaChoices?: boolean;
 }) {
   const rec = agent.view?.recommendation;
   const q = useMemo(() => rec?.nextQuestion, [rec]);
@@ -78,7 +80,8 @@ export function QuestionTurn({
           </p>
         </GuideTurn>
       ) : (
-        q && (
+        q &&
+        (q.kind === "profile_fact" || !hideAreaChoices) && (
           <GuideTurn>
             {q.kind === "profile_fact" ? (
               <>

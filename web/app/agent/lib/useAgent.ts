@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiClientError } from "../../../lib/api";
 import { agentApi, streamTurn } from "./client";
+import { choicesFor, type QuickChoice } from "./reply";
 import { withoutId } from "./evidence";
 import { engineEntry, entryFromEvent, type TraceEntry } from "./trace";
 import type {
@@ -23,6 +24,8 @@ export interface ChatMessage {
   text: string;
   /** Set on an assistant message the grounding check rejected. */
   caught?: boolean;
+  /** Frozen with this reply so older cards never inherit a later shortlist. */
+  choices?: QuickChoice[];
   grounding?: { pass: boolean; failures: { figure: string; context: string }[] };
 }
 
@@ -39,7 +42,8 @@ function messageOf(err: unknown): string {
     if (err.code === "ENGINE_UNAVAILABLE" || err.code === "GRAPH_UNAVAILABLE") {
       return `The recommendation engine is not available on the server yet (${err.code}). ${err.message}`;
     }
-    if (err.code === "SESSION_NOT_FOUND") return "The session expired on the server. Use Start over.";
+    if (err.code === "SESSION_NOT_FOUND")
+      return "The session expired on the server. Use Start over.";
     return err.message;
   }
   if (err instanceof Error) return err.message;
@@ -73,7 +77,10 @@ export function useAgent() {
 
   const log = useCallback((entry: TraceEntry) => setTrace((t) => [...t, entry]), []);
   const notify = useCallback((text: string) => setNotices((n) => [...n.slice(-3), text]), []);
-  const dismissNotice = useCallback((index: number) => setNotices((n) => n.filter((_, i) => i !== index)), []);
+  const dismissNotice = useCallback(
+    (index: number) => setNotices((n) => n.filter((_, i) => i !== index)),
+    [],
+  );
 
   const startSession = useCallback(async () => {
     setSessionError(null);
@@ -103,7 +110,7 @@ export function useAgent() {
 
   /** Runs one engine call; errors become a notice and a red trace line. */
   const run = useCallback(
-    async <T,>(label: string, fn: (id: string) => Promise<T>): Promise<T | null> => {
+    async <T>(label: string, fn: (id: string) => Promise<T>): Promise<T | null> => {
       const id = idRef.current;
       if (!id) {
         notify("No session yet.");
@@ -147,7 +154,9 @@ export function useAgent() {
           notify(`Not accepted (“${quote}”): ${r.error.message}`);
           log(engineEntry(`observe rejected: ${r.error.code}`, r.error, "bad"));
         } else {
-          log(engineEntry(`observe ${items[i]?.type ?? ""} accepted`, r, r.surprising ? "bad" : "ok"));
+          log(
+            engineEntry(`observe ${items[i]?.type ?? ""} accepted`, r, r.surprising ? "bad" : "ok"),
+          );
           if (r.surprising) {
             notify(
               `Surprising: “${quote}” cuts against the current picture${r.conflictsWith ? ` (conflicts with ${r.conflictsWith})` : ""}.`,
@@ -215,7 +224,12 @@ export function useAgent() {
     if (!res) return;
     if (res.view) applyView(res.view);
     setExplanation({ kind: "relax", result: res.result });
-    log(engineEntry(`relax: ${res.result.length} option${res.result.length === 1 ? "" : "s"}`, res.result));
+    log(
+      engineEntry(
+        `relax: ${res.result.length} option${res.result.length === 1 ? "" : "s"}`,
+        res.result,
+      ),
+    );
   }, [run, applyView, log]);
 
   const sendMessage = useCallback(
@@ -245,7 +259,9 @@ export function useAgent() {
               setMessages((m) => [...m, { id: mid, role: "assistant", text: event.delta }]);
             } else {
               const mid = current;
-              setMessages((m) => m.map((x) => (x.id === mid ? { ...x, text: x.text + event.delta } : x)));
+              setMessages((m) =>
+                m.map((x) => (x.id === mid ? { ...x, text: x.text + event.delta } : x)),
+              );
             }
             continue;
           }
@@ -257,7 +273,11 @@ export function useAgent() {
               setMessages((m) =>
                 m.map((x) =>
                   x.id === mid
-                    ? { ...x, caught: !event.pass, grounding: { pass: event.pass, failures: event.failures } }
+                    ? {
+                        ...x,
+                        caught: !event.pass,
+                        grounding: { pass: event.pass, failures: event.failures },
+                      }
                     : x,
                 ),
               );
@@ -271,6 +291,11 @@ export function useAgent() {
           const entry = entryFromEvent(event);
           if (entry) log(entry);
           if (event.type === "done") {
+            const mid = current;
+            const choices = choicesFor(viewRef.current);
+            setMessages((messages) =>
+              messages.map((m) => (m.id === mid && !m.caught ? { ...m, choices } : m)),
+            );
             log(engineEntry(`assistant reply: ${replyChars} characters`));
             setChatStatus("on");
           }
