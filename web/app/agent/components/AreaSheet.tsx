@@ -5,6 +5,7 @@ import { chanceLabel, whyLine } from "../lib/derive";
 import { yen, yenSigned } from "../lib/format";
 import { FEATURE_KEY_LIST, termLabel, type BreakdownTerm, type ShortlistItem } from "../lib/types";
 import type { AgentController } from "../lib/useAgent";
+import { AreaMapLink } from "./AreaMapLink";
 import { AreaFacts } from "./AreaCard";
 import { ExplanationBody } from "./ExplanationTurn";
 import { Sheet } from "./Sheet";
@@ -47,10 +48,13 @@ export function AreaSheet({
       {current && c && (
         <div className="space-y-6">
           <div>
-            <p className="label-utility text-ink-muted">
-              {current.wardNameEn}
-              {index >= 0 ? ` · Rank ${index + 1}` : ""}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-x-4">
+              <p className="label-utility text-ink-muted">
+                {current.wardNameEn}
+                {index >= 0 ? ` · Rank ${index + 1}` : ""}
+              </p>
+              <AreaMapLink item={current} />
+            </div>
             <AreaFacts item={current} />
             <p className="mt-3 text-sm leading-relaxed">{whyLine(current, list)}</p>
             <p className="mt-2 text-xs text-ink-muted">
