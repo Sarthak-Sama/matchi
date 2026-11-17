@@ -1,7 +1,7 @@
 import type { AgentStreamEvent, AreaFeatures, Engine, Evidence, LoggedEvidence, Profile, Recommendation } from "@tokyo/shared";
 import { describe, expect, it, vi } from "vitest";
 
-import { MAX_TOOL_CALLS_PER_TURN, runTurn } from "./loop.js";
+import { MAX_MODEL_CALLS_PER_TURN, MAX_TOOL_CALLS_PER_TURN, runTurn, sanitizeReply } from "./loop.js";
 import { createScriptedModel, readChatStream } from "./model-client.js";
 import type { ScriptedStep } from "./model-client.js";
 import type { AgentSession } from "./session.js";
@@ -167,8 +167,8 @@ describe("runTurn", () => {
     const results = t.events.filter((e) => e.type === "tool_result");
     expect(results.filter((e) => e.type === "tool_result" && e.ok)).toHaveLength(MAX_TOOL_CALLS_PER_TURN);
     expect(results.at(-1)).toMatchObject({ ok: false, result: { code: "budget_exceeded" } });
-    // After the budget, the model is offered no tools.
-    expect(t.model.requests[1]!.tools).toBeUndefined();
+    // Tools stay on offer; the budget error is what stops the extra calls.
+    expect(t.model.requests[1]!.tools).toBeDefined();
     const first = t.model.requests[0]!.messages;
     expect(first).toHaveLength(1 + 16 + 1);
     expect(first[1]).toEqual({ role: "user", content: "m4" });
@@ -182,6 +182,114 @@ describe("runTurn", () => {
     ]);
     await t.run("hi");
     expect(t.events).toEqual([{ type: "error", code: "TURN_FAILED", message: "upstream 500" }, { type: "done" }]);
+  });
+
+  const DSML = "Let me check. <｜DSML｜ function_calls><｜DSML｜ invoke name=\"lookup\"><｜DSML｜ parameter name=\"query\">代田</｜DSML｜ parameter></｜DSML｜ invoke></｜DSML｜ function_calls>";
+  const FALLBACK = "Ebisu is the strongest match so far, with a 46% chance of being best. The cards show the details.";
+  const noMarkup = (events: AgentStreamEvent[]) =>
+    events.filter((e) => e.type === "text").every((e) => e.type === "text" && !/[｜＜]|<|DSML/.test(e.delta));
+
+  it("replaces a markup final answer with a grounded fallback and stores no markup", async () => {
+    const t = setup([{ toolCalls: [{ name: "recommend", input: {} }] }, { text: DSML }]);
+    await t.run("Why not 代田?");
+    const text = t.events.find((e) => e.type === "text");
+    expect(text).toEqual({ type: "text", delta: FALLBACK });
+    expect(noMarkup(t.events)).toBe(true);
+    expect(t.events.filter((e) => e.type === "grounding")).toEqual([{ type: "grounding", pass: true, failures: [] }]);
+    const types = t.events.map((e) => e.type);
+    expect(types.slice(-4)).toEqual(["text", "grounding", "state", "done"]);
+    expect(t.session.turns.at(-1)).toEqual({ role: "assistant", content: FALLBACK });
+    expect(t.model.requests).toHaveLength(2);
+  });
+
+  it("grounds the fallback on the state view even when no recommend ran this turn", async () => {
+    const t = setup([{ text: "<｜DSML｜ calls>" }]);
+    await t.run("hi");
+    expect(t.events.find((e) => e.type === "text")).toEqual({ type: "text", delta: FALLBACK });
+    expect(t.events.find((e) => e.type === "grounding")).toEqual({ type: "grounding", pass: true, failures: [] });
+  });
+
+  it("renders the engine's next question in the fallback", async () => {
+    const t = setup([{ text: "<tool_call>x" }]);
+    t.engine.recommend.mockReturnValue({ ...REC, nextQuestion: { kind: "profile_fact", missing: "budget" } });
+    await t.run("hi");
+    expect(t.events.find((e) => e.type === "text")).toEqual({
+      type: "text",
+      delta: "Ebisu is the strongest match so far, with a 46% chance of being best. What is your monthly budget?",
+    });
+  });
+
+  it("offers tools on every call, stops after the tool-phase calls and falls back without markup", async () => {
+    const forever = Array.from({ length: 10 }, () => ({ toolCalls: [{ name: "relax", input: {} }] }));
+    const t = setup(forever);
+    await t.run("go");
+    const toolPhase = MAX_MODEL_CALLS_PER_TURN - 1;
+    expect(t.model.requests).toHaveLength(toolPhase);
+    expect(t.model.requests.every((r) => r.tools !== undefined && r.tools.length > 0)).toBe(true);
+    // The last tool-phase call's tool requests are not run.
+    expect(t.events.filter((e) => e.type === "tool_call")).toHaveLength(toolPhase - 1);
+    expect(t.events.find((e) => e.type === "text")).toEqual({ type: "text", delta: FALLBACK });
+    expect(noMarkup(t.events)).toBe(true);
+    expect(t.events.at(-1)).toEqual({ type: "done" });
+    expect(t.events.some((e) => e.type === "error")).toBe(false);
+  });
+
+  it("sanitizes the grounding retry as well", async () => {
+    const t = setup([
+      { toolCalls: [{ name: "recommend", input: {} }] },
+      { text: "Ebisu rent is ¥95,000 a month." },
+      { text: DSML },
+    ]);
+    await t.run("hi");
+    expect(t.events.find((e) => e.type === "text")).toEqual({ type: "text", delta: FALLBACK });
+    expect(t.events.filter((e) => e.type === "grounding").at(-1)).toEqual({ type: "grounding", pass: true, failures: [] });
+    expect(t.session.turns.at(-1)).toEqual({ role: "assistant", content: FALLBACK });
+  });
+
+  it("answers from the state, not TURN_FAILED, when the model throws after a tool ran", async () => {
+    const t = setup([
+      { toolCalls: [{ name: "recommend", input: {} }] },
+      () => {
+        throw new Error("The operation was aborted due to timeout");
+      },
+    ]);
+    await t.run("hi");
+    expect(t.events.some((e) => e.type === "error")).toBe(false);
+    expect(t.events.map((e) => e.type).slice(-4)).toEqual(["text", "grounding", "state", "done"]);
+    expect(t.events.find((e) => e.type === "text")).toEqual({ type: "text", delta: FALLBACK });
+  });
+
+  it("leaves polluted assistant turns out of the next turn's messages", async () => {
+    const history: AgentSession["turns"] = [
+      { role: "user", content: "Why not 代田?" },
+      { role: "assistant", content: DSML },
+      { role: "user", content: "ok" },
+      { role: "assistant", content: "Fine." },
+    ];
+    const t = setup([{ text: "Hello." }], history);
+    await t.run("again");
+    const sent = t.model.requests[0]!.messages;
+    expect(sent.some((m) => typeof m.content === "string" && /DSML/.test(m.content))).toBe(false);
+    expect(sent.filter((m) => m.role === "assistant")).toEqual([{ role: "assistant", content: "Fine." }]);
+  });
+});
+
+describe("sanitizeReply", () => {
+  it.each([
+    ["Sure. <｜DSML｜ function_calls>x", "Sure."],
+    ["Sure. ＜｜DSML｜calls>x", "Sure."],
+    ["Sure. <\u200b｜DSML｜ calls>x", "Sure."],
+    ["Sure. < ｜ DSML｜calls>x", "Sure."],
+    ["Sure. <tool_call>{}</tool_call>", "Sure."],
+    ["Sure. <function_calls><invoke name=\"x\">", "Sure."],
+    ["Sure. <｜tool▁calls▁begin｜><｜tool▁call▁begin｜>x", "Sure."],
+    ["<｜DSML｜ calls>", ""],
+  ])("cuts %j", (input, expected) => {
+    expect(sanitizeReply(input)).toEqual({ text: expected, flagged: true });
+  });
+
+  it("leaves ordinary text alone", () => {
+    expect(sanitizeReply("  Ebisu leads, 3 < 5.  ")).toEqual({ text: "Ebisu leads, 3 < 5.", flagged: false });
   });
 });
 

@@ -49,7 +49,7 @@ export interface OpenAiCompatibleOptions {
 }
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_TIMEOUT_MS = 25_000;
 
 interface StreamDelta {
   content?: string | null;
@@ -177,10 +177,12 @@ export function createModelClientFromEnv(env: NodeJS.ProcessEnv = process.env): 
   if (apiKey === undefined || apiKey === "") return null;
   const model = env["AGENT_MODEL"];
   if (model === undefined || model === "") return null;
+  const timeoutMs = Number(env["AGENT_MODEL_TIMEOUT_MS"]);
   return createOpenAiCompatibleModel({
     baseUrl: env["AGENT_MODEL_BASE_URL"] || DEFAULT_BASE_URL,
     apiKey,
     model,
+    ...(Number.isFinite(timeoutMs) && timeoutMs > 0 ? { timeoutMs } : {}),
   });
 }
 

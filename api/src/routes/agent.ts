@@ -68,7 +68,7 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
     const session = runtime.sessions.get(sessionId);
     if (session === undefined) throw new ApiError(404, "SESSION_NOT_FOUND", `Unknown session "${sessionId}"`);
 
-    const tools = createAgentTools(() => Object.keys(runtime.features.params.layoutAreaSqm));
+    const tools = createAgentTools(() => Object.keys(runtime.features.params.layoutAreaSqm), { queryAreasEnabled });
     const abort = new AbortController();
     reply.raw.on("close", () => {
       if (!reply.raw.writableFinished) abort.abort();
