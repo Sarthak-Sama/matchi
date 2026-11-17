@@ -38,6 +38,7 @@ export const DEFAULTS: EngineDefaults = {
   epsilon: 0.05,
   stopRiskShare: 0.01,
   maxQuestions: 6,
+  minQuestions: 2,
   minEvoiShare: 0.003,
   surpriseThreshold: 0.15,
   sigmaRentNear: 0.08,
@@ -352,21 +353,39 @@ export const recommend: Recommend = (belief, util, ctx, profile, opts) => {
 
   const riskYen = picks.length > 0 ? riskOfSet(util, weights, ctx.feasible, picks) : 0;
   const scale = ctx.scale;
+  // Stop rule (P8 deviation from the spec): the risk stop applies only once
+  // minQuestions have been answered; the question limit and "no question can
+  // be formed" stop at any time. riskYen itself is reported unchanged.
+  const missing = missingFacts(profile);
+  const canAsk = missing.length > 0 || ordered.length >= 2;
+  const riskLow = picks.length > 0 && riskYen < defaults.stopRiskShare * scale;
   let stopReason: Recommendation['stopReason'] = null;
-  if (picks.length > 0 && riskYen < defaults.stopRiskShare * scale) stopReason = 'risk_below_threshold';
-  else if (opts.questionsAsked >= defaults.maxQuestions) stopReason = 'question_limit';
-  const shouldStop = stopReason !== null;
+  let shouldStop = false;
+  if (opts.questionsAsked >= defaults.maxQuestions) {
+    stopReason = riskLow ? 'risk_below_threshold' : 'question_limit';
+    shouldStop = true;
+  } else if (riskLow && opts.questionsAsked >= defaults.minQuestions) {
+    stopReason = 'risk_below_threshold';
+    shouldStop = true;
+  } else if (!canAsk) {
+    // Fewer than two shortlisted areas: no question can be formed.
+    stopReason = riskLow ? 'risk_below_threshold' : null;
+    shouldStop = true;
+  }
 
   let nextQuestion: NextQuestion | null = null;
-  const missing = missingFacts(profile);
   if (missing.length > 0) nextQuestion = { kind: 'profile_fact', missing: missing[0]! };
   else if (!shouldStop && ordered.length >= 2) {
     if (opts.questionsAsked === 0) {
       nextQuestion = { kind: 'pick_from_shortlist', set: ordered.map((a) => ctx.areas[a]!.locality_id) };
     } else {
-      // TODO(E03): shortcut path only. E15: fall back to the top two by P_best.
+      // TODO(E03): shortcut path only. Fewer than two above PAIR_MIN_PBEST:
+      // fall back to the top two shortlisted areas by expected utility (P8).
       let pool = ordered.filter((a) => pb[a]! > PAIR_MIN_PBEST);
-      if (pool.length < 2) pool = ordered.slice(0, 2);
+      if (pool.length < 2) {
+        const eu = expectedUtility(util, weights);
+        pool = [...ordered].sort((x, y) => eu[y]! - eu[x]! || x - y).slice(0, 2);
+      }
       let best: { a: number; b: number; p: number } | null = null;
       for (let x = 0; x < pool.length; x++) {
         for (let y = x + 1; y < pool.length; y++) {
