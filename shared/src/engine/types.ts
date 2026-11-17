@@ -42,7 +42,13 @@ export interface FeatureDef {
   sign: FeatureSign;
 }
 
-/** One row of agent.area_features (subset the engine reads). Nullable per DDL. */
+/**
+ * One row of agent.area_features (subset the engine reads). Nullable per DDL.
+ * E04: an area with null rent inputs (rent_per_sqm_yen, management_fee_yen),
+ * any null lifestyle column, or null access values is excluded and counted in
+ * ExcludedSummary. Null land_value_yen_per_sqm is allowed: multiplier 1.0 and
+ * the wider rent noise (sigmaRentFar).
+ */
 export interface AreaFeatures {
   locality_id: string;
   name_en: string | null;
@@ -77,19 +83,17 @@ export interface AreaFeatures {
 export const PeriodSchema = z.enum(['peak', 'offpeak']);
 export type Period = z.infer<typeof PeriodSchema>;
 
-/** Station access of one of a locality's 9 sample points: its 3 nearest stations. */
-export interface SamplePointAccess {
-  stations: readonly { stationId: string; walkMin: number }[];
-}
-/** Station-to-station minutes plus locality access; built by api feature-store. */
-export interface TravelMatrix {
-  /** null when the pair is not connected. */
-  stationMinutes(from: string, to: string, period: Period): number | null;
-  /** Empty array when the locality has no access values (excluded from F). */
-  localityAccess(localityId: string): readonly SamplePointAccess[];
-  /** Nearest station(s) to a point within 1,500 m; empty = outside coverage. */
-  stationsNear(lat: number, lon: number): readonly { stationId: string; walkMin: number }[];
-}
+/**
+ * E02: the engine does no routing. The API computes, per anchor id, one-way
+ * door-to-door minutes for every area, aligned to the `areas` array given to
+ * createEngine (same length, same order). NaN = unreachable from that anchor.
+ */
+export type AnchorTimes = Record<string, Float64Array | number[]>;
+/** api/src/agent/anchor-times.ts (P3). Anchors it cannot route go in `refused`, with no vector. */
+export type ComputeAnchorTimes = (
+  anchors: readonly Anchor[],
+  areas: readonly AreaFeatures[],
+) => Promise<{ times: AnchorTimes; refused: RefusedAnchor[] }>;
 
 export interface ModelParams {
   rentElasticity: number; // 0.356
@@ -149,7 +153,8 @@ export type Profile = z.infer<typeof ProfileSchema>;
 
 export interface RefusedAnchor {
   anchorId: string;
-  reason: 'outside_coverage' | 'no_station_within_1500m' | 'unknown_station';
+  /** 'no_times' is set by the engine when setProfile gets no vector for an anchor. */
+  reason: 'outside_coverage' | 'no_station_within_1500m' | 'unknown_station' | 'no_times';
   message: string;
 }
 export interface ProfileResult {
@@ -280,12 +285,21 @@ export interface ShortlistItem {
   confidence: AreaConfidence;
   similarNearby?: string[];
 }
+// TODO(E03): deferred. Only the shortcut path is built (pair with P(a beats b)
+// closest to one half among shortlisted areas with pBest > 0.05); evoiYen stays unset.
 export type NextQuestion =
   | { kind: 'profile_fact'; missing: 'anchor' | 'trips_per_week' | 'layout' | 'budget' }
   | { kind: 'pick_from_shortlist'; set: string[] }
   | { kind: 'pair'; a: string; b: string; pABeatsB: number; evoiYen?: number };
+/** Count per reason; an area is counted once, under the first reason in this order. */
 export interface ExcludedSummary {
+  /** Null rent_per_sqm_yen or management_fee_yen. */
+  nullRent: number;
+  /** Any null lifestyle column (zoning share, exposure share, bar_count, ...). */
+  nullLifestyle: number;
+  /** Null access columns (line_count, reach_restaurant). */
   missingAccess: number;
+  /** NaN minutes for at least one anchor in AnchorTimes. */
   disconnected: number;
   overBudgetFirm: number;
   overCommuteCapFirm: number;
@@ -319,7 +333,7 @@ export interface Recommendation {
 export type WhyNot =
   | { kind: 'unknown_area'; localityId: string }
   | { kind: 'is_top_pick'; localityId: string }
-  | { kind: 'fails_firm_limit'; localityId: string; limit: 'budget' | 'commute_cap' | 'no_access' | 'disconnected'; by: number; unit: 'yen' | 'minutes' | 'none' }
+  | { kind: 'fails_firm_limit'; localityId: string; limit: 'budget' | 'commute_cap' | 'null_rent' | 'null_lifestyle' | 'no_access' | 'disconnected'; by: number; unit: 'yen' | 'minutes' | 'none' }
   | { kind: 'wins_for_some'; localityId: string; weight: number; param: ParamKey; ratio: number }
   | { kind: 'needs_weight_change'; localityId: string; term: BreakdownTerm; factor: number; gapYen: number }
   | { kind: 'dominated'; localityId: string; gapYen: number };
@@ -342,12 +356,21 @@ export const SessionStateSchema = z.object({
 });
 export type SessionState = z.infer<typeof SessionStateSchema>;
 
-/** Payload of the `state` stream event. Derived values are recomputed, never stored. */
+/**
+ * Payload of the `state` stream event and the body the direct (non-chat)
+ * routes return. Derived values are recomputed, never stored.
+ */
 export interface AgentStateView {
   profile: Profile;
+  /** Evidence chips. */
   evidence: LoggedEvidence[];
   belief: BeliefSummary;
+  /** Holds the shortlist; null until the profile allows one. */
   recommendation: Recommendation | null;
+  /** Value at risk, yen per month; copy of recommendation.riskYen. */
+  riskYen: number | null;
+  /** Copy of recommendation.excluded. */
+  excluded: ExcludedSummary | null;
 }
 export interface GroundingFailure {
   figure: string;
@@ -392,7 +415,7 @@ export interface AreaContext {
   index: ReadonlyMap<string, number>;
   /** R(a), yen; NaN when rent inputs are missing. */
   rent: Float64Array;
-  /** One-way minutes per anchor: minutes[m][a]; NaN when no access or disconnected. */
+  /** One-way minutes per anchor, in profile.anchors order: minutes[m][a], copied from AnchorTimes; NaN = unreachable. */
   minutes: Float64Array[];
   /** s_j(x_aj), row-major: sat[a * FEATURE_KEYS.length + j]. */
   sat: Float64Array;
@@ -406,9 +429,8 @@ export interface AreaContext {
 export type Saturate = (x: number, h: number) => number;
 export type FeatureTable = readonly FeatureDef[];
 export type ModelledRent = (area: AreaFeatures, wardMedianLandValue: number | null, layoutAreaSqm: number, params: ModelParams) => number;
-export type AnchorMinutes = (area: AreaFeatures, anchor: Anchor, matrix: TravelMatrix) => number | null;
 export type MonthlyHours = (oneWayMinutes: number, tripsPerWeek: number) => number;
-export type BuildAreaContext = (areas: readonly AreaFeatures[], matrix: TravelMatrix, params: ModelParams, profile: Profile) => AreaContext;
+export type BuildAreaContext = (areas: readonly AreaFeatures[], params: ModelParams, profile: Profile, anchorTimes: AnchorTimes) => AreaContext;
 
 /** belief.ts */
 export type SamplePrior = (scale: number, seed: number, n?: number) => Belief;
@@ -417,15 +439,29 @@ export type EffectiveSampleSize = (weights: Float64Array) => number;
 export type Replay = (prior: Belief, log: readonly LoggedEvidence[], likelihood: Likelihood, epsilon?: number) => Belief;
 export type SummarizeBelief = (belief: Belief, essFloor?: number) => BeliefSummary;
 
-/** recommend.ts: U[i * nAreas + a], Float32Array, with per-sample rent and time noise. */
+/**
+ * recommend.ts. E01: `u` is NOISE-FREE, u[i * nAreas + a]. EUS, Risk, regret,
+ * the stop rule and question choice read `u` only. Rent and travel-time noise
+ * exists only in `noisy`, for P_best (over the top 20 feasible areas by
+ * expected utility) and compare's "a beats b".
+ */
 export interface UtilityMatrix {
   u: Float32Array;
   nSamples: number;
   nAreas: number;
+  /** Rebuilt whenever weights change the top 20. */
+  noisy: {
+    /** Area indices covered, at most 20, by expected noise-free utility. */
+    areaIdx: Int32Array;
+    /** u[i * areaIdx.length + c] for column c = position in areaIdx. */
+    u: Float32Array;
+  };
 }
+/** Noisy utilities for an arbitrary area list (compare's pair may be outside the top 20). */
+export type NoisyUtilities = (belief: Belief, ctx: AreaContext, profile: Profile, seed: number, areaIdx: readonly number[]) => UtilityMatrix['noisy'];
 export type BuildUtilities = (belief: Belief, ctx: AreaContext, profile: Profile, seed: number) => UtilityMatrix;
 
-/** evidence.ts: fills out[i] with L_e(theta_i) in [0, 1]. */
+/** evidence.ts: fills out[i] with L_e(theta_i) in [0, 1]. Uses util.u (noise-free). */
 export type Likelihood = (e: Evidence, belief: Belief, util: UtilityMatrix, ctx: AreaContext, profile: Profile, out: Float64Array) => void;
 /** p_e under the current weights. */
 export type Predictive = (weights: Float64Array, likelihoods: Float64Array, epsilon?: number) => number;
@@ -433,6 +469,7 @@ export type SurpriseThreshold = (e: Evidence) => number;
 
 /** recommend.ts */
 export type GreedyShortlist = (util: UtilityMatrix, weights: Float64Array, feasible: Uint8Array, k: number) => number[];
+/** Length nAreas; zero outside util.noisy.areaIdx; sums to 1. */
 export type PBest = (util: UtilityMatrix, weights: Float64Array, feasible: Uint8Array) => Float64Array;
 export type RiskOfSet = (util: UtilityMatrix, weights: Float64Array, feasible: Uint8Array, set: readonly number[]) => number;
 export type Recommend = (belief: Belief, util: UtilityMatrix, ctx: AreaContext, profile: Profile, opts: { k: number; questionsAsked: number; defaults: EngineDefaults }) => Recommendation;
@@ -442,11 +479,12 @@ export type BreakdownAt = (areaIdx: number, belief: Belief, ctx: AreaContext, pr
 export type ExplainWhyNot = (localityId: string, belief: Belief, util: UtilityMatrix, ctx: AreaContext, profile: Profile) => WhyNot;
 export type ExplainCompare = (a: string, b: string, belief: Belief, util: UtilityMatrix, ctx: AreaContext, profile: Profile) => Comparison;
 /** Needs to rebuild contexts for relaxed profiles, hence the raw inputs. */
-export type ExplainRelax = (areas: readonly AreaFeatures[], matrix: TravelMatrix, params: ModelParams, profile: Profile, belief: Belief, seed: number) => RelaxOption[];
+export type ExplainRelax = (areas: readonly AreaFeatures[], params: ModelParams, profile: Profile, anchorTimes: AnchorTimes, belief: Belief, seed: number) => RelaxOption[];
 
 /** index.ts */
 export interface Engine {
-  setProfile(p: Profile): ProfileResult;
+  /** Every anchor in p needs a vector in anchorTimes; one without is refused ('no_times') and ignored. */
+  setProfile(p: Profile, anchorTimes: AnchorTimes): ProfileResult;
   observe(e: Evidence): ObserveResult;
   removeEvidence(id: string): void;
   recommend(k?: number): Recommendation;
@@ -455,6 +493,7 @@ export interface Engine {
   compare(a: string, b: string): Comparison;
   beliefSummary(): BeliefSummary;
   snapshot(): SessionState;
-  restore(s: SessionState): void;
+  /** AnchorTimes are not in SessionState; the API recomputes them and passes them here. */
+  restore(s: SessionState, anchorTimes: AnchorTimes): void;
 }
-export type CreateEngine = (areas: AreaFeatures[], matrix: TravelMatrix, params: ModelParams, seed: number) => Engine;
+export type CreateEngine = (areas: AreaFeatures[], params: ModelParams, seed: number) => Engine;
