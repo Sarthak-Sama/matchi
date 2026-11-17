@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useRef, useState, type ReactNode, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import type { AgentController } from "../lib/useAgent";
 import { cheaper, closer, quieter } from "../lib/evidence";
 import { friendlyText, hasBrief } from "../lib/derive";
+import { GuideReply } from "./GuideReply";
 import { btn, btnPrimary, linkBtn } from "./ui";
 
 const starters = [
@@ -42,6 +43,18 @@ export function Chat({
   const off = agent.chatStatus === "off" || agent.chatNotice !== null;
   const disabled = !agent.sessionId || agent.streaming || agent.busy || off;
   const fresh = agent.messages.length === 0 && !hasBrief(agent.view?.profile);
+  const lastGuideId = useMemo(() => {
+    for (let i = agent.messages.length - 1; i >= 0; i--) {
+      const message = agent.messages[i]!;
+      if (message.role === "assistant" && !message.caught) return message.id;
+    }
+    return null;
+  }, [agent.messages]);
+  function send(text: string) {
+    if (disabled || !text.trim()) return;
+    nearBottom.current = true;
+    void agent.sendMessage(text);
+  }
   useEffect(() => {
     const log = logRef.current;
     if (!log) return;
@@ -150,11 +163,18 @@ export function Chat({
                 <p className="whitespace-pre-wrap">{friendlyText(m.text)}</p>
               ) : (
                 <GuideTurn>
-                  <p
-                    className={`whitespace-pre-wrap ${m.caught ? "line-through decoration-brick/60" : ""}`}
-                  >
-                    {friendlyText(m.text)}
-                  </p>
+                  <div className={m.caught ? "line-through decoration-brick/60" : ""}>
+                    <GuideReply
+                      text={friendlyText(m.text)}
+                      choices={m.choices}
+                      selected={
+                        agent.messages.find((next) => next.id > m.id && next.role === "user")?.text
+                      }
+                      inactive={m.id !== lastGuideId || agent.messages.at(-1)?.role === "user"}
+                      onChoose={send}
+                      disabled={disabled}
+                    />
+                  </div>
                   {m.grounding && (
                     <p
                       className={`mt-2 font-sans text-[11px] ${m.grounding.pass ? "text-moss" : "border-l-2 border-brick pl-3 text-brick"}`}

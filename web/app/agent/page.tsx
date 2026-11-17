@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import type { ShortlistItem } from "./lib/types";
+import { presentReply } from "./lib/reply";
 import { useAgent } from "./lib/useAgent";
 import { useRankChanges } from "./lib/useRankChanges";
 import { friendlyText, hasBrief } from "./lib/derive";
@@ -29,6 +30,11 @@ export default function AgentPage() {
     return () => viewport.removeEventListener("resize", update);
   }, []);
   const reduced = useReducedMotion();
+  const lastMessage = agent.messages.at(-1);
+  const replyHasChoices =
+    lastMessage?.role === "assistant" &&
+    !lastMessage.caught &&
+    presentReply(lastMessage.text, lastMessage.choices).choices.length > 0;
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [area, setArea] = useState<ShortlistItem | null>(null);
   const [workingOpen, setWorkingOpen] = useState(false);
@@ -140,7 +146,11 @@ export default function AgentPage() {
               mobileShortlist={pill}
             >
               <ExplanationTurn agent={agent} />
-              <QuestionTurn agent={agent} onDetails={() => setDetailsOpen(true)} />
+              <QuestionTurn
+                agent={agent}
+                onDetails={() => setDetailsOpen(true)}
+                hideAreaChoices={replyHasChoices}
+              />
             </Chat>
           )}
         </section>

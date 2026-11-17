@@ -38,10 +38,22 @@ function toFailures(text: string, unmatched: readonly Figure[]): GroundingFailur
 
 /** Second miss: drop the sentences carrying unmatched figures; the cards still show. */
 function dropSentences(text: string, unmatched: readonly Figure[]): string {
+  const bad = (s: string) => unmatched.some((f) => s.includes(f.raw));
+  // Line by line so Markdown structure survives: a table row or list item with
+  // an unmatched figure goes whole; prose lines lose only those sentences.
   return text
-    .split(/(?<=[.!?。！？])\s*/)
-    .filter((s) => !unmatched.some((f) => s.includes(f.raw)))
-    .join(" ")
+    .split("\n")
+    .map((line) => {
+      if (/^\s*(?:\||[-*•]\s|\d+[.)]\s)/.test(line)) return bad(line) ? null : line;
+      const kept = line
+        .split(/(?<=[.!?。！？])\s*/)
+        .filter((s) => !bad(s))
+        .join(" ");
+      return line.trim() !== "" && kept.trim() === "" ? null : kept;
+    })
+    .filter((line): line is string => line !== null)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
