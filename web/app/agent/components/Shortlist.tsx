@@ -37,7 +37,7 @@ function confidenceLabels(c: AreaConfidence): string[] {
         : "Rent: modelled at ward level",
   );
   if (c.access) out.push(`Access data: ${c.access}`);
-  out.push(`Commute estimate ± ${c.commuteBandMinutes} min`);
+  out.push(`Commute estimate ± ${Math.round(c.commuteBandMinutes)} min`);
   if (c.lateReturnNotCovered) out.push("Last trains not covered");
   return out;
 }

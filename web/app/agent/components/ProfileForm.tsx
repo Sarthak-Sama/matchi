@@ -153,7 +153,7 @@ export function ProfileForm({ agent }: { agent: AgentController }) {
           <div>
             <label className="block">
               <span className="label-utility text-[10px] text-ink">Monthly budget (yen)</span>
-              <input type="number" min={1} step={1000} inputMode="numeric" value={form.budget} onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value }))} className="field-control mt-1 min-h-10 w-full px-3 text-[14px]" />
+              <input type="number" min={1} step="any" inputMode="numeric" value={form.budget} onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value }))} className="field-control mt-1 min-h-10 w-full px-3 text-[14px]" />
             </label>
             <label className="mt-1 flex items-center gap-2 text-[12px]">
               <input type="checkbox" checked={form.budgetFirm} onChange={(e) => setForm((f) => ({ ...f, budgetFirm: e.target.checked }))} />
@@ -163,7 +163,7 @@ export function ProfileForm({ agent }: { agent: AgentController }) {
           <div>
             <label className="block">
               <span className="label-utility text-[10px] text-ink">Commute cap (min, one way)</span>
-              <input type="number" min={1} step={5} inputMode="numeric" value={form.commuteCap} onChange={(e) => setForm((f) => ({ ...f, commuteCap: e.target.value }))} className="field-control mt-1 min-h-10 w-full px-3 text-[14px]" />
+              <input type="number" min={1} step="any" inputMode="numeric" value={form.commuteCap} onChange={(e) => setForm((f) => ({ ...f, commuteCap: e.target.value }))} className="field-control mt-1 min-h-10 w-full px-3 text-[14px]" />
             </label>
             <label className="mt-1 flex items-center gap-2 text-[12px]">
               <input type="checkbox" checked={form.commuteCapFirm} onChange={(e) => setForm((f) => ({ ...f, commuteCapFirm: e.target.checked }))} />
