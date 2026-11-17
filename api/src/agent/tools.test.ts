@@ -93,6 +93,16 @@ describe("agent tools", () => {
     for (const spec of tools.specs) expect(spec.parameters["type"]).toBe("object");
   });
 
+  it("leaves query_areas out of specs when disabled, but a stray call still gets the typed disabled result", async () => {
+    const off = createAgentTools(() => ["1K"], { queryAreasEnabled: false });
+    expect(off.specs.map((s) => s.name)).not.toContain("query_areas");
+    expect(off.specs).toHaveLength(8);
+    const { context } = ctx();
+    expect(await off.run("query_areas", { sql: "select 1" }, context)).toMatchObject({ ok: false, error: { code: "disabled" } });
+    const on = createAgentTools(() => ["1K"], { queryAreasEnabled: true });
+    expect(on.specs.map((s) => s.name)).toContain("query_areas");
+  });
+
   it("returns typed errors for bad JSON, bad input and unknown tools", async () => {
     const { context } = ctx();
     expect(await tools.run("nope", "{}", context)).toMatchObject({ ok: false, error: { code: "unknown_tool" } });

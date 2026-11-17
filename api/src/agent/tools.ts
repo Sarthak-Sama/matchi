@@ -636,11 +636,16 @@ export interface AgentTools {
   run(name: string, rawArguments: string | unknown, ctx: ToolContext): Promise<ToolResult>;
 }
 
-/** `layouts`: allowed layout ids (ModelParams.layoutAreaSqm keys). */
-export function createAgentTools(layouts: () => readonly string[]): AgentTools {
+/**
+ * `layouts`: allowed layout ids (ModelParams.layoutAreaSqm keys). With
+ * `queryAreasEnabled: false`, query_areas is not offered to the model (it stays
+ * callable and answers "disabled"). Defaults to enabled.
+ */
+export function createAgentTools(layouts: () => readonly string[], options: { queryAreasEnabled?: boolean } = {}): AgentTools {
   const defs = defineTools(layouts);
   const byName = new Map(defs.map((d) => [d.name as string, d]));
-  const specs = defs.map((d) => {
+  const offered = options.queryAreasEnabled === false ? defs.filter((d) => d.name !== "query_areas") : defs;
+  const specs = offered.map((d) => {
     const schema = z.toJSONSchema(d.schema, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
     delete schema["$schema"];
     return { name: d.name, description: d.description, parameters: schema };
