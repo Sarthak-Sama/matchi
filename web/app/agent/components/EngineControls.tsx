@@ -8,7 +8,7 @@ import { percent, yenSigned } from "../lib/format";
 import type { AgentController } from "../lib/useAgent";
 import { FEATURE_KEY_LIST, FEATURE_LABELS, termLabel, type FeatureKey, type Strength } from "../lib/types";
 import { RelaxList } from "./Shortlist";
-import { btn, panel } from "./ui";
+import { btn } from "./ui";
 
 /** Engine-only controls: they call the direct routes, no model involved. */
 export function EngineControls({ agent }: { agent: AgentController }) {
@@ -23,7 +23,7 @@ export function EngineControls({ agent }: { agent: AgentController }) {
   const ex = agent.explanation;
 
   return (
-    <section aria-label="Quick answers" className={panel}>
+    <section aria-label="Quick answers" className="py-3">
       <h2 className="label-utility text-ink">Quick answers (no model)</h2>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button type="button" disabled={off} className={btn} onClick={() => void agent.addEvidence([quieter(strength)])}>

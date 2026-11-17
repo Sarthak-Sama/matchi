@@ -8,7 +8,7 @@ import { LAYOUT_IDS, LAYOUTS } from "@tokyo/shared";
 import { getJson } from "../../../lib/api";
 import { EMPTY_FORM, buildProfile, formFromProfile, type ProfileForm as Form } from "../lib/profile";
 import type { AgentController } from "../lib/useAgent";
-import { btn, btnPrimary, panel } from "./ui";
+import { btn, btnPrimary } from "./ui";
 
 export function ProfileForm({ agent }: { agent: AgentController }) {
   const [form, setForm] = useState<Form>(EMPTY_FORM);
@@ -89,7 +89,7 @@ export function ProfileForm({ agent }: { agent: AgentController }) {
   const pr = agent.profileResult;
 
   return (
-    <section aria-label="Profile" className={panel}>
+    <section aria-label="Profile" className="py-3">
       <h2 className="label-utility text-ink">Your situation</h2>
       <form onSubmit={submit} className="mt-3 space-y-3">
         <div>
