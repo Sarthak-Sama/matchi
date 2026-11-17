@@ -2,7 +2,6 @@
 
 import type { TraceEntry } from "../lib/trace";
 
-
 const TONE: Record<TraceEntry["tone"], string> = {
   neutral: "border-line-strong",
   ok: "border-moss",
@@ -11,12 +10,14 @@ const TONE: Record<TraceEntry["tone"], string> = {
 
 export function Trace({ entries }: { entries: readonly TraceEntry[] }) {
   return (
-    <section aria-label="Trace" className="py-3">
+    <section aria-label="Trace" className="py-3" data-testid="trace">
       <h2 className="label-utility text-ink">Trace</h2>
       {entries.length === 0 ? (
-        <p className="mt-2 text-[14px] text-ink-muted">Tool calls, engine calls and the grounding check show here.</p>
+        <p className="mt-2 text-[14px] text-ink-muted">
+          Tool calls, engine calls and the grounding check show here.
+        </p>
       ) : (
-        <ol className="mt-2 max-h-96 space-y-1 overflow-y-auto font-mono text-[11px]" data-testid="trace">
+        <ol className="mt-2 max-h-96 space-y-1 overflow-y-auto font-mono text-[11px]">
           {[...entries].reverse().map((e) => (
             <li key={e.id} className={`border-l-2 pl-2 ${TONE[e.tone]}`}>
               <details>
