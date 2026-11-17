@@ -109,6 +109,8 @@ export interface EngineDefaults {
   epsilon: number; // 0.05
   stopRiskShare: number; // 0.01
   maxQuestions: number; // 6
+  /** P8 deviation: the risk stop applies only once this many questions are answered. */
+  minQuestions: number; // 2
   minEvoiShare: number; // 0.003
   surpriseThreshold: number; // 0.15
   sigmaRentNear: number; // 0.08

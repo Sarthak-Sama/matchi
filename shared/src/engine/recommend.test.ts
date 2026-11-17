@@ -52,10 +52,67 @@ describe('utilities', () => {
       expect(s.regretYen).toBeGreaterThanOrEqual(0);
     }
     expect(rec.riskYen).toBeGreaterThanOrEqual(0);
-    // Synthetic data: one area is best in most prior samples, so risk is
-    // below 1% of budget and the engine stops at once.
-    if (rec.shouldStop) expect(rec.nextQuestion).toBeNull();
-    else expect(rec.nextQuestion?.kind).toBe('pick_from_shortlist');
+    // P8: the risk stop needs minQuestions answers, so the first call always asks.
+    expect(rec.shouldStop).toBe(false);
+    expect(rec.nextQuestion?.kind).toBe('pick_from_shortlist');
+  });
+
+  it('P8: risk below the threshold at questionsAsked=0 still asks; stops once minQuestions are answered', () => {
+    // stopRiskShare large enough that risk is surely below the threshold.
+    const lowRisk = { ...DEFAULTS, stopRiskShare: 1e9 };
+    const feasibleIds = new Set(ctx.areas.filter((_, a) => ctx.feasible[a]).map((x) => x.locality_id));
+    const r0 = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: 0, defaults: lowRisk });
+    expect(r0.riskYen).toBeLessThan(lowRisk.stopRiskShare * ctx.scale);
+    expect(r0.shouldStop).toBe(false);
+    expect(r0.stopReason).toBeNull();
+    expect(r0.nextQuestion?.kind).toBe('pick_from_shortlist');
+    if (r0.nextQuestion?.kind === 'pick_from_shortlist') {
+      expect(new Set(r0.nextQuestion.set).size).toBeGreaterThanOrEqual(2);
+      for (const x of r0.nextQuestion.set) expect(feasibleIds.has(x)).toBe(true);
+    }
+    const r1 = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: 1, defaults: lowRisk });
+    expect(r1.shouldStop).toBe(false);
+    expect(r1.nextQuestion?.kind).toBe('pair');
+    if (r1.nextQuestion?.kind === 'pair') {
+      expect(r1.nextQuestion.a).not.toBe(r1.nextQuestion.b);
+      expect(feasibleIds.has(r1.nextQuestion.a)).toBe(true);
+      expect(feasibleIds.has(r1.nextQuestion.b)).toBe(true);
+    }
+    expect(r1.riskYen).toBe(r0.riskYen); // risk reported as computed
+    for (const q of [2, 3]) {
+      const r = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: q, defaults: lowRisk });
+      expect(r.shouldStop).toBe(true);
+      expect(r.stopReason).toBe('risk_below_threshold');
+      expect(r.nextQuestion).toBeNull();
+    }
+  });
+
+  it('P8: pair falls back to the top two by expected utility when fewer than two pass the P_best filter', () => {
+    const lowRisk = { ...DEFAULTS, stopRiskShare: 1e9 };
+    // Concentrate all weight on one sample: P_best is 1 for one area, 0 elsewhere.
+    const w = new Float64Array(belief.n);
+    w[0] = 1;
+    const peaked = { ...belief, weights: w };
+    const r = recommend(peaked, util, ctx, profile, { k: 5, questionsAsked: 1, defaults: lowRisk });
+    expect(r.shortlist.filter((s) => s.pBest > 0.05).length).toBeLessThan(2);
+    expect(r.shouldStop).toBe(false);
+    expect(r.nextQuestion?.kind).toBe('pair');
+    if (r.nextQuestion?.kind === 'pair') {
+      const idx = (id: string): number => ctx.areas.findIndex((x) => x.locality_id === id);
+      const shortIdx = r.shortlist.map((s) => idx(s.localityId));
+      // One sample with weight 1: expected utility is that sample's row of u.
+      const top2 = [...shortIdx].sort((x, y) => util.u[y]! - util.u[x]! || x - y).slice(0, 2);
+      expect([idx(r.nextQuestion.a), idx(r.nextQuestion.b)].sort()).toEqual(top2.sort());
+    }
+  });
+
+  it('P8: stops when no question can be formed (one feasible area)', () => {
+    const one = new Uint8Array(util.nAreas);
+    one[ctx.areas.findIndex((_, a) => ctx.feasible[a])] = 1;
+    const r = recommend(belief, util, { ...ctx, feasible: one }, profile, { k: 5, questionsAsked: 0, defaults: DEFAULTS });
+    expect(r.shortlist).toHaveLength(1);
+    expect(r.shouldStop).toBe(true);
+    expect(r.nextQuestion).toBeNull();
   });
 
   it('asks the shortlist first, then the closest pair, while risk is above the threshold', () => {
