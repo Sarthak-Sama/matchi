@@ -405,3 +405,101 @@ Zod style: `import { z } from "zod"`, `z.object({...}).strict()`, `.refine`, typ
     AGENT_MODEL_BASE_URL=... AGENT_MODEL_API_KEY=... AGENT_MODEL=... pnpm dev:api
   NEXT_PUBLIC_API_BASE_URL=http://localhost:4100 pnpm dev:web   # then open http://localhost:3000/agent
   (PORT is read by api/src/config.ts; default 4000 is taken locally by an unrelated app.)
+- 19:03 The ai& model keys are now in .env (names checked only). E2E live-model test dispatched (sonnet; test-and-report only, no code edits; report by 19:40).
+- 19:07 USER-APPROVED: in .env the two Neon DATABASE_URL lines are commented out for tonight and replaced with the local localhost:5432/tokyo URL (backup in the session scratchpad). Verified via node --env-file: both URLs resolve to localhost:5432/tokyo; psql current_database=tokyo, 937 area_features rows, 7 model_params. No active .env line mentions neon. Restore the Neon lines after the demo.
+
+## E2E test (live model): partial
+Tested 19:07-19:20 JST against the LOCAL DB (both URLs verified localhost:5432/tokyo; no "neon" in the log), API :4100, web :3000, model ai& deepseek-v4.1-flash. No `reasoning_effort` sent. Read-only DB. All processes stopped, browser tab closed; :4000 left alone. Not run: Like/Prefer/relax clicks in the browser, the full-length "stop rule fires and the agent says it is done" conversation.
+- Works:
+  - Live model reaches the API: no MODEL_NOT_CONFIGURED; first event ~0.8-1.9 s, `done` 2-6 s per turn (tool turns), see Latency.
+  - Browser step a (messy sentence, English): 2 lookups (parallel), set_profile (Waseda peak 5/wk, Shibuya offpeak 3/wk lateReturn=true, budget 85,000 not firm), observe (4 items), harness recommend, reply, grounding pass, state. Chips, shortlist (5 cards), belief bars all rendered. Console: no errors (only Vercel analytics debug logs). API log: no 4xx/5xx.
+  - Step b: the engine's next question is relayed. Turn 1 asked the layout ("what layout do you need"), turn 2 (after "1K is fine") asked to pick among 5 areas, turn 3 (after answering "I'd pick 中村南. A quiet street matters more...") asked a pair: "光が丘 or 西新小岩". Belief bars moved: Road and rail noise -3.7% -> -6.8%, Residential calm 4.0% -> 4.6%, Green space 3.7% -> 2.6%; ESS 1327 -> 273; risk line 402 -> 225 -> 143 yen/month.
+  - Step d: removing all four "I hate noise." chips changed the shortlist (中村南/光が丘 swapped, 関町北 entered, 西新小岩 left; noise weight -6.8% -> -5.6%); "Put back" x4 restored exactly the earlier shortlist and ESS 273. Removing only ONE of the four chips changed nothing visible (same cards, ESS 273 -> 277).
+  - Step e: trace lists every call/return, "grounding check: pass", the state line. The risk figure ("What I still don't know about you is worth about ¥143 a month") is in the shortlist panel, not in the trace.
+  - Japanese input is fast and good: 「新宿で週5日…静かさが絶対条件」 gave lookup -> set_profile + 3 observe items (magnitude residential_calm essential, direction road_rail_exposure -1, bars -1) in 3.5 s, and a Japanese reply; with a contradiction ("the lively one, 亀有") the agent said "「静かさが絶対条件」と「lively」はぶつかりますが、どちらが正しいですか".
+  - Grounding: 0 failures and 0 retries in all 7 personas + browser; 0 tool-validation errors in the personas (all tool_result ok).
+- Works badly (with evidence):
+  - Reply figures are rounded to 1,000 yen while the cards are exact: reply "西新小岩 ... ¥79,000", card ¥79,171; reply "光が丘 ¥86,000", card ¥85,645; "road/rail exposure −¥4,000" vs card −¥3,971/−¥4,021. Grounding accepts it (the tool result is rounded), but a viewer comparing chat and cards will see differences.
+  - Evidence chips are indistinguishable: four chips all read “I hate noise.” (observe items use the whole sentence as quote). Demo step d ("delete the noise chip") is ambiguous, and deleting one does nothing visible.
+  - "I hate noise." became bars -1 AND late_night -1 for a night-shift worker (late_night -1 is a questionable proxy); the model also invented tripsPerWeek=5 for the Waseda anchor (user never said it).
+  - 下北沢 is not an area in this DB (areas are 町 names: 代田, 北沢, 上北沢; 下北沢 exists only as a station, id mlit-下北沢-35.662-139.667). So "Why not 下北沢?" can never succeed through lookup(area). (Todo (c) area-name lookup.)
+  - query_areas is advertised to the model but disabled ("query_areas is turned off on this server."); the model tries it (rounds wasted): seen in "Why not 代田?" and in the 亀有 turn.
+  - Replies run long for the "stay brief" goal: 4-6 sentences plus all 5 areas listed in the question each turn.
+  - Chat panel trace shows only "call lookup / lookup returned" with no inputs or results.
+- Broken (with evidence):
+  1. **DSML tool-call markup leaks into the chat as the reply (the headline bug).** The loop gives the model MAX_MODEL_CALLS_PER_TURN=4 calls, 3 in the tool phase, and the third (`lastToolCall`) is offered NO tools. When the model still wants a tool (any turn needing 3 sequential tool rounds) it writes DeepSeek's native call syntax as text, and that text is emitted as the reply. Browser: "Why not 下北沢?" -> GUIDE shows `<｜DSML｜ calls> <｜DSML｜ invoke name="query_areas"> <｜DSML｜ parameter name="area_ids"...`; "Why not 代田?" -> same with `invoke name="lookup"` (even though why_not had already run). Event sequence for "Why not 下北沢?" (curl): tool_call lookup(area) -> result matches [] -> tool_call lookup(station) -> text DSML -> grounding pass:true -> done. all 7 personas had it on at least one turn (student T1, school_late_shift T1+T2, two_commutes T1, like_shimokitazawa T1+T2, contradictor T1, out_of_coverage T1, impossible_limits T1); every English first message does lookup("Shinjuku") then lookup("新宿") sequentially and runs out of rounds. The grounding check passes it (no figures). The leaked text is also stored in session.turns, which feeds the next prompt.
+  2. **Polluted history then stalls the model for 60 s.** After the DSML turn, the next turns of the same session ended in `error TURN_FAILED "The operation was aborted due to timeout"` (contradictor persona turns 2 and 3; reproduced by curl: turn 2 returned more DSML (with a zero-width joiner inside "<｜‍DSML｜"), turn 3 = error at 60.1 s). The page would show a failed turn after a minute.
+  3. Because the final round has no tools, the model's DSML calls are guesses at parameter shapes (`set_profile` with `profile`, `days_per_week`, `budget_hard`...) that would fail validation if executed.
+  4. Persona checks fail mostly as a consequence of 1 (no set_profile ever ran: "0 anchor(s)", "no like_area evidence", "5 shortlisted, 0 relax option(s)"), plus the persona set is English-name based on a Japanese-only DB.
+- Latency figures (curl and browser, JST, reasoning model, no reasoning_effort):
+  - First event 0.8-1.9 s; `done`: 4.8 s (messy first message, 5 tool calls), 3.4 s (set_profile + why_not + recommend), 3.5 s and 5.7 s (Japanese, with observe), 2.0-2.7 s for the DSML leaks. Browser turns: API logged 2.7-4.8 s per chat turn (the page showed the reply within the 8-10 s I waited). Engine calls 90-260 ms.
+  - Worst case 60.1 s (model timeout) on a polluted session. Acceptable for a live demo when the model behaves (3-6 s).
+- Personas results table (7 of 7 ran, whole run 149 s incl. two 60 s timeouts; the runner records no per-turn latency; checks every transcript: stream ok / grounding / firm limits / tool validity / tool budget):
+  | persona | result | tool calls (turns) | tool-call errors | grounding fail/retry | failed checks |
+  |---|---|---|---|---|---|
+  | student | FAIL | 6 (2) | 0 | 0 / 0 | no shortlisted area over 70,000 (74,603 / 75,671 / 73,290 shown; the budget is firm=true in the stored profile, so the engine let over-budget areas into the shortlist or the profile was set after; not investigated further); warn: evidence lacks konbini, late_night |
+  | school_late_shift | FAIL | 8 (2) | 0 | 0 / 0 | both anchors in profile (0 anchors); late-night flag |
+  | two_commutes | FAIL | 4 (1) | 0 | 0 / 0 | reachable from both anchors (0 anchors) |
+  | like_shimokitazawa | FAIL | 8 (2) | 0 | 0 / 0 | like_area item; compare probe |
+  | contradictor | FAIL | 2 (3) | 0 | 0 / 0 | stream error TURN_FAILED timeout x2; surprising item flagged |
+  | out_of_coverage | PASS | 4 (1) | 0 | 0 / 0 | none (vacuously: profile never set) |
+  | impossible_limits | FAIL | 2 (1) | 0 | 0 / 0 | empty shortlist with relax options |
+  Every persona had a DSML reply on at least one turn; the verdicts therefore say more about bug 1 than about the model's judgement.
+- Quality notes: observe use is sensible in Japanese and in the messy English sentence (strength/quote fields filled; magnitude essential used for "絶対条件"); life facts go to set_profile (anchors, budget, layout, late return) not observe; figures: always from tool results, but rounded (see above); the contradiction was caught in prose, but the engine's `surprising` flag stayed false for like_area at 7% "how expected"; next_question is relayed faithfully (layout, pick of 5, pair); grounding never needed a retry.
+- Top 5 fixes ranked by demo impact (NOT made):
+  1. api/src/agent/loop.ts: stop the DSML leak. Raise MAX_MODEL_CALLS_PER_TURN (4 -> 7) and/or keep tools offered on the last tool-phase call; and add a guard on finalText: if it contains `DSML` / `<｜` (match with an optional zero-width char) or is empty, do not emit or store it: re-ask once with tools and a "answer in plain text now" message, else fall back to a fixed sentence built from the last recommend result. Also never push such text into session.turns.
+  2. api/src/agent/prompt.ts (+ tools.ts lookup): tell the model the local names are Japanese only (search 新宿 not Shinjuku), or make lookup(kind=station/area) try a Japanese/English fallback itself, so the first message needs 1 lookup round instead of 2.
+  3. api/src/agent/tools.ts: do not advertise query_areas when queryAreasEnabled is false (filter it out of tools.specs); add a station-to-area fallback in why_not/lookup(area) so "Why not 下北沢?" resolves (or make the demo use a real area such as 代田/光が丘/中村南).
+  4. api/src/agent/prompt.ts and web/app/agent/components (evidence chips): make observe quotes short per item (the specific words) or have the chip label show feature + direction ("Road and rail noise: less"), so four chips are not all “I hate noise.”; tell the model not to set late_night/bars for a plain "noise" statement.
+  5. api/src/agent/prompt.ts / tool result formatting: have the model quote money exactly as on the cards (the tool rounds to 1,000; the cards show exact yen), or round the cards to match; shorten replies (max 3 sentences, name only the two areas of the question). Also set a shorter model timeout (e.g. 20 s) with one retry so a stall does not cost 60 s.
+- Verified: node --env-file=.env check -> localhost:5432/tokyo for both URLs; curl POST /v1/agent/session 200; POST /v1/agent/turn SSE (messy sentence) 200, 4.8 s to done; browser flow on http://localhost:3000/agent (Claude in Chrome, a, b, c, d, e; console clean); `pnpm exec tsx scripts/src/eval/personas.ts --base-url http://localhost:4100 --out <scratchpad>/personas.json` -> 1 PASS / 6 FAIL, 149 s (output written to the scratchpad, not the repo); curl reproductions of "Why not 下北沢?" (DSML), "Why not 代田?" with profile set (works in one round: needs_weight_change, late_night x5.1, ¥3,600 behind), Japanese contradictor (works) and English contradictor (DSML then 60 s timeout). GIF "agent_demo_flow.gif" (31 frames, 7 MB) was exported to the browser's Downloads folder; it includes the DSML failure at the why-not step.
+
+## Fix DSML leak: done
+- Built: sanitizeReply (strips DSML/tool-call markup incl. fullwidth bar/＜, zero-width, <tool_call>, <function_calls>, tool▁calls▁begin; cuts to end) on the final and retry text; fallbackReply from the current AgentStateView (top area name_en ?? name_ja, whole-percent pBest via toPercent, next question as one sentence, else "The cards show the details."), grounded with the percent added as an extra source; MAX_MODEL_CALLS_PER_TURN 4 -> 7; tools always offered, unrun tool calls on the last tool-phase call -> fallback; model throw after a tool ran -> fallback + grounding + state + done (before any tool: TURN_FAILED as before); stored turns only sanitized/fallback text; polluted stored assistant turns dropped from context; DEFAULT_TIMEOUT_MS 25 s (+ optional AGENT_MODEL_TIMEOUT_MS); createAgentTools(layouts, { queryAreasEnabled }) hides query_areas from specs (still callable -> disabled); prompt: Japanese-names rule and max 3 sentences.
+- Files: api/src/agent/{loop,model-client,tools,prompt}.ts, loop.test.ts, tools.test.ts, api/src/routes/agent.ts. Commit 48c0d94.
+- Verified: pnpm vitest run api/src/agent api/src/routes/agent.test.ts api/src/routes/agent-direct.test.ts -> 9 files passed, 1 skipped; 119 tests passed, 2 skipped; pnpm --filter @tokyo/api typecheck -> clean. No live-model check run.
+- Deviations from plan: createAgentTools option defaults to enabled when omitted (keeps existing callers). Polluted assistant turns are dropped alone (their user message stays). progress.md left out of the commit (it holds other agents' uncommitted edits).
+- Blockers: none.
+
+## DSML fix retest: FIXED
+Retest of commit 48c0d94, live model deepseek-ai/deepseek-v4.1-flash-1017, local DB only (localhost:5432/tokyo verified), API on :4100. Raw SSE and scripts in the session scratchpad (.../scratchpad/rt/).
+- Per-test table (every turn: no markup, no error event, state event then done last; "grounding" is the final event)
+
+| test | run | turn | markup? | fallback? | tools (count) | anchor? | grounding | errors | secs |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 JA setup / why-not 代田 / cheaper | 1 | 1 | no | no | lookup,lookup,set_profile,observe,recommend (5) | yes (2 anchors) | pass | none | 4.4 |
+| | | 2 | no | no | lookup,why_not (2) | - | fail(2) then pass | none | 2.6 |
+| | | 3 | no | no | recommend,relax (2) | - | pass | none | 1.5 |
+| | 2 | 1 | no | no | lookup x2,set_profile,observe,recommend (5) | yes | fail(1) then pass | none | 3.9 |
+| | | 2 | no | no | lookup,why_not,observe,recommend (4) | - | pass | none | 3.0 |
+| | | 3 | no | no | relax,recommend (2) | - | pass | none | 1.7 |
+| | 3 | 1 | no | no | lookup x2,observe,recommend,set_profile,recommend (6) | yes | pass | none | 3.3 |
+| | | 2 | no | no | lookup,why_not (2) | - | pass | none | 1.9 |
+| | | 3 | no | no | recommend,relax (2) | - | pass | none | 1.8 |
+| 2 EN first msg / why not Daita / cheaper | 1 | 1 | no | no | lookup x2,set_profile,observe,recommend (5) | yes | pass | none | 2.5 |
+| | | 2 | no | no | lookup,why_not (2) | - | pass | none | 2.1 |
+| | | 3 | no | no | recommend (1) | - | pass | none | 1.5 |
+| | 2 | 1 | no | no | same 5 | yes | pass | none | 2.7 |
+| | | 2 | no | no | lookup,why_not (2) | - | pass | none | 2.2 |
+| | | 3 | no | no | recommend (1) | - | pass | none | 1.9 |
+| | 3 | 1 | no | no | same 5 | yes | pass | none | 2.8 |
+| | | 2 | no | no | lookup,why_not (2) | - | pass | none | 2.0 |
+| | | 3 | no | no (text has "0%" but came from tool results, relax ran) | recommend,relax (2) | - | pass | none | 2.0 |
+| 3 why not 下北沢 | 1 | 1 | no | no | same 5 | yes | pass | none | 3.1 |
+| | | 2 | no | no | lookup x3,why_not (4) | - | pass | none | 2.8 |
+| | | 3 | n/a | n/a | none | n/a | n/a | HTTP 429 RATE_LIMITED (my own 20 turns/min limit, not the bug) | 0.05 |
+| | 1b rerun | 1 | no | no | same 5 | yes | pass | none | 3.3 |
+| | | 2 | no | no | lookup x2,recommend (3): said 下北沢 is not an area in the DB (station only) | - | pass | none | 3.3 |
+| | | 3 | no | no | recommend (1) | - | pass | none | 1.5 |
+| 5 browser, test 1's 3 turns | 1 | 1-3 | no | no | UI trace: lookup x2,set_profile,observe,recommend; then replies | yes (anchor 大学(早稲田)) | "Grounding check passed" on all 3 | none | each under ~8 s |
+| 6 personas (7 personas, 11 turns) | - | - | 0 of 11 replies | not checked | 52 tool calls | 7 of 7 had set_profile with an anchor | all pass | none | ~50 s total |
+
+- Evidence for any failure: none for the DSML bug. grep for U+FF5C, DSML, tool_call>, function_calls, tool▁calls over all 23 saved SSE files: zero hits (also zero in personas.json). No TURN_FAILED or timeout anywhere; slowest turn 4.4 s. Browser chat panel showed clean Japanese/English text.
+- Other observations:
+  - The fallback path (tool-round exhaustion) never triggered live: max 6 model-driven tool calls in a turn, so the original failure condition was not reproduced; the fix is confirmed by absence of leakage and by unit tests, not by watching the fallback fire. Never saw fallback-style text.
+  - Grounding emitted FAIL then pass in 2 turns (t1 r1 turn 2 and t1 r2 turn 1): the loop's retry fixed it, final reply grounded.
+  - English first message now works: "Shinjuku" lookup no longer breaks; anchors set via lookup,lookup,set_profile in all 3 runs.
+  - Rate limit 20 turns/min caused one 429 in my script (rerun as 1b).
+  - Personas (not about markup): 4 pass, 3 fail: student (recommend rent 75-76k over firm budget 70k), school_late_shift ("late-night flag" not mentioned in a reply text), out_of_coverage (anchor not refused with reason). These look unrelated to the DSML fix; not investigated.
+  - MISTAKE to disclose: at cleanup I ran `pkill -f "next dev"` to stop my web app; it also killed a Next dev server outside this repo (pid 36104, /Users/yato_sar/hackathon/daytona/liveshot, `next dev --hostname 0.0.0.0 --port 4000`). Port 4000 is now not listening. It needs restarting from that directory by the user.
+- Verified: node --env-file=.env URL check -> localhost:5432/tokyo for both; pnpm dev:api on 4100 /health -> ok, db reachable; 8 curl sessions x3 turns -> table above; pnpm dev:web with NEXT_PUBLIC_API_BASE_URL=http://localhost:4100 + Chrome new tab, 3 turns -> clean; AGENT_BASE_URL=http://localhost:4100 pnpm exec tsx scripts/src/eval/personas.ts -> exit 1 (3 persona check failures, 0 markup, 7/7 anchors); API and web stopped, port 4100 and 3000 no longer listening, tab closed. No code or config edited.
