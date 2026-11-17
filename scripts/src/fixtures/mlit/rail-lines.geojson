@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "N02_004": "JR東日本", "N02_003": "山手線", "mode": "local_rail" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [139.7016, 35.658],
+          [139.701, 35.67],
+          [139.7006, 35.6896]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": { "N02_004": "東京メトロ", "N02_003": "銀座線", "mode": "subway" },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [139.7016, 35.658],
+          [139.705, 35.662]
+        ]
+      }
+    }
+  ]
+}

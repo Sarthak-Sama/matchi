@@ -1,0 +1,485 @@
+import { writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+
+import { createPool } from "./lib/db.js";
+
+const SIMPLIFY_TOLERANCE_DEG = 0.0016;
+
+const VIEW_WIDTH = 620;
+const VIEW_HEIGHT = 560;
+const PADDING = 14;
+
+const REFERENCE_STATIONS = [
+  { nameJa: "新宿", romanized: "Shinjuku" },
+  { nameJa: "池袋", romanized: "Ikebukuro" },
+  { nameJa: "上野", romanized: "Ueno" },
+  { nameJa: "東京", romanized: "Tokyo" },
+  { nameJa: "渋谷", romanized: "Shibuya" },
+  { nameJa: "品川", romanized: "Shinagawa" },
+] as const;
+
+const WARDS_PATH = new URL("../../web/app/components/tokyo-wards.ts", import.meta.url);
+const LOCALITIES_PATH = new URL(
+  "../../web/app/components/landing/tokyo-localities.ts",
+  import.meta.url,
+);
+
+const EXAMPLE_REQUEST = {
+  destinationNameJa: "渋谷",
+  arrivalTime: "08:30",
+  maxCommuteMinutes: 45,
+  monthlyBudgetYen: 200_000,
+  layout: "1LDK",
+  preferences: { supermarkets: "medium", quietness: "high" },
+} as const;
+
+const API_BASE_URL = process.env["API_BASE_URL"] ?? "http://localhost:4000";
+
+type Ring = [number, number][];
+interface GeoJsonPolygon {
+  readonly type: "Polygon" | "MultiPolygon";
+  readonly coordinates: Ring[][] | Ring[];
+}
+interface WardRow {
+  readonly ward_code: string;
+  readonly name_en: string;
+  readonly name_ja: string;
+  readonly geojson: GeoJsonPolygon;
+}
+interface StationRow {
+  readonly name_ja: string;
+  readonly lat: number;
+  readonly lon: number;
+}
+
+interface LocalityRow {
+  readonly locality_id: string;
+  readonly lat: number;
+  readonly lon: number;
+}
+
+interface OptimizeResult {
+  readonly localityId: string;
+  readonly nameJa: string;
+  readonly nameEn: string;
+  readonly wardNameEn: string;
+  readonly rank: number;
+  readonly overallScore: number;
+  readonly rent: { readonly lowYen: number; readonly highYen: number };
+  readonly commute: { readonly totalMinutes: number; readonly transferCount: number };
+  readonly factors: readonly {
+    readonly key: string;
+    readonly label: string;
+    readonly componentScore: number;
+    readonly rawValueLabel: string;
+  }[];
+}
+
+interface OptimizeDiagnostics {
+  readonly candidatesConsidered: number;
+  readonly excludedByRent: number;
+  readonly excludedByCommute: number;
+  readonly excludedByDisconnected: number;
+
+  readonly feasibleCount: number;
+}
+
+const AXIS_EVIDENCE_SQL = `
+  SELECT
+    (SELECT count(*) FROM pois WHERE category IN ('supermarket','grocery')) AS supermarkets,
+    (SELECT count(*) FROM pois WHERE category IN ('restaurant','cafe')) AS restaurants,
+    (SELECT count(*) FROM pois WHERE category = 'convenience') AS konbini,
+    (SELECT count(*) FROM pois WHERE category = 'health') AS health,
+    (SELECT count(DISTINCT cuisine) FROM pois WHERE cuisine IS NOT NULL) AS cuisine_variety,
+    (SELECT count(*) FROM pois
+      WHERE category IN ('restaurant','cafe','bar','convenience')
+        AND (opening_hours = '24/7' OR opening_hours ~ '-2[3-9]:[0-5][0-9]')) AS late_night,
+    (SELECT count(*) FROM green_spaces) AS green_space,
+    (SELECT count(*) FROM zoning_areas) AS zoning_areas,
+    (SELECT count(*) FROM rail_edges) AS rail_edges,
+    (SELECT count(*) FROM station_groups) AS station_groups
+`;
+
+function ringsOf(geometry: GeoJsonPolygon): Ring[] {
+  return geometry.type === "MultiPolygon"
+    ? (geometry.coordinates as Ring[][]).flat()
+    : (geometry.coordinates as Ring[]);
+}
+
+function shuffleDeterministically(items: readonly string[]): string[] {
+  const out = [...items];
+  let seed = 20260830;
+  for (let index = out.length - 1; index > 0; index -= 1) {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    const swap = seed % (index + 1);
+    const a = out[index];
+    const b = out[swap];
+    if (a !== undefined && b !== undefined) {
+      out[index] = b;
+      out[swap] = a;
+    }
+  }
+  return out;
+}
+
+function describeTopResult(results: readonly OptimizeResult[]): unknown {
+  const top = results[0];
+  if (top === undefined) throw new Error("no top result to describe");
+  const lifestyle = top.factors.filter(
+    (factor) => factor.key !== "affordability" && factor.key !== "commute",
+  );
+  const strongest = [...lifestyle].sort((a, b) => b.componentScore - a.componentScore)[0];
+  const weakest = [...top.factors].sort((a, b) => a.componentScore - b.componentScore)[0];
+  if (strongest === undefined || weakest === undefined) {
+    throw new Error("top result carried no factors");
+  }
+  return {
+    nameJa: top.nameJa,
+    nameEn: top.nameEn,
+    wardNameEn: top.wardNameEn,
+    score: Math.round(top.overallScore),
+    commuteMinutes: Math.round(top.commute.totalMinutes),
+    transfers: top.commute.transferCount,
+    rentLowYen: top.rent.lowYen,
+    rentHighYen: top.rent.highYen,
+    strength: strongest.rawValueLabel,
+    weakest: { label: weakest.label, score: Math.round(weakest.componentScore) },
+  };
+}
+
+function chunk(items: readonly string[], perLine: number): string[] {
+  const lines: string[] = [];
+  for (let index = 0; index < items.length; index += perLine) {
+    lines.push(items.slice(index, index + perLine).join(" "));
+  }
+  return lines;
+}
+
+async function fetchExampleShortlist(pool: {
+  query: <T>(sql: string, values?: unknown[]) => Promise<{ rows: T[] }>;
+}): Promise<{
+  readonly results: readonly OptimizeResult[];
+  readonly diagnostics: OptimizeDiagnostics;
+  readonly destination: { readonly lat: number; readonly lon: number };
+}> {
+  const { rows } = await pool.query<{
+    station_group_id: string;
+    lat: number;
+    lon: number;
+  }>(
+    `SELECT station_group_id, ST_Y(point) AS lat, ST_X(point) AS lon
+       FROM station_groups WHERE name_ja = $1 ORDER BY station_group_id LIMIT 1`,
+    [EXAMPLE_REQUEST.destinationNameJa],
+  );
+  const destinationRow = rows[0];
+  if (destinationRow === undefined) {
+    throw new Error(`no station group named "${EXAMPLE_REQUEST.destinationNameJa}"`);
+  }
+  const destinationStationGroupId = destinationRow.station_group_id;
+
+  const response = await fetch(`${API_BASE_URL}/v1/optimize`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      destinationStationGroupId,
+      arrivalTime: EXAMPLE_REQUEST.arrivalTime,
+      maxCommuteMinutes: EXAMPLE_REQUEST.maxCommuteMinutes,
+      monthlyBudgetYen: EXAMPLE_REQUEST.monthlyBudgetYen,
+      layout: EXAMPLE_REQUEST.layout,
+      preferences: EXAMPLE_REQUEST.preferences,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `example /v1/optimize failed (${String(response.status)}) — is the API running at ${API_BASE_URL}?`,
+    );
+  }
+  const body = (await response.json()) as {
+    results?: OptimizeResult[];
+    diagnostics?: OptimizeDiagnostics;
+  };
+  const results = body.results ?? [];
+  const diagnostics = body.diagnostics;
+  if (results.length === 0) throw new Error("example /v1/optimize returned no results");
+  if (diagnostics === undefined) throw new Error("example /v1/optimize returned no diagnostics");
+  return {
+    results,
+    diagnostics,
+    destination: { lat: destinationRow.lat, lon: destinationRow.lon },
+  };
+}
+
+export interface PlateSources {
+  readonly wards: string;
+  readonly localities: string;
+}
+
+type Project = (lat: number, lon: number) => [number, number];
+
+function pathOf(geometry: GeoJsonPolygon, project: Project): string {
+  return ringsOf(geometry)
+    .map(
+      (ring) =>
+        ring
+          .map(([lon, lat], index) => {
+            const [x, y] = project(lat, lon);
+            return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+          })
+          .join(" ") + "Z",
+    )
+    .join(" ");
+}
+
+function buildWardsSource(
+  wards: readonly WardRow[],
+  stations: readonly StationRow[],
+  project: Project,
+): string {
+  const orderedStations = REFERENCE_STATIONS.flatMap((reference) => {
+    const row = stations.find((station) => station.name_ja === reference.nameJa);
+    return row ? [{ ...reference, lat: row.lat, lon: row.lon }] : [];
+  });
+
+  return [
+    `export const WARD_PLATE_VIEWBOX = { width: ${VIEW_WIDTH}, height: ${VIEW_HEIGHT} } as const;`,
+    "",
+    "export interface WardShape {",
+    "  readonly code: string;",
+    "  readonly nameEn: string;",
+    "  readonly nameJa: string;",
+    "  readonly d: string;",
+    "}",
+    "",
+    "export const WARD_SHAPES: readonly WardShape[] = [",
+    ...wards.map(
+      (ward) =>
+        `  { code: ${JSON.stringify(ward.ward_code)}, nameEn: ${JSON.stringify(ward.name_en)}, ` +
+        `nameJa: ${JSON.stringify(ward.name_ja)}, d: ${JSON.stringify(pathOf(ward.geojson, project))} },`,
+    ),
+    "];",
+    "",
+    "export interface PlateStation {",
+    "  readonly romanized: string;",
+    "  readonly nameJa: string;",
+    "  readonly x: number;",
+    "  readonly y: number;",
+    "}",
+    "",
+    "export const PLATE_STATIONS: readonly PlateStation[] = [",
+    ...orderedStations.map((station) => {
+      const [x, y] = project(station.lat, station.lon);
+      return (
+        `  { romanized: ${JSON.stringify(station.romanized)}, nameJa: ${JSON.stringify(station.nameJa)}, ` +
+        `x: ${x.toFixed(1)}, y: ${y.toFixed(1)} },`
+      );
+    }),
+    "];",
+    "",
+  ].join("\n");
+}
+
+function buildLocalitiesSource(
+  localities: readonly LocalityRow[],
+  example: Awaited<ReturnType<typeof fetchExampleShortlist>>,
+  evidence: Record<string, string>,
+  indexNames: readonly string[],
+  project: Project,
+): string {
+  return [
+    `export const LOCALITY_COUNT = ${String(localities.length)};`,
+    "",
+    "export const LOCALITY_XY: readonly number[] = [",
+    ...chunk(
+      localities.map((locality) => {
+        const [x, y] = project(locality.lat, locality.lon);
+        return `${x.toFixed(1)}, ${y.toFixed(1)},`;
+      }),
+      6,
+    ).map((line) => `  ${line}`),
+    "];",
+    "",
+    "export function localityPoint(index: number): { x: number; y: number } {",
+    "  return { x: LOCALITY_XY[index * 2] ?? 0, y: LOCALITY_XY[index * 2 + 1] ?? 0 };",
+    "}",
+    "",
+    "export interface ExampleSearch {",
+    "  readonly destinationNameJa: string;",
+    "  readonly arrivalTime: string;",
+    "  readonly maxCommuteMinutes: number;",
+    "  readonly monthlyBudgetYen: number;",
+    "  readonly layout: string;",
+    "  readonly destination: { readonly x: number; readonly y: number };",
+    "  readonly matchedIndices: readonly number[];",
+    "  readonly funnel: {",
+    "    readonly considered: number;",
+    "    readonly excludedByCommute: number;",
+    "    readonly excludedByRent: number;",
+    "    readonly excludedByDisconnected: number;",
+    "    readonly qualified: number;",
+    "    readonly shortlisted: number;",
+    "  };",
+    "  readonly topResult: {",
+    "    readonly nameJa: string;",
+    "    readonly nameEn: string;",
+    "    readonly wardNameEn: string;",
+    "    readonly score: number;",
+    "    readonly commuteMinutes: number;",
+    "    readonly transfers: number;",
+    "    readonly rentLowYen: number;",
+    "    readonly rentHighYen: number;",
+    "    readonly strength: string;",
+    "    readonly weakest: { readonly label: string; readonly score: number };",
+    "  };",
+    "}",
+    "",
+    `export const EXAMPLE_SEARCH: ExampleSearch = ${JSON.stringify(
+      {
+        destinationNameJa: EXAMPLE_REQUEST.destinationNameJa,
+        arrivalTime: EXAMPLE_REQUEST.arrivalTime,
+        maxCommuteMinutes: EXAMPLE_REQUEST.maxCommuteMinutes,
+        monthlyBudgetYen: EXAMPLE_REQUEST.monthlyBudgetYen,
+        layout: EXAMPLE_REQUEST.layout,
+        destination: (() => {
+          const [x, y] = project(example.destination.lat, example.destination.lon);
+          return { x: Number(x.toFixed(1)), y: Number(y.toFixed(1)) };
+        })(),
+        matchedIndices: example.results
+          .map((result) =>
+            localities.findIndex((locality) => locality.locality_id === result.localityId),
+          )
+          .filter((index) => index >= 0),
+        funnel: {
+          considered: example.diagnostics.candidatesConsidered,
+          excludedByCommute: example.diagnostics.excludedByCommute,
+          excludedByRent: example.diagnostics.excludedByRent,
+          excludedByDisconnected: example.diagnostics.excludedByDisconnected,
+
+          qualified: example.diagnostics.feasibleCount,
+          shortlisted: example.results.length,
+        },
+        topResult: describeTopResult(example.results),
+      },
+      null,
+      2,
+    )};`,
+    "",
+    `export const INDEX_NAMES: readonly string[] = ${JSON.stringify(indexNames, null, 2)};`,
+    "",
+    "export interface AxisEvidence {",
+    "  readonly count: number;",
+    "  readonly unit: string;",
+    "}",
+    "",
+    `export const AXIS_EVIDENCE: Readonly<Record<string, AxisEvidence>> = ${JSON.stringify(
+      {
+        supermarkets: {
+          count: Number(evidence["supermarkets"]),
+          unit: "supermarkets and grocers",
+        },
+        restaurants: { count: Number(evidence["restaurants"]), unit: "restaurants and cafés" },
+        quietness: {
+          count: Number(evidence["zoning_areas"]) + Number(evidence["rail_edges"]),
+          unit: "zoning areas and rail segments",
+        },
+        konbini: { count: Number(evidence["konbini"]), unit: "convenience stores" },
+        cuisineVariety: { count: Number(evidence["cuisine_variety"]), unit: "distinct cuisines" },
+        greenSpace: { count: Number(evidence["green_space"]), unit: "parks and gardens" },
+        lateNight: { count: Number(evidence["late_night"]), unit: "places open past 23:00" },
+        health: { count: Number(evidence["health"]), unit: "clinics and pharmacies" },
+      },
+      null,
+      2,
+    )};`,
+    "",
+  ].join("\n");
+}
+
+export async function buildWardPlate(): Promise<PlateSources> {
+  const pool = createPool();
+  try {
+    const { rows: wards } = await pool.query<WardRow>(
+      `SELECT ward_code, name_en, name_ja,
+              ST_AsGeoJSON(ST_SimplifyPreserveTopology(geom, $1))::json AS geojson
+         FROM wards
+        ORDER BY name_en`,
+      [SIMPLIFY_TOLERANCE_DEG],
+    );
+    if (wards.length === 0) throw new Error("no wards found — run the ward import first");
+
+    const { rows: stations } = await pool.query<StationRow>(
+      `SELECT DISTINCT ON (name_ja) name_ja,
+              ST_Y(point) AS lat, ST_X(point) AS lon
+         FROM station_groups
+        WHERE name_ja = ANY($1)
+        ORDER BY name_ja, station_group_id`,
+      [REFERENCE_STATIONS.map((station) => station.nameJa)],
+    );
+
+    const { rows: localities } = await pool.query<LocalityRow>(
+      `SELECT locality_id, ST_Y(centroid) AS lat, ST_X(centroid) AS lon
+         FROM localities
+        WHERE centroid IS NOT NULL
+        ORDER BY locality_id`,
+    );
+
+    const example = await fetchExampleShortlist(pool);
+
+    const { rows: evidenceRows } = await pool.query<Record<string, string>>(AXIS_EVIDENCE_SQL);
+    const evidence = evidenceRows[0];
+    if (evidence === undefined) throw new Error("axis evidence query returned no rows");
+
+    const { rows: nameRows } = await pool.query<{ name_ja: string }>(
+      `SELECT DISTINCT ON (name_ja) name_ja
+         FROM localities
+        WHERE name_ja <> ''
+        ORDER BY name_ja, md5(locality_id)
+        LIMIT 400`,
+    );
+    const indexNames = shuffleDeterministically(nameRows.map((row) => row.name_ja)).slice(0, 96);
+
+    const points = wards.flatMap((ward) => ringsOf(ward.geojson).flat());
+    const lons = points.map(([lon]) => lon);
+    const lats = points.map(([, lat]) => lat);
+    const minLon = Math.min(...lons);
+    const maxLon = Math.max(...lons);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+
+    const lonScale = Math.cos(((minLat + maxLat) / 2) * (Math.PI / 180));
+    const spanX = (maxLon - minLon) * lonScale;
+    const spanY = maxLat - minLat;
+    const scale = Math.min((VIEW_WIDTH - PADDING * 2) / spanX, (VIEW_HEIGHT - PADDING * 2) / spanY);
+    const offsetX = (VIEW_WIDTH - spanX * scale) / 2;
+    const offsetY = (VIEW_HEIGHT - spanY * scale) / 2;
+
+    const project: Project = (lat, lon) => [
+      offsetX + (lon - minLon) * lonScale * scale,
+      offsetY + (maxLat - lat) * scale,
+    ];
+
+    return {
+      wards: buildWardsSource(wards, stations, project),
+      localities: buildLocalitiesSource(localities, example, evidence, indexNames, project),
+    };
+  } finally {
+    await pool.end();
+  }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  if (!process.env["DATABASE_URL"]) {
+    console.error("DATABASE_URL is required for build:ward-plate");
+    process.exit(1);
+  }
+  buildWardPlate()
+    .then(async (sources) => {
+      await writeFile(WARDS_PATH, sources.wards, "utf8");
+      await writeFile(LOCALITIES_PATH, sources.localities, "utf8");
+      console.log(`build:ward-plate — wrote ${fileURLToPath(WARDS_PATH)}`);
+      console.log(`build:ward-plate — wrote ${fileURLToPath(LOCALITIES_PATH)}`);
+    })
+    .catch((error: unknown) => {
+      console.error(error);
+      process.exit(1);
+    });
+}
