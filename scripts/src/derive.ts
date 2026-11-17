@@ -11,6 +11,11 @@ import { runQuietnessStep } from "./derive/quietness.js";
 import { runRentStep } from "./derive/rent.js";
 import { runZoningStep } from "./derive/zoning.js";
 import { runLocalitiesStep } from "./derive/localities.js";
+import { runAccessStep } from "./derive/access.js";
+import { runCommuteErrorStep } from "./derive/commute-error.js";
+import { runLandValueStep, runRentLocalStep } from "./derive/land-value.js";
+import { runPeopleStep } from "./derive/people.js";
+import { runReachStep } from "./derive/reach.js";
 import type { StepResult, StepRunner } from "./derive/types.js";
 
 const STEPS: readonly { readonly key: string; readonly run: StepRunner }[] = [
@@ -22,6 +27,12 @@ const STEPS: readonly { readonly key: string; readonly run: StepRunner }[] = [
   { key: "green-space", run: runGreenSpaceStep },
   { key: "normalization", run: runNormalizationStep },
   { key: "localities", run: runLocalitiesStep },
+  { key: "land-value", run: runLandValueStep },
+  { key: "rent-local", run: runRentLocalStep },
+  { key: "access", run: runAccessStep },
+  { key: "reach", run: runReachStep },
+  { key: "people", run: runPeopleStep },
+  { key: "commute-error", run: runCommuteErrorStep },
 ] as const;
 
 const STEP_KEYS = STEPS.map((s) => s.key);

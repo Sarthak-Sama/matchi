@@ -1,6 +1,7 @@
 import { PEAK_WINDOW } from "@tokyo/shared";
+import type { TransitPeriod } from "@tokyo/shared";
 
-export type Period = "peak" | "offpeak";
+export type Period = TransitPeriod;
 
 export function resolvePeriod(arrivalTime: string): Period {
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(arrivalTime);
