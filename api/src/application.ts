@@ -6,7 +6,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 
-import type { CreateEngine } from "@tokyo/shared";
+import { createEngine } from "@tokyo/shared";
 
 import { createAgentRuntimeGetter } from "./agent/session.js";
 import type { Config } from "./config.js";
@@ -45,13 +45,6 @@ export class ApiError extends Error {
 const REQUEST_ID_HEADER = "x-request-id";
 
 export const RATE_LIMIT_WINDOW = "1 minute";
-
-// TODO(engine-wiring): replace with `import { createEngine } from "@tokyo/shared"`
-// once shared/src/engine/index.ts exists and is exported. Until then agent
-// sessions cannot be created and answer 503.
-const createEngine: CreateEngine = () => {
-  throw new ApiError(503, "ENGINE_UNAVAILABLE", "The recommendation engine is not wired in yet.");
-};
 
 export function buildApp(deps: AppDeps): FastifyInstance {
   const app = Fastify({

@@ -259,7 +259,7 @@ describe("agent direct routes", () => {
 });
 
 describe("buildApp wiring", () => {
-  it("answers 503 ENGINE_UNAVAILABLE while createEngine is the placeholder", async () => {
+  it("creates a session with the real createEngine from @tokyo/shared", async () => {
     const pool: DbPool = {
       query: vi.fn(async (text: string) => {
         if (text.includes("ORDER BY locality_id")) return { rows: [{ locality_id: "a", name_ja: "a", lat: 1, lon: 1 }] };
@@ -270,7 +270,7 @@ describe("buildApp wiring", () => {
     const app = buildApp({ config: testConfig(), pool, graphs: emptyGraphs() });
     const res = await app.inject({ method: "POST", url: "/v1/agent/session" });
     await app.close();
-    expect(res.statusCode).toBe(503);
-    expect((res.json() as { error: { code: string } }).error.code).toBe("ENGINE_UNAVAILABLE");
+    expect(res.statusCode).toBe(200);
+    expect(typeof (res.json() as { sessionId: unknown }).sessionId).toBe("string");
   });
 });

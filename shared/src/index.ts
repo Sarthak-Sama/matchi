@@ -8,3 +8,4 @@ export * from "./domain/transit/dijkstra.js";
 export * from "./config/access.js";
 export * from './engine/types.js';
 export { createRng } from './engine/rng.js';
+export { createEngine, DEFAULTS } from './engine/index.js';
