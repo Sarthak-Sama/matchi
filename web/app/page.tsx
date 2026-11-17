@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 import { LIFESTYLE_AXES, LIFESTYLE_AXIS_IDS, OVERALL_WEIGHTS } from "@tokyo/shared";
 
+import { ArrowRightIcon } from "./components/icons";
 import { Masthead } from "./components/Masthead";
 import { IndexBand } from "./components/landing/IndexBand";
 import { MethodSequence } from "./components/landing/MethodSequence";
@@ -35,6 +37,18 @@ const LIMITS = [
     body: "Some areas rest on thin data. Where that is true the guide says low confidence next to the number, rather than rounding the uncertainty away.",
   },
 ] as const;
+
+function GuideCta() {
+  return (
+    <Link
+      href="/agent"
+      className="group inline-flex min-h-14 items-center justify-center gap-3 border border-line-strong px-5 text-[14px] font-semibold text-ink transition-colors hover:border-moss hover:bg-sage/40 motion-reduce:transition-none"
+    >
+      Chat with the guide
+      <ArrowRightIcon className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transform-none motion-reduce:transition-none" />
+    </Link>
+  );
+}
 
 export default async function Landing({
   searchParams,
@@ -80,15 +94,16 @@ export default async function Landing({
               </Reveal>
 
               <Reveal mode="mount" delay={0.18}>
-                <div className="mt-9 flex flex-col gap-4 sm:flex-row sm:items-center">
-                  <StartButton className="w-full sm:w-auto sm:min-w-72">Find my Matchi</StartButton>
-                  <a
-                    href="#method"
-                    className="label-utility min-h-14 content-center text-ink-muted underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink hover:decoration-ink"
-                  >
-                    How it works
-                  </a>
+                <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                  <StartButton className="w-full sm:w-auto sm:min-w-64">Find my Matchi</StartButton>
+                  <GuideCta />
                 </div>
+                <a
+                  href="#method"
+                  className="label-utility mt-2 inline-flex min-h-11 items-center text-ink-muted underline decoration-line-strong underline-offset-4 transition-colors hover:text-ink hover:decoration-ink motion-reduce:transition-none"
+                >
+                  How it works
+                </a>
               </Reveal>
 
               <Reveal mode="mount" delay={0.24}>
@@ -223,7 +238,10 @@ export default async function Landing({
                 {EXAMPLE_SEARCH.funnel.qualified} of {LOCALITY_COUNT} areas cleared every limit —
                 and the guide ranked the best {matched} of them.
               </p>
-              <StartButton className="mt-9">Find my Matchi</StartButton>
+              <div className="mt-9 flex flex-col justify-center gap-3 sm:flex-row">
+                <StartButton>Find my Matchi</StartButton>
+                <GuideCta />
+              </div>
             </Reveal>
           </div>
         </section>
