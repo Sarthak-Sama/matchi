@@ -3,7 +3,6 @@
 import { percent } from "../lib/format";
 import { PARAM_LABELS, type BeliefSummary, type ParamSummary } from "../lib/types";
 
-
 /** Bars read from BeliefSummary only: median with the 10th to 90th percentile range. */
 export function BeliefPanel({ belief }: { belief: BeliefSummary | null }) {
   if (!belief) {
@@ -26,11 +25,11 @@ export function BeliefPanel({ belief }: { belief: BeliefSummary | null }) {
     <section aria-label="What the guide believes about you" className="py-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="label-utility text-ink">What I think matters to you</h2>
-        <p className="tnum text-[12px] text-ink-muted">effective sample {Math.round(belief.ess)}</p>
+        <p className="tnum text-[12px] text-stone">effective sample {Math.round(belief.ess)}</p>
       </div>
       <p className="mt-1 text-[12px] text-ink-muted">
-        Each bar is the median weight as a share of your monthly scale; the thin line is the 10th to 90th percentile.
-        A narrower line means the guide is surer.
+        Each bar is the median weight as a share of your monthly scale; the thin line is the 10th to
+        90th percentile. A narrower line means the guide is surer.
       </p>
       {belief.lowConfidence && (
         <p className="mt-2 border border-line bg-warning/60 px-2 py-1 text-[12px]" role="status">
@@ -68,16 +67,19 @@ function Bar({ p, pos, zero }: { p: ParamSummary; pos: (v: number) => string; ze
       <span
         className="relative h-3 bg-sage/60"
         role="img"
-        aria-label={`${PARAM_LABELS[p.param]}: median ${percent(s.median, 1)}, 10th to 90th percentile ${percent(s.p10, 1)} to ${percent(s.p90, 1)}`}
+        aria-label={`${PARAM_LABELS[p.param]}: median ${percent(s.median, 1).replace("-", "−")}, 10th to 90th percentile ${percent(s.p10, 1)} to ${percent(s.p90, 1)}`}
       >
         <span
           className="absolute top-0 h-3 bg-moss/80"
           style={{ left: pos(left), width: `calc(${pos(right)} - ${pos(left)})` }}
         />
-        <span className="absolute top-[5px] h-px bg-ink/70" style={{ left: pos(s.p10), width: `calc(${pos(s.p90)} - ${pos(s.p10)})` }} />
+        <span
+          className="absolute top-[5px] h-px bg-ink/70"
+          style={{ left: pos(s.p10), width: `calc(${pos(s.p90)} - ${pos(s.p10)})` }}
+        />
         <span className="absolute top-0 h-3 w-px bg-ink/40" style={{ left: `${zero * 100}%` }} />
       </span>
-      <span className="tnum text-right">{percent(s.median, 1)}</span>
+      <span className="tnum text-right">{percent(s.median, 1).replace("-", "−")}</span>
     </li>
   );
 }
