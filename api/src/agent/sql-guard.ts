@@ -59,6 +59,7 @@ export function guardAgentSql(input: unknown): SqlGuardResult {
   }
   // Quoted identifiers, dollar quoting, backslash escapes and control characters
   // can hide a reference from the checks below, so none of them is accepted.
+  // eslint-disable-next-line no-control-regex -- matching control characters is the point
   if (/["$\\`\u0000-\u0008\u000b-\u001f\u007f]/.test(query)) {
     return fail("forbidden_syntax", "double quotes, dollar signs, backslashes and control characters are not allowed");
   }
@@ -74,7 +75,8 @@ export function guardAgentSql(input: unknown): SqlGuardResult {
     if (new RegExp(`\\b${word}\\b`).test(bare)) return fail("forbidden_word", `the word "${word}" is not allowed`);
   }
 
-  if (/\b(pg_\w*|information_schema|public|current_setting|current_user|session_user|version)\b/.test(bare)) {
+  // agent_sessions holds user chat text: named here too, in case a reference slips past the FROM scan.
+  if (/\b(pg_\w*|information_schema|public|agent_sessions|current_setting|current_user|session_user|version)\b/.test(bare)) {
     return fail("forbidden_reference", "only the agent schema may be referenced");
   }
   if (/\b[a-z_]\w*\s*\.\s*[a-z_]\w*\s*\.\s*[a-z_*]/.test(bare)) {

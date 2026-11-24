@@ -59,6 +59,8 @@ describe("guardAgentSql rejects", () => {
     ["select * from agent.areas, users", "forbidden_reference"],
     ["select * from agent.areas a, users u", "forbidden_reference"],
     ["select * from (select 1 from agent.areas) q, other.users u where true", "forbidden_reference"],
+    ["select * from (select 1 from agent.areas) q, agent_sessions s where true", "forbidden_reference"],
+    ["select (select turns from agent_sessions limit 1) from agent.areas", "forbidden_reference"],
     ["select pg_sleep(10) from agent.areas", "forbidden_reference"],
     ["select set_config('a','b',false) from agent.areas", "forbidden_function"],
     ["select nextval('s') from agent.areas", "forbidden_function"],

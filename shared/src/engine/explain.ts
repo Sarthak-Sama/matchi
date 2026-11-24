@@ -216,7 +216,7 @@ export const explainCompare: ExplainCompare = (a, b, belief, util, ctx, profile)
  * every step of the limit with the larger yen gain at its first step (ties:
  * more areas gained). `seed` is unused: no noise enters relax.
  */
-export const explainRelax: ExplainRelax = (areas, params, profile, anchorTimes, belief, _seed) => {
+export const explainRelax: ExplainRelax = (areas, params, profile, anchorTimes, belief) => {
   const { mean, gammaCt } = weightedMoments(belief);
   const evaluate = (p: Profile): { count: number; best: number } => {
     const ctx = buildAreaContext(areas, params, p, anchorTimes);

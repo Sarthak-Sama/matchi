@@ -48,7 +48,7 @@ function stubEngine(): Engine {
   };
 }
 
-function runtimeWith(session: AgentSession): AgentRuntime {
+function runtimeWith(session: AgentSession, save: AgentRuntime["sessions"]["save"]): AgentRuntime {
   const areas = [{ locality_id: "L1" }, { locality_id: "L2" }] as AreaFeatures[];
   return {
     features: {
@@ -57,7 +57,11 @@ function runtimeWith(session: AgentSession): AgentRuntime {
       params: { rentElasticity: 0.356, layoutAreaSqm: { "1LDK": 38 } },
       columnComments: {},
     },
-    sessions: { get: (id: string) => (id === session.id ? session : undefined) } as AgentRuntime["sessions"],
+    sessions: {
+      create: () => Promise.reject(new Error("not used")),
+      get: async (id: string) => (id === session.id ? session : undefined),
+      save,
+    },
     computeAnchorTimes: vi.fn(async (anchors: readonly { id: string }[]) => ({
       times: Object.fromEntries(anchors.map((a) => [a.id, [10, 20]])),
       refused: [],
@@ -75,12 +79,12 @@ function parseSse(body: string): AgentStreamEvent[] {
     });
 }
 
-function testApp(steps: ScriptedStep[] | null) {
+function testApp(steps: ScriptedStep[] | null, save = vi.fn(async (session: AgentSession): Promise<void> => void session)) {
   const session: AgentSession = { id: "s1", seed: 1, engine: stubEngine(), anchorTimes: {}, turns: [] };
   const app = Fastify();
   const model = steps === null ? null : createScriptedModel(steps);
-  registerAgentRoute(app, { getRuntime: async () => runtimeWith(session), pool: { query: vi.fn() }, model, queryAreasEnabled: false });
-  return { app, session, model };
+  registerAgentRoute(app, { getRuntime: async () => runtimeWith(session, save), pool: { query: vi.fn() }, model, queryAreasEnabled: false });
+  return { app, session, model, save };
 }
 
 const GROUNDED = "Ebisu leads: modelled rent ¥82,000, about 23 minutes to the office, a 46% chance of being best.";
@@ -122,6 +126,50 @@ describe("POST /v1/agent/turn", () => {
     const state = events.find((e) => e.type === "state");
     expect(state).toMatchObject({ state: { riskYen: 2_345, recommendation: { feasibleCount: 2 }, evidence: [{ id: "ev1" }] } });
     expect(session.turns).toHaveLength(2);
+  });
+
+  it("saves the session before done, with the turn's changes", async () => {
+    let turnsAtSave = -1;
+    let evidenceAtSave = -1;
+    const save = vi.fn(async (s: AgentSession) => {
+      turnsAtSave = s.turns.length;
+      evidenceAtSave = s.engine.snapshot().evidence.length;
+    });
+    const { app, session } = testApp(TURN_STEPS, save);
+    const res = await app.inject({ method: "POST", url: "/v1/agent/turn", payload: { sessionId: "s1", message: "parks" } });
+    await app.close();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith(session);
+    expect(turnsAtSave).toBe(2);
+    expect(evidenceAtSave).toBe(1);
+    expect(parseSse(res.body).filter((e) => e.type === "done")).toHaveLength(1);
+  });
+
+  it("saves even when the turn fails", async () => {
+    const { app, save } = testApp([
+      () => {
+        throw new Error("model down");
+      },
+    ]);
+    const res = await app.inject({ method: "POST", url: "/v1/agent/turn", payload: { sessionId: "s1", message: "hi" } });
+    await app.close();
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(parseSse(res.body).map((e) => e.type)).toEqual(["error", "done"]);
+  });
+
+  it("reports a failed save as an error event and still ends with done", async () => {
+    const save = vi.fn(async () => {
+      throw new Error("db down");
+    });
+    const { app } = testApp(TURN_STEPS, save);
+    const res = await app.inject({ method: "POST", url: "/v1/agent/turn", payload: { sessionId: "s1", message: "parks" } });
+    await app.close();
+    expect(res.statusCode).toBe(200);
+    const events = parseSse(res.body);
+    expect(events.slice(-2)).toEqual([
+      expect.objectContaining({ type: "error", code: "SESSION_SAVE_FAILED" }),
+      { type: "done" },
+    ]);
   });
 
   it("streams a grounding failure, the one retry and the outcome", async () => {

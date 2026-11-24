@@ -62,7 +62,16 @@ limits justify it.
 
 Fastify's built-in rate limit remains a per-instance safeguard. Configure a
 Vercel Firewall rate-limit rule for `/v1/*` to enforce a global edge limit;
-there is deliberately no Redis dependency for this read-only API.
+there is deliberately no Redis dependency.
+
+Agent chat sessions (`/v1/agent/*`) live in `public.agent_sessions`
+(migration 0019), not in process memory, so a conversation survives across
+instances. Each request rebuilds the engine from the stored seed and state,
+and every request that changes it saves before responding; a streamed turn
+saves before its final `done` event. Concurrent requests on one session are
+last-write-wins. Sessions idle for 7 days are deleted when a new one is
+created. The table is in `public`, not `agent`, so the model-readable role
+and `query_areas` cannot see the chat text.
 
 Both strings use `sslmode=require`, not `verify-full`: libpq (`psql`,
 `pg_dump`) refuses `verify-full` without an explicit `sslrootcert`, so it

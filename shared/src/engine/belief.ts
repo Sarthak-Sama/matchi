@@ -11,7 +11,6 @@ import {
   type AreaContext,
   type Archetype,
   type Belief,
-  type BeliefSummary,
   type EffectiveSampleSize,
   type FeatureKey,
   type ParamKey,

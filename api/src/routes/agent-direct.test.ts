@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ApiError, buildApp } from "../application.js";
 import type { FeatureStore } from "../agent/feature-store.js";
-import { SessionStore } from "../agent/session.js";
+import { MemorySessionStore } from "../agent/session.js";
 import type { DbPool } from "../db.js";
 import { emptyGraphs, testConfig } from "../test-support/fixtures.js";
 import { registerAgentDirectRoute } from "./agent-direct.js";
@@ -68,7 +68,7 @@ function stubEngine(): Engine & { evidence: LoggedEvidence[]; profile: Profile }
 
 function build() {
   const engines: ReturnType<typeof stubEngine>[] = [];
-  const sessions = new SessionStore(
+  const sessions = new MemorySessionStore(
     () => {
       const e = stubEngine();
       engines.push(e);
@@ -96,7 +96,7 @@ function build() {
   registerAgentDirectRoute(app, {
     getRuntime: async () => ({ features, sessions, computeAnchorTimes }),
   });
-  return { app, engines, computeAnchorTimes };
+  return { app, engines, computeAnchorTimes, sessions };
 }
 
 async function newSession(app: FastifyInstance): Promise<string> {
@@ -150,7 +150,7 @@ describe("agent direct routes", () => {
   });
 
   it("PUT profile computes anchor times, merges refusals and stores the times", async () => {
-    const { app, engines, computeAnchorTimes } = build();
+    const { app, engines, computeAnchorTimes, sessions } = build();
     const id = await newSession(app);
     const res = await app.inject({
       method: "PUT",
@@ -174,6 +174,7 @@ describe("agent direct routes", () => {
     expect(body.view.profile.anchors[0]!.period).toBe("peak");
     expect(computeAnchorTimes).toHaveBeenCalledWith(expect.any(Array), features.areas);
     expect(engines[0]!.setProfile).toHaveBeenCalledWith(expect.anything(), { work: [10, 20] });
+    expect(sessions.saves).toBe(1);
   });
 
   it("PUT profile rejects a bad body with a typed 400", async () => {
@@ -189,7 +190,7 @@ describe("agent direct routes", () => {
   });
 
   it("observes evidence in order, reports per-item failures, and removes by id", async () => {
-    const { app } = build();
+    const { app, sessions } = build();
     const id = await newSession(app);
     const res = await app.inject({
       method: "POST",
@@ -207,9 +208,12 @@ describe("agent direct routes", () => {
     expect(body.view.evidence).toHaveLength(1);
     expect(body.view.evidence[0]!.strength).toBe("normal");
 
+    expect(sessions.saves).toBe(1);
+
     const evId = body.results[0]!.id!;
     const del = await app.inject({ method: "DELETE", url: `/v1/agent/evidence/${evId}?sessionId=${id}` });
     expect(del.statusCode).toBe(200);
+    expect(sessions.saves).toBe(2);
     expect((del.json() as { view: { evidence: unknown[] } }).view.evidence).toHaveLength(0);
 
     const again = await app.inject({ method: "DELETE", url: `/v1/agent/evidence/${evId}?sessionId=${id}` });
@@ -241,7 +245,7 @@ describe("agent direct routes", () => {
   });
 
   it("why-not, compare and relax return engine results; compare 404s unknown areas", async () => {
-    const { app } = build();
+    const { app, sessions } = build();
     const id = await newSession(app);
     const base = `/v1/agent/session/${id}`;
     const why = await app.inject({ method: "POST", url: `${base}/why-not`, payload: { localityId: "b" } });
@@ -255,6 +259,8 @@ describe("agent direct routes", () => {
     expect(relax.json()).toEqual({ result: [] });
     const badWhy = await app.inject({ method: "POST", url: `${base}/why-not`, payload: {} });
     expect(badWhy.statusCode).toBe(400);
+    // read-only routes do not write the session
+    expect(sessions.saves).toBe(0);
   });
 });
 
@@ -272,5 +278,7 @@ describe("buildApp wiring", () => {
     await app.close();
     expect(res.statusCode).toBe(200);
     expect(typeof (res.json() as { sessionId: unknown }).sessionId).toBe("string");
+    // buildApp persists sessions in the database
+    expect(pool.query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO public.agent_sessions"), expect.any(Array));
   });
 });

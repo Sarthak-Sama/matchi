@@ -65,7 +65,7 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
 
     // Runtime and session errors answer as ordinary JSON errors, like the direct routes.
     const runtime = await deps.getRuntime();
-    const session = runtime.sessions.get(sessionId);
+    const session = await runtime.sessions.get(sessionId);
     if (session === undefined) throw new ApiError(404, "SESSION_NOT_FOUND", `Unknown session "${sessionId}"`);
 
     const tools = createAgentTools(() => Object.keys(runtime.features.params.layoutAreaSqm), { queryAreasEnabled });
@@ -75,21 +75,49 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
     });
 
     sendStream();
-    void runTurn({
-      message,
-      model,
-      tools,
-      toolContext: {
-        session,
-        features: runtime.features,
-        computeAnchorTimes: runtime.computeAnchorTimes,
-        pool: deps.pool,
-        queryAreasEnabled,
-      },
-      columnComments: runtime.features.columnComments,
-      emit,
-      signal: abort.signal,
-    }).finally(() => stream.end());
+    // runTurn ends with `done`. It is held back until the session is saved, so
+    // a client that sends its next message on `done` reads the saved state,
+    // and the save finishes before the response ends (a serverless instance
+    // may be frozen once it has). The save runs on every path: success, error,
+    // abort and fallback; tools may have changed the engine on any of them.
+    const turnEmit = (event: AgentStreamEvent): void => {
+      if (event.type !== "done") emit(event);
+    };
+    void (async () => {
+      try {
+        await runTurn({
+          message,
+          model,
+          tools,
+          toolContext: {
+            session,
+            features: runtime.features,
+            computeAnchorTimes: runtime.computeAnchorTimes,
+            pool: deps.pool,
+            queryAreasEnabled,
+          },
+          columnComments: runtime.features.columnComments,
+          emit: turnEmit,
+          signal: abort.signal,
+        });
+      } catch (err) {
+        // runTurn reports its own failures as events; this is a last resort.
+        request.log.error({ err, sessionId }, "agent turn threw");
+      } finally {
+        try {
+          await runtime.sessions.save(session);
+        } catch (err) {
+          request.log.error({ err, sessionId }, "agent session save failed");
+          emit({
+            type: "error",
+            code: "SESSION_SAVE_FAILED",
+            message: "This turn could not be saved; the next message may not see it.",
+          });
+        }
+        emit({ type: "done" });
+        stream.end();
+      }
+    })();
     return reply;
   });
 }

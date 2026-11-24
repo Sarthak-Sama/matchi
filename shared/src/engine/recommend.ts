@@ -10,7 +10,6 @@ import { createRng } from './rng.js';
 import {
   FEATURE_KEYS,
   PARAM_COUNT,
-  PARAM_KEYS,
   type AreaConfidence,
   type AreaContext,
   type Belief,
@@ -19,7 +18,6 @@ import {
   type GreedyShortlist,
   type NextQuestion,
   type NoisyUtilities,
-  type ParamKey,
   type PBest,
   type Profile,
   type ProfileResult,

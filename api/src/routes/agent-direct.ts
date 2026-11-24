@@ -27,8 +27,8 @@ const SessionParamsSchema = z.object({ id: z.string().min(1) });
 const EvidenceParamsSchema = z.object({ id: z.string().min(1) });
 const EvidenceQuerySchema = z.object({ sessionId: z.string().min(1) });
 
-function requireSession(sessions: SessionStore, id: string): AgentSession {
-  const session = sessions.get(id);
+async function requireSession(sessions: SessionStore, id: string): Promise<AgentSession> {
+  const session = await sessions.get(id);
   if (session === undefined) {
     throw new ApiError(404, "SESSION_NOT_FOUND", `Unknown session "${id}"`);
   }
@@ -42,7 +42,7 @@ function requireSession(sessions: SessionStore, id: string): AgentSession {
  */
 export function buildView(engine: Engine, k?: number): AgentStateView {
   const snapshot = engine.snapshot();
-  let recommendation: Recommendation | null = null;
+  let recommendation: Recommendation | null;
   try {
     recommendation = engine.recommend(k);
   } catch {
@@ -58,17 +58,23 @@ export function buildView(engine: Engine, k?: number): AgentStateView {
   };
 }
 
+/**
+ * Sessions persist between requests (see SessionStore): the routes that change
+ * engine state (profile, evidence add and remove) save before replying. The
+ * others only read: recommend, why-not, compare and relax leave the snapshot
+ * unchanged.
+ */
 export function registerAgentDirectRoute(app: FastifyInstance, deps: AgentDirectDeps): void {
   const sessionFor = async (
     request: FastifyRequest,
   ): Promise<{ session: AgentSession; runtime: AgentRuntime }> => {
     const { id } = parseOrThrow(SessionParamsSchema, request.params);
     const runtime = await deps.getRuntime();
-    return { session: requireSession(runtime.sessions, id), runtime };
+    return { session: await requireSession(runtime.sessions, id), runtime };
   };
 
   app.post("/v1/agent/session", async (_request, reply) => {
-    const session = (await deps.getRuntime()).sessions.create();
+    const session = await (await deps.getRuntime()).sessions.create();
     reply.status(200).send({ sessionId: session.id, view: buildView(session.engine) });
   });
 
@@ -84,6 +90,7 @@ export function registerAgentDirectRoute(app: FastifyInstance, deps: AgentDirect
     const { times, refused } = await runtime.computeAnchorTimes(profile.anchors, runtime.features.areas);
     session.anchorTimes = times;
     const engineResult = session.engine.setProfile(profile, times);
+    await runtime.sessions.save(session);
 
     // The engine flags anchors with no vector as 'no_times'; ours carry the real reason.
     const ours = new Set(refused.map((r) => r.anchorId));
@@ -98,20 +105,23 @@ export function registerAgentDirectRoute(app: FastifyInstance, deps: AgentDirect
   });
 
   app.post("/v1/agent/session/:id/evidence", async (request, reply) => {
-    const { session } = await sessionFor(request);
+    const { session, runtime } = await sessionFor(request);
     const { items } = parseOrThrow(EvidenceBodySchema, request.body);
     const results: ObserveResult[] = items.map((item) => session.engine.observe(item));
+    await runtime.sessions.save(session);
     reply.status(200).send({ results, view: buildView(session.engine) });
   });
 
   app.delete("/v1/agent/evidence/:id", async (request, reply) => {
     const { id } = parseOrThrow(EvidenceParamsSchema, request.params);
     const { sessionId } = parseOrThrow(EvidenceQuerySchema, request.query);
-    const session = requireSession((await deps.getRuntime()).sessions, sessionId);
+    const { sessions } = await deps.getRuntime();
+    const session = await requireSession(sessions, sessionId);
     if (!session.engine.snapshot().evidence.some((e) => e.id === id)) {
       throw new ApiError(404, "EVIDENCE_NOT_FOUND", `Unknown evidence "${id}" in this session`);
     }
     session.engine.removeEvidence(id);
+    await sessions.save(session);
     reply.status(200).send({ view: buildView(session.engine) });
   });
 

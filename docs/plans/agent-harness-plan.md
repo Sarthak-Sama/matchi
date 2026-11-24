@@ -43,7 +43,7 @@ The engine lives in `shared` beside the Dijkstra code that already moved there; 
 | `shared/src/engine/index.ts` | `createEngine` |
 | `shared/src/engine/*.test.ts` | Invariant tests |
 | `api/src/agent/feature-store.ts` | Loads `agent.area_features`, the travel-time matrix and `model_params` once at startup |
-| `api/src/agent/session.ts` | In-memory map of session id to profile, evidence log, seed and recent turns |
+| `api/src/agent/session.ts` | Session store (`public.agent_sessions`, migration 0019; a memory store for tests): session id to engine snapshot (profile, evidence log, seed), anchor times and recent turns |
 | `api/src/agent/tools.ts` | Tool definitions, zod validation, dispatch to the engine |
 | `api/src/agent/sql-guard.ts` | The checks for `query_areas` |
 | `api/src/agent/model-client.ts` | One interface, one OpenAI-compatible implementation; base URL, key and model name from env |

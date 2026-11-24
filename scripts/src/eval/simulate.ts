@@ -125,7 +125,7 @@ export function runSimulation(eng: EngineModules, input: SimulationInput): Simul
     // Reset the engine to the prior (the same engine object keeps its feasible set and utility matrix).
     for (const e of engine.snapshot().evidence) if (e.id) engine.removeEvidence(e.id);
 
-    let last = NaN;
+    let last: number;
     for (let q = 0; q <= maxQ; q++) {
       const rec = engine.recommend(SHORTLIST_K);
       const top = rec.shortlist[0];
