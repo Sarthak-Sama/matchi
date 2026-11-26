@@ -52,57 +52,40 @@ describe('utilities', () => {
       expect(s.regretYen).toBeGreaterThanOrEqual(0);
     }
     expect(rec.riskYen).toBeGreaterThanOrEqual(0);
-    // P8: the risk stop needs minQuestions answers, so the first call always asks.
-    expect(rec.shouldStop).toBe(false);
-    expect(rec.nextQuestion?.kind).toBe('pick_from_shortlist');
+    expect(rec.ess).toBeCloseTo(belief.n, 6);
   });
 
-  it('P8: risk below the threshold at questionsAsked=0 still asks; stops once minQuestions are answered', () => {
-    // stopRiskShare large enough that risk is surely below the threshold.
-    const lowRisk = { ...DEFAULTS, stopRiskShare: 1e9 };
-    const feasibleIds = new Set(ctx.areas.filter((_, a) => ctx.feasible[a]).map((x) => x.locality_id));
-    const r0 = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: 0, defaults: lowRisk });
-    expect(r0.riskYen).toBeLessThan(lowRisk.stopRiskShare * ctx.scale);
-    expect(r0.shouldStop).toBe(false);
-    expect(r0.stopReason).toBeNull();
-    expect(r0.nextQuestion?.kind).toBe('pick_from_shortlist');
-    if (r0.nextQuestion?.kind === 'pick_from_shortlist') {
-      expect(new Set(r0.nextQuestion.set).size).toBeGreaterThanOrEqual(2);
-      for (const x of r0.nextQuestion.set) expect(feasibleIds.has(x)).toBe(true);
-    }
-    const r1 = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: 1, defaults: lowRisk });
-    expect(r1.shouldStop).toBe(false);
-    expect(r1.nextQuestion?.kind).toBe('pair');
-    if (r1.nextQuestion?.kind === 'pair') {
-      expect(r1.nextQuestion.a).not.toBe(r1.nextQuestion.b);
-      expect(feasibleIds.has(r1.nextQuestion.a)).toBe(true);
-      expect(feasibleIds.has(r1.nextQuestion.b)).toBe(true);
-    }
-    expect(r1.riskYen).toBe(r0.riskYen); // risk reported as computed
-    for (const q of [2, 3]) {
-      const r = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: q, defaults: lowRisk });
-      expect(r.shouldStop).toBe(true);
-      expect(r.stopReason).toBe('risk_below_threshold');
-      expect(r.nextQuestion).toBeNull();
-    }
-  });
-
-  it('P8: pair falls back to the top two by expected utility when fewer than two pass the P_best filter', () => {
-    const lowRisk = { ...DEFAULTS, stopRiskShare: 1e9 };
-    // Concentrate all weight on one sample: P_best is 1 for one area, 0 elsewhere.
+  it('R3: stops when the best question is worth less than minEvoiShare of scale, unless ESS is below the floor', () => {
+    const nothingWorthAsking = { ...DEFAULTS, minEvoiShare: 1e9 };
+    const r = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: 0, defaults: nothingWorthAsking });
+    expect(r.shouldStop).toBe(true);
+    expect(r.stopReason).toBe('nothing_left_to_learn');
+    expect(r.nextQuestion).toBeNull();
+    // All weight on one sample: ESS 1 is below the floor, so the EVOI stop does not apply.
     const w = new Float64Array(belief.n);
     w[0] = 1;
-    const peaked = { ...belief, weights: w };
-    const r = recommend(peaked, util, ctx, profile, { k: 5, questionsAsked: 1, defaults: lowRisk });
-    expect(r.shortlist.filter((s) => s.pBest > 0.05).length).toBeLessThan(2);
-    expect(r.shouldStop).toBe(false);
-    expect(r.nextQuestion?.kind).toBe('pair');
-    if (r.nextQuestion?.kind === 'pair') {
-      const idx = (id: string): number => ctx.areas.findIndex((x) => x.locality_id === id);
-      const shortIdx = r.shortlist.map((s) => idx(s.localityId));
-      // One sample with weight 1: expected utility is that sample's row of u.
-      const top2 = [...shortIdx].sort((x, y) => util.u[y]! - util.u[x]! || x - y).slice(0, 2);
-      expect([idx(r.nextQuestion.a), idx(r.nextQuestion.b)].sort()).toEqual(top2.sort());
+    const peaked = recommend({ ...belief, weights: w }, util, ctx, profile, { k: 5, questionsAsked: 1, defaults: nothingWorthAsking });
+    expect(peaked.shouldStop).toBe(false);
+    expect(peaked.nextQuestion).not.toBeNull();
+  });
+
+  it('R2: asks the highest-EVOI question and never repeats a pair already in the log', () => {
+    const keepAsking = { ...DEFAULTS, minEvoiShare: -1 };
+    const feasibleIds = new Set(ctx.areas.filter((_, a) => ctx.feasible[a]).map((x) => x.locality_id));
+    const r = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: 1, defaults: keepAsking });
+    const q = r.nextQuestion;
+    expect(q?.kind === 'pair' || q?.kind === 'time_tradeoff').toBe(true);
+    if (q?.kind === 'pair') {
+      expect(q.evoiYen).toBeGreaterThanOrEqual(0);
+      expect(q.a).not.toBe(q.b);
+      expect(feasibleIds.has(q.a) && feasibleIds.has(q.b)).toBe(true);
+      const log = [{ type: 'prefer_area' as const, a: q.b, b: q.a, strength: 'normal' as const }];
+      const again = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: 1, defaults: keepAsking, log });
+      const next = again.nextQuestion;
+      expect(next?.kind === 'pair' && [next.a, next.b].sort().join() === [q.a, q.b].sort().join()).toBe(false);
+    } else if (q?.kind === 'time_tradeoff') {
+      expect(q.evoiYen).toBeGreaterThanOrEqual(0);
+      expect(q.yen).toBeGreaterThan(0);
     }
   });
 
@@ -115,17 +98,12 @@ describe('utilities', () => {
     expect(r.nextQuestion).toBeNull();
   });
 
-  it('asks the shortlist first, then the closest pair, while risk is above the threshold', () => {
-    const keepAsking = { ...DEFAULTS, stopRiskShare: -1 };
+  it('asks the shortlist first, then by EVOI, while a question is worth asking', () => {
+    const keepAsking = { ...DEFAULTS, minEvoiShare: -1 };
     const first = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: 0, defaults: keepAsking });
     expect(first.nextQuestion?.kind).toBe('pick_from_shortlist');
     const second = recommend(belief, util, ctx, profile, { k: 5, questionsAsked: 1, defaults: keepAsking });
-    expect(second.nextQuestion?.kind).toBe('pair');
-    if (second.nextQuestion?.kind === 'pair') {
-      const ids = second.shortlist.map((s) => s.localityId);
-      expect(ids).toContain(second.nextQuestion.a);
-      expect(ids).toContain(second.nextQuestion.b);
-    }
+    expect(['pair', 'time_tradeoff']).toContain(second.nextQuestion?.kind);
   });
 });
 
@@ -178,6 +156,7 @@ describe('createEngine', () => {
     expect(f.recommend()).toEqual(e.recommend());
     expect(snap.questionsAsked).toBe(1);
   });
+
 
   it('stops at the question limit', () => {
     const e = createEngine(areas, SYNTHETIC_PARAMS, 4);

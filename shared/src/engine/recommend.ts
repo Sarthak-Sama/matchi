@@ -3,9 +3,10 @@
 // E01: EUS, the greedy shortlist and question choice read the noise-free
 // util.u. R5: P_best, regret, Risk and compare read one noisy matrix,
 // util.noisy, over the candidate set C (attachNoisy).
-import { C_T_INDEX, FEATURE_OFFSET, GAMMA_INDEX, LAMBDA_B_INDEX, distinguishingParam } from './belief.js';
+import { C_T_INDEX, FEATURE_OFFSET, GAMMA_INDEX, LAMBDA_B_INDEX, distinguishingParam, itemEpsilon, preMoveEss, weightedMedian } from './belief.js';
+import { likelihood, predictive } from './evidence.js';
 import { breakdownAt, medianFeasibleArea, subtractBreakdown } from './explain.js';
-import { NEAR_PRICE_POINT_M, areaTerms, capHours, travelHours } from './features.js';
+import { NEAR_PRICE_POINT_M, areaTerms, capHours, monthlyHours, travelHours } from './features.js';
 import { createRng } from './rng.js';
 import {
   FEATURE_KEYS,
@@ -15,6 +16,7 @@ import {
   type Belief,
   type BuildUtilities,
   type EngineDefaults,
+  type Evidence,
   type GreedyShortlist,
   type NextQuestion,
   type NoisyUtilities,
@@ -33,7 +35,6 @@ export const DEFAULTS: EngineDefaults = {
   shortlistSize: 5,
   stopRiskShare: 0.01,
   maxQuestions: 6,
-  minQuestions: 2,
   minEvoiShare: 0.003,
   surpriseThreshold: 0.15,
   sigmaRentNear: 0.08,
@@ -44,8 +45,12 @@ export const DEFAULTS: EngineDefaults = {
 };
 /** Feasible areas by expected utility in the candidate set C, besides the greedy shortlist. */
 export const NOISY_CANDIDATES = 40;
-/** Shortcut pair question: only areas with P_best above this. */
-export const PAIR_MIN_PBEST = 0.05;
+/** Pair questions are formed among this many areas of C, by P_best (R2). */
+export const PAIR_POOL = 6;
+/** One-way minutes saved in the time_tradeoff probe. */
+export const TRADEOFF_PROBE_MINUTES = 10;
+/** The probe's yen is rounded to this, so it reads as a plain figure. */
+export const TRADEOFF_PROBE_ROUND_YEN = 100;
 
 const NF = FEATURE_KEYS.length;
 
@@ -383,50 +388,32 @@ export const recommend: Recommend = (belief, util, ctx, profile, opts) => {
 
   const riskYen = picks.length > 0 ? riskOfSet(util, weights, ctx.feasible, picks) : 0;
   const scale = ctx.scale;
-  // Stop rule (P8 deviation from the spec): the risk stop applies only once
-  // minQuestions have been answered; the question limit and "no question can
-  // be formed" stop at any time. riskYen itself is reported unchanged.
+  // Stop rule (R3): at the question limit, or once the best question is worth
+  // less than minEvoiShare of scale while the pre-move ESS is trustworthy.
+  // riskYen only labels the limit stop and is reported unchanged.
   const missing = missingFacts(profile);
-  const canAsk = missing.length > 0 || ordered.length >= 2;
+  const best = ordered.length >= 2 ? bestQuestion(belief, util, ctx, profile, pb, opts.log ?? []) : null;
+  const canAsk = missing.length > 0 || best !== null;
   const riskLow = picks.length > 0 && riskYen < defaults.stopRiskShare * scale;
+  const evoiLow = (best === null || best.evoiYen < defaults.minEvoiShare * scale) && preMoveEss(belief) >= defaults.essFloor;
   let stopReason: Recommendation['stopReason'] = null;
   let shouldStop = false;
   if (opts.questionsAsked >= defaults.maxQuestions) {
     stopReason = riskLow ? 'risk_below_threshold' : 'question_limit';
     shouldStop = true;
-  } else if (riskLow && opts.questionsAsked >= defaults.minQuestions) {
-    stopReason = 'risk_below_threshold';
+  } else if (evoiLow) {
+    stopReason = 'nothing_left_to_learn';
     shouldStop = true;
   } else if (!canAsk) {
-    // Fewer than two shortlisted areas: no question can be formed.
     stopReason = riskLow ? 'risk_below_threshold' : null;
     shouldStop = true;
   }
 
   let nextQuestion: NextQuestion | null = null;
   if (missing.length > 0) nextQuestion = { kind: 'profile_fact', missing: missing[0]! };
-  else if (!shouldStop && ordered.length >= 2) {
-    if (opts.questionsAsked === 0) {
-      nextQuestion = { kind: 'pick_from_shortlist', set: ordered.map((a) => ctx.areas[a]!.locality_id) };
-    } else {
-      // TODO(E03): shortcut path only. Fewer than two above PAIR_MIN_PBEST:
-      // fall back to the top two shortlisted areas by expected utility (P8).
-      let pool = ordered.filter((a) => pb[a]! > PAIR_MIN_PBEST);
-      if (pool.length < 2) {
-        const eu = expectedUtility(util, weights);
-        pool = [...ordered].sort((x, y) => eu[y]! - eu[x]! || x - y).slice(0, 2);
-      }
-      let best: { a: number; b: number; p: number } | null = null;
-      for (let x = 0; x < pool.length; x++) {
-        for (let y = x + 1; y < pool.length; y++) {
-          const p = pABeatsB(util, weights, pool[x]!, pool[y]!);
-          if (!best || Math.abs(p - 0.5) < Math.abs(best.p - 0.5)) best = { a: pool[x]!, b: pool[y]!, p };
-        }
-      }
-      if (best) {
-        nextQuestion = { kind: 'pair', a: ctx.areas[best.a]!.locality_id, b: ctx.areas[best.b]!.locality_id, pABeatsB: best.p };
-      }
-    }
+  else if (!shouldStop && best) {
+    nextQuestion =
+      opts.questionsAsked === 0 ? { kind: 'pick_from_shortlist', set: ordered.map((a) => ctx.areas[a]!.locality_id) } : best.question;
   }
 
   // "If I'm wrong about you": among samples where the top pick is not the best feasible area.
@@ -461,8 +448,6 @@ export const recommend: Recommend = (belief, util, ctx, profile, opts) => {
     }
   }
 
-  let ess = 0;
-  for (let i = 0; i < weights.length; i++) ess += weights[i]! * weights[i]!;
   return {
     shortlist,
     feasibleCount,
@@ -472,6 +457,128 @@ export const recommend: Recommend = (belief, util, ctx, profile, opts) => {
     nextQuestion,
     excluded: { ...ctx.excluded },
     alternative,
-    ess: ess > 0 ? 1 / ess : 0,
+    ess: preMoveEss(belief),
   };
 };
+
+/** Hypothetical answers are logged as the direct routes would log them (R2). */
+const TAP = { strength: 'normal', source: 'tap' } as const;
+
+type AskableQuestion = Extract<NextQuestion, { kind: 'pair' | 'time_tradeoff' }>;
+
+/** A question the engine could ask: its answers as hypothetical taps, and the question given its EVOI. */
+interface Probe {
+  answers: Evidence[];
+  question: (evoiYen: number) => AskableQuestion;
+}
+
+/** The candidate with the highest EVOI, first in candidate order on ties; null when there is none (R2). */
+function bestQuestion(
+  belief: Belief,
+  util: UtilityMatrix,
+  ctx: AreaContext,
+  profile: Profile,
+  pb: Float64Array,
+  log: readonly Evidence[],
+): { question: AskableQuestion; evoiYen: number } | null {
+  const cols = Array.from(util.noisy.areaIdx).filter((a) => ctx.feasible[a]);
+  if (cols.length === 0) return null;
+  const now = bestExpectedUtility(util, belief.weights, cols);
+  let best: { probe: Probe; value: number } | null = null;
+  for (const probe of candidateQuestions(belief, util, ctx, profile, pb, cols, log)) {
+    // EVOI >= 0 in exact arithmetic; the clamp drops rounding residue.
+    const value = Math.max(0, valueAfterAnswer(probe.answers, belief, util, ctx, profile, cols) - now);
+    if (!best || value > best.value) best = { probe, value };
+  }
+  return best ? { question: best.probe.question(best.value), evoiYen: best.value } : null;
+}
+
+/**
+ * Pairs among the top PAIR_POOL feasible areas of C by P_best, skipping any
+ * already in the log as prefer_area (either order), plus one time_tradeoff
+ * probe priced at the posterior-median c_T (P(accept) near one half).
+ */
+function candidateQuestions(
+  belief: Belief,
+  util: UtilityMatrix,
+  ctx: AreaContext,
+  profile: Profile,
+  pb: Float64Array,
+  cols: readonly number[],
+  log: readonly Evidence[],
+): Probe[] {
+  const asked = new Set<string>();
+  for (const e of log) if (e.type === 'prefer_area') asked.add([e.a, e.b].sort().join('|'));
+  const pool = [...cols].sort((x, y) => pb[y]! - pb[x]! || x - y).slice(0, PAIR_POOL);
+  const probes: Probe[] = [];
+  for (let x = 0; x < pool.length; x++) {
+    for (let y = x + 1; y < pool.length; y++) {
+      const a = ctx.areas[pool[x]!]!.locality_id;
+      const b = ctx.areas[pool[y]!]!.locality_id;
+      if (asked.has([a, b].sort().join('|'))) continue;
+      const ia = pool[x]!;
+      const ib = pool[y]!;
+      probes.push({
+        answers: [{ ...TAP, type: 'prefer_area', a, b }, { ...TAP, type: 'prefer_area', a: b, b: a }],
+        question: (evoiYen) => ({ kind: 'pair', a, b, pABeatsB: pABeatsB(util, belief.weights, ia, ib), evoiYen }),
+      });
+    }
+  }
+  const trips = profile.anchors[0]?.tripsPerWeek;
+  if (trips !== undefined && trips > 0) {
+    const minutes = TRADEOFF_PROBE_MINUTES;
+    const raw = weightedMedian(belief, C_T_INDEX) * monthlyHours(minutes, trips);
+    const yen = Math.max(TRADEOFF_PROBE_ROUND_YEN, Math.round(raw / TRADEOFF_PROBE_ROUND_YEN) * TRADEOFF_PROBE_ROUND_YEN);
+    probes.push({
+      answers: [true, false].map((accept): Evidence => ({ ...TAP, type: 'time_tradeoff', yen, minutes, accept })),
+      question: (evoiYen) => ({ kind: 'time_tradeoff', yen, minutes, evoiYen }),
+    });
+  }
+  return probes;
+}
+
+
+/**
+ * sum_ans P(ans) max_x E[U_x | ans], x over `cols`, noise-free u; EVOI is this
+ * minus max_x E[U_x] (R2).
+ * pi(. | ans) is proportional to w ((1 - eps) L_ans + eps), the update replay
+ * would make for a tap. P(ans) is predictive() normalised over the answers:
+ * with the lapse floor the predictives of complementary answers sum to
+ * 1 + eps, and normalising keeps sum_ans P(ans) pi(. | ans) = pi, so EVOI >= 0.
+ */
+function valueAfterAnswer(answers: readonly Evidence[], belief: Belief, util: UtilityMatrix, ctx: AreaContext, profile: Profile, cols: readonly number[]): number {
+  const n = belief.n;
+  const L = new Float64Array(n);
+  const post = new Float64Array(n);
+  const p: number[] = [];
+  const bestGiven: number[] = [];
+  for (const ans of answers) {
+    L.fill(0);
+    likelihood(ans, belief, util, ctx, profile, L);
+    const eps = itemEpsilon(ans);
+    const pAns = predictive(belief.weights, L, eps);
+    for (let i = 0; i < n; i++) {
+      const l = L[i]! > 1 ? 1 : L[i]! > 0 ? L[i]! : 0;
+      post[i] = (belief.weights[i]! * ((1 - eps) * l + eps)) / pAns;
+    }
+    p.push(pAns);
+    bestGiven.push(bestExpectedUtility(util, post, cols));
+  }
+  const total = p.reduce((s, x) => s + x, 0);
+  return p.reduce((s, x, k) => s + (x / total) * bestGiven[k]!, 0);
+}
+
+/** max over `cols` of the weighted expected noise-free utility (weights summing to 1). */
+function bestExpectedUtility(util: UtilityMatrix, weights: Float64Array, cols: readonly number[]): number {
+  const nA = util.nAreas;
+  const eu = new Float64Array(cols.length);
+  for (let i = 0; i < util.nSamples; i++) {
+    const w = weights[i]!;
+    if (w === 0) continue;
+    const row = i * nA;
+    for (let c = 0; c < cols.length; c++) eu[c] = eu[c]! + w * util.u[row + cols[c]!]!;
+  }
+  let max = -Infinity;
+  for (let c = 0; c < cols.length; c++) if (eu[c]! > max) max = eu[c]!;
+  return max;
+}

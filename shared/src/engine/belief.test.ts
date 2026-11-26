@@ -1,8 +1,12 @@
-// belief.ts: prior, ESS, replay and summary. No area data needed except a
-// constant likelihood stub.
+// belief.ts: prior, ESS, replay, rejuvenation and summary. Likelihood stubs,
+// and SYNTHETIC areas (synthetic-fixtures.ts) for rejuvenation.
 import { describe, expect, it } from 'vitest';
 
-import { C_T_INDEX, FEATURE_OFFSET, effectiveSampleSize, replay, samplePrior, summarizeBelief } from './belief.js';
+import { C_T_INDEX, FEATURE_OFFSET, effectiveSampleSize, rejuvenate, replay, samplePrior, summarizeBelief } from './belief.js';
+import { bindLikelihood } from './evidence.js';
+import { buildAreaContext } from './features.js';
+import { noiseFreeUtilities } from './recommend.js';
+import { SYNTHETIC_PARAMS, syntheticAreas, syntheticProfile, syntheticTimes } from './synthetic-fixtures.js';
 import { FEATURE_KEYS, PARAM_COUNT, type Likelihood, type LoggedEvidence } from './types.js';
 
 const median = (xs: number[]): number => {
@@ -70,6 +74,40 @@ describe('replay', () => {
   it('strength scales the exponent (R4: strong is 1.5)', () => {
     const strong = replay(prior, [{ ...item('a'), strength: 'strong' }], halfOut, 0.05);
     expect(strong.weights[prior.n - 1]! / strong.weights[0]!).toBeCloseTo(Math.pow(0.05, 1.5), 12);
+  });
+});
+
+describe('rejuvenate (R1)', () => {
+  const areas = syntheticAreas(60);
+  const profile = syntheticProfile();
+  const ctx = buildAreaContext(areas, SYNTHETIC_PARAMS, profile, syntheticTimes(areas));
+  const prior = samplePrior(ctx.scale, 8, 1000);
+  const util = noiseFreeUtilities(prior, ctx, profile);
+  const log: LoggedEvidence[] = [
+    { id: 'e1', type: 'time_tradeoff', yen: 5000, minutes: 10, accept: true, strength: 'strong', source: 'tap' },
+    { id: 'e2', type: 'magnitude', feature: 'green_space', tier: 'essential', strength: 'strong', source: 'tap' },
+    { id: 'e3', type: 'direction', feature: 'bars', sign: -1, strength: 'strong', source: 'tap' },
+    { id: 'e4', type: 'compare_importance', more: 'dining', less: 'supermarkets', strength: 'strong', source: 'tap' },
+  ];
+  const replayed = replay(prior, log, bindLikelihood(util, ctx, profile));
+  const move = () => rejuvenate(replayed, prior, util, log, ctx, profile, 8);
+
+  it('raises ESS from below n / 4 and keeps the pre-move ESS', () => {
+    const before = effectiveSampleSize(replayed.weights);
+    expect(before).toBeLessThan(prior.n / 4);
+    const { belief } = move();
+    expect(belief.rejuvenated).toBe(true);
+    expect(belief.essBeforeMove).toBeCloseTo(before, 9);
+    expect(effectiveSampleSize(belief.weights)).toBeGreaterThan(before);
+    expect(summarizeBelief(belief).ess).toBeCloseTo(before, 9);
+  });
+
+  it('is deterministic: same seed and log, identical output', () => {
+    const a = move();
+    const b = move();
+    expect(Array.from(b.belief.theta)).toEqual(Array.from(a.belief.theta));
+    expect(Array.from(b.belief.archetype)).toEqual(Array.from(a.belief.archetype));
+    expect(Array.from(b.util.u)).toEqual(Array.from(a.util.u));
   });
 });
 

@@ -175,7 +175,14 @@ export function QuestionTurn({
                   className={`mt-3 grid gap-2 font-sans ${q.kind === "pair" ? "grid-cols-2" : ""}`}
                 >
                   {answersFor(q, names).map((a, i) => {
-                    const id = q.kind === "pair" ? (i === 0 ? q.a : q.b) : q.set[i];
+                    const id =
+                      q.kind === "pair"
+                        ? i === 0
+                          ? q.a
+                          : q.b
+                        : q.kind === "pick_from_shortlist"
+                          ? q.set[i]
+                          : undefined;
                     const item = rec?.shortlist.find((s) => s.localityId === id);
                     return (
                       <button

@@ -148,8 +148,7 @@ export interface EngineDefaults {
   shortlistSize: number; // 5
   stopRiskShare: number; // 0.01
   maxQuestions: number; // 6
-  /** P8 deviation: the risk stop applies only once this many questions are answered. */
-  minQuestions: number; // 2
+  /** Stop once the best question is worth less than this share of scale (R3). */
   minEvoiShare: number; // 0.003
   surpriseThreshold: number; // 0.15
   sigmaRentNear: number; // 0.08
@@ -289,6 +288,10 @@ export interface Belief {
   weights: Float64Array; // sums to 1
   /** Scale B: the budget, or median modelled rent of reachable areas. */
   scale: number;
+  /** R1: the samples were resampled and moved, so the weights are uniform again. */
+  rejuvenated?: boolean;
+  /** R1: ESS of the replayed weights before the move; confidence and stopping read this. */
+  essBeforeMove?: number;
 }
 export interface ParamSummary {
   param: ParamKey;
@@ -343,12 +346,13 @@ export interface ShortlistItem {
   confidence: AreaConfidence;
   similarNearby?: string[];
 }
-// TODO(E03): deferred. Only the shortcut path is built (pair with P(a beats b)
-// closest to one half among shortlisted areas with pBest > 0.05); evoiYen stays unset.
+/** evoiYen: expected value of the answer, yen per month (R2). */
 export type NextQuestion =
   | { kind: 'profile_fact'; missing: 'anchor' | 'trips_per_week' | 'layout' | 'budget' }
   | { kind: 'pick_from_shortlist'; set: string[] }
-  | { kind: 'pair'; a: string; b: string; pABeatsB: number; evoiYen?: number };
+  | { kind: 'pair'; a: string; b: string; pABeatsB: number; evoiYen?: number }
+  /** Would you pay `yen` more a month to save `minutes` one way, at the main anchor's trips per week? */
+  | { kind: 'time_tradeoff'; yen: number; minutes: number; evoiYen: number };
 /** Count per reason; an area is counted once, under the first reason in this order. */
 export interface ExcludedSummary {
   /** Fewer than 100 residents (offices, parks, port land); unknown population is not excluded. */
@@ -380,7 +384,7 @@ export interface Recommendation {
   feasibleCount: number;
   riskYen: number;
   shouldStop: boolean;
-  stopReason: 'risk_below_threshold' | 'question_limit' | null;
+  stopReason: 'risk_below_threshold' | 'question_limit' | 'nothing_left_to_learn' | null;
   nextQuestion: NextQuestion | null;
   excluded: ExcludedSummary;
   /** Attached when fewer than k areas are feasible. */
@@ -422,6 +426,7 @@ export const SessionStateSchema = z.object({
   profile: ProfileSchema,
   evidence: z.array(EvidenceSchema),
   seed: z.number().int(),
+  /** Derived from the evidence on snapshot; ignored on restore (kept so stored sessions parse). */
   questionsAsked: z.number().int().nonnegative().default(0),
 });
 export type SessionState = z.infer<typeof SessionStateSchema>;
@@ -548,7 +553,14 @@ export type GreedyShortlist = (util: UtilityMatrix, weights: Float64Array, feasi
 /** Length nAreas; zero outside util.noisy.areaIdx; sums to 1. Risk reads util.noisy too. */
 export type PBest = (util: UtilityMatrix, weights: Float64Array, feasible: Uint8Array) => Float64Array;
 export type RiskOfSet = (util: UtilityMatrix, weights: Float64Array, feasible: Uint8Array, set: readonly number[]) => number;
-export type Recommend = (belief: Belief, util: UtilityMatrix, ctx: AreaContext, profile: Profile, opts: { k: number; questionsAsked: number; defaults: EngineDefaults }) => Recommendation;
+/** opts.log: the evidence so far; pairs already asked as prefer_area are not asked again. */
+export type Recommend = (
+  belief: Belief,
+  util: UtilityMatrix,
+  ctx: AreaContext,
+  profile: Profile,
+  opts: { k: number; questionsAsked: number; defaults: EngineDefaults; log?: readonly Evidence[] },
+) => Recommendation;
 
 /** explain.ts */
 export type BreakdownAt = (areaIdx: number, belief: Belief, ctx: AreaContext, profile: Profile) => Breakdown;

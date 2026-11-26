@@ -1,7 +1,7 @@
 // createEngine: the stateful wrapper over the pure engine modules
 // (docs/plans/engine-spec.md, "Interface, defaults and tests"). The belief is
 // always prior x likelihoods of the current log, recomputed, never stored.
-import { itemEpsilon, replay, samplePrior, summarizeBelief } from './belief.js';
+import { itemEpsilon, rejuvenate, replay, samplePrior, summarizeBelief } from './belief.js';
 import { bindLikelihood, likelihood, predictive, surpriseThreshold, validateEvidence } from './evidence.js';
 import { explainCompare, explainRelax, explainWhyNot } from './explain.js';
 import { buildAreaContext } from './features.js';
@@ -24,8 +24,8 @@ import {
   type UtilityMatrix,
 } from './types.js';
 
-/** Evidence types that answer a card or pair question; observing one counts as a question asked. */
-const ANSWER_TYPES: ReadonlySet<Evidence['type']> = new Set(['pick_from_set', 'prefer_area', 'reject_area']);
+/** Evidence types that answer a question the engine asks; each one in the log, tapped or typed, counts as a question asked. */
+const ANSWER_TYPES: ReadonlySet<Evidence['type']> = new Set(['pick_from_set', 'prefer_area', 'reject_area', 'time_tradeoff']);
 
 function engineError(code: 'unknown_area' | 'unknown_evidence_id', message: string): Error {
   return Object.assign(new Error(message), { code });
@@ -38,13 +38,17 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
   let anchorTimes: AnchorTimes = {};
   let refused: RefusedAnchor[] = [];
   let log: LoggedEvidence[] = [];
-  let questionsAsked = 0;
   let nextId = 1;
 
   let ctx!: AreaContext;
   let prior!: Belief;
-  let belief!: Belief;
+  /** Noise-free utilities of the prior samples; every replay reads these. */
   let util!: UtilityMatrix;
+  /** replay(prior, log) before any move: predictive and conflict checks stay on the prior samples. */
+  let replayed!: Belief;
+  /** The current belief, rejuvenated when the replay collapsed (R1), and its own noise-free utilities. */
+  let belief!: Belief;
+  let beliefUtil!: UtilityMatrix;
   // R5: the noisy matrix over C is built on first use and kept until the
   // belief, the profile or the shortlist size changes.
   let beliefVersion = 0;
@@ -61,10 +65,20 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
   const doReplay = (items: readonly LoggedEvidence[]): Belief => replay(prior, items, bindLikelihood(util, ctx, profile));
 
   /** Every change of the current belief goes through here, so the noisy cache sees it. */
-  const setBelief = (b: Belief): void => {
+  const setBelief = (b: Belief, u: UtilityMatrix): void => {
     belief = b;
+    beliefUtil = u;
     beliefVersion++;
   };
+
+  /** The main replay path, the only one that rejuvenates (R1); the conflict loop uses doReplay alone. */
+  const replayLog = (): void => {
+    replayed = doReplay(log);
+    const moved = rejuvenate(replayed, prior, util, log, ctx, profile, sessionSeed);
+    setBelief(moved.belief, moved.util);
+  };
+
+  const questionsAsked = (): number => log.filter((x) => ANSWER_TYPES.has(x.type)).length;
 
   /** util with the noisy matrix over C for the current belief and a shortlist of k; without k, any cached size will do. */
   const noisyUtil = (k?: number): UtilityMatrix => {
@@ -72,7 +86,7 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
     const fresh = noisyCache?.versions === versions && (k === undefined || noisyCache.k === k);
     if (!fresh || !noisyCache) {
       const size = k ?? DEFAULTS.shortlistSize;
-      noisyCache = { versions, k: size, util: attachNoisy(util, belief, ctx, profile, sessionSeed, size) };
+      noisyCache = { versions, k: size, util: attachNoisy(beliefUtil, belief, ctx, profile, sessionSeed, size) };
     }
     return noisyCache.util;
   };
@@ -82,7 +96,7 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
     prior = samplePrior(ctx.scale, sessionSeed, DEFAULTS.samples);
     util = noiseFreeUtilities(prior, ctx, profile);
     profileVersion++;
-    setBelief(doReplay(log));
+    replayLog();
   };
 
   const applyProfile = (p: Profile, times: AnchorTimes): void => {
@@ -127,7 +141,7 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
 
       const id = e.id ?? newId();
       const others = log.filter((x) => x.id !== id); // same id = edit
-      const before = others.length === log.length ? belief : doReplay(others);
+      const before = others.length === log.length ? replayed : doReplay(others);
       const item: LoggedEvidence = { ...e, id };
 
       const L = new Float64Array(belief.n);
@@ -150,8 +164,7 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
       }
 
       log = [...others, item];
-      if (ANSWER_TYPES.has(item.type)) questionsAsked++;
-      setBelief(doReplay(log));
+      replayLog();
       return conflictsWith !== undefined
         ? { ok: true, id, predictive: p, surprising, conflictsWith }
         : { ok: true, id, predictive: p, surprising };
@@ -160,17 +173,17 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
     removeEvidence(id) {
       if (!log.some((x) => x.id === id)) return;
       log = log.filter((x) => x.id !== id);
-      setBelief(doReplay(log));
+      replayLog();
     },
 
     recommend(k = DEFAULTS.shortlistSize) {
-      const rec = recommendFn(belief, noisyUtil(k), ctx, profile, { k, questionsAsked, defaults: DEFAULTS });
+      const rec = recommendFn(belief, noisyUtil(k), ctx, profile, { k, questionsAsked: questionsAsked(), defaults: DEFAULTS, log });
       if (rec.feasibleCount < k) rec.relax = explainRelax(areas, params, profile, anchorTimes, belief, sessionSeed);
       return rec;
     },
 
     whyNot(localityId) {
-      return explainWhyNot(localityId, belief, util, ctx, profile);
+      return explainWhyNot(localityId, belief, beliefUtil, ctx, profile);
     },
 
     relax() {
@@ -185,7 +198,7 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
       // The pair's noisy values are the same whichever matrix holds them (per-area seeds), so a pair outside C is drawn alone.
       const shared = noisyUtil();
       const covered = shared.noisy.areaIdx.includes(ia) && shared.noisy.areaIdx.includes(ib);
-      const pairUtil = covered ? shared : { ...util, noisy: noisyUtilities(belief, ctx, profile, sessionSeed, [ia, ib]) };
+      const pairUtil = covered ? shared : { ...beliefUtil, noisy: noisyUtilities(belief, ctx, profile, sessionSeed, [ia, ib]) };
       return explainCompare(a, b, belief, pairUtil, ctx, profile);
     },
 
@@ -194,14 +207,13 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
     },
 
     snapshot(): SessionState {
-      return { profile: rawProfile, evidence: log.map((x) => ({ ...x })), seed: sessionSeed, questionsAsked };
+      return { profile: rawProfile, evidence: log.map((x) => ({ ...x })), seed: sessionSeed, questionsAsked: questionsAsked() };
     },
 
     restore(s, times) {
       sessionSeed = s.seed;
       log = s.evidence.map((x) => ({ ...x, id: x.id ?? '' }));
       for (const x of log) if (!x.id) x.id = newId();
-      questionsAsked = s.questionsAsked ?? 0;
       applyProfile(s.profile, times);
     },
   };

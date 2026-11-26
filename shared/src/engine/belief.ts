@@ -1,6 +1,10 @@
 // The belief about the person: prior sampling, archetypes, effective sample
 // size, replay and the summary (docs/plans/engine-spec.md, "The belief about
 // the person"). Seeded; no DB, no model.
+// rejuvenate() reads evidence.ts and recommend.ts, which import constants
+// from here; the cycle is safe because nothing is read at module load.
+import { bindLikelihood } from './evidence.js';
+import { noiseFreeUtilities } from './recommend.js';
 import { createRng } from './rng.js';
 import {
   ARCHETYPES,
@@ -15,6 +19,8 @@ import {
   type EffectiveSampleSize,
   type EvidenceSource,
   type FeatureKey,
+  type Likelihood,
+  type LoggedEvidence,
   type ParamKey,
   type ParamSummary,
   type Profile,
@@ -61,6 +67,8 @@ export const ARCHETYPE_TIME_MULTIPLIER: Readonly<Record<Archetype, number>> = {
 };
 
 const EITHER_SIGN: ReadonlySet<FeatureKey> = new Set<FeatureKey>(['bars']);
+/** The one parameter that can take either sign; every other one keeps its sign. */
+const BARS_INDEX = FEATURE_OFFSET + FEATURE_KEYS.indexOf('bars');
 
 /** Features drawn from their own stream, so adding them left every earlier draw of a seed unchanged. */
 const LATE_FEATURES: ReadonlySet<FeatureKey> = new Set<FeatureKey>(['safety']);
@@ -125,20 +133,7 @@ export const replay: Replay = (prior, log, likelihood, epsilon) => {
   const n = prior.n;
   const logw = new Float64Array(n);
   for (let i = 0; i < n; i++) logw[i] = Math.log(prior.weights[i]!);
-
-  const ordered = [...log].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const out = new Float64Array(n);
-  for (const e of ordered) {
-    out.fill(0);
-    likelihood(e, prior, UNBOUND_UTIL, UNBOUND_CTX, UNBOUND_PROFILE, out);
-    const alpha = STRENGTH_ALPHA[e.strength ?? 'normal'] ?? 1;
-    const eps = epsilon ?? itemEpsilon(e);
-    for (let i = 0; i < n; i++) {
-      const l = out[i]!;
-      const clamped = l > 1 ? 1 : l > 0 ? l : 0; // NaN -> 0: the floor alone applies
-      logw[i] = logw[i]! + alpha * Math.log((1 - eps) * clamped + eps);
-    }
-  }
+  addLogLikelihood(logw, prior, log, likelihood, epsilon);
 
   let max = -Infinity;
   for (let i = 0; i < n; i++) if (logw[i]! > max) max = logw[i]!;
@@ -157,9 +152,208 @@ export const replay: Replay = (prior, log, likelihood, epsilon) => {
   return { n, theta: prior.theta, archetype: prior.archetype, weights, scale: prior.scale };
 };
 
+/** logw[i] += sum_e alpha_e log((1 - eps_e) L_e(theta_i) + eps_e), items in id order (E17). */
+function addLogLikelihood(logw: Float64Array, belief: Belief, log: readonly LoggedEvidence[], likelihood: Likelihood, epsilon?: number): void {
+  const n = belief.n;
+  const ordered = [...log].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const out = new Float64Array(n);
+  for (const e of ordered) {
+    out.fill(0);
+    likelihood(e, belief, UNBOUND_UTIL, UNBOUND_CTX, UNBOUND_PROFILE, out);
+    const alpha = STRENGTH_ALPHA[e.strength ?? 'normal'] ?? 1;
+    const eps = epsilon ?? itemEpsilon(e);
+    for (let i = 0; i < n; i++) {
+      const l = out[i]!;
+      const clamped = l > 1 ? 1 : l > 0 ? l : 0; // NaN -> 0: the floor alone applies
+      logw[i] = logw[i]! + alpha * Math.log((1 - eps) * clamped + eps);
+    }
+  }
+}
+
 /** Lapse rate of one item: by who produced it, text when unstated (R4). */
 export function itemEpsilon(e: { source?: EvidenceSource }): number {
   return SOURCE_EPSILON[e.source ?? 'text'];
+}
+
+/** Rejuvenate when ESS falls below this share of n (R1). */
+export const REJUVENATE_ESS_SHARE = 0.25;
+export const MH_STEPS = 2;
+/** Random-walk step per parameter, as a share of its weighted sd in walk coordinates. */
+export const MH_STEP_SHARE = 0.3;
+
+/** ESS before any rejuvenation move; after one the weights are uniform and ESS would always read n (R1). */
+export function preMoveEss(belief: Belief): number {
+  return belief.essBeforeMove ?? effectiveSampleSize(belief.weights);
+}
+
+/**
+ * R1: when the replayed weights have collapsed (ESS < n / 4), resample and
+ * move the samples with MH_STEPS Metropolis-Hastings steps that leave the
+ * posterior invariant. `belief` is replay(prior, log); `util` is the
+ * noise-free utility of the prior samples, left untouched. Returns the moved
+ * belief (uniform weights) with its own noise-free utilities, or the inputs
+ * unchanged when ESS is fine. Deterministic in (seed, log length).
+ *
+ * Target: the posterior density over the ORIGINAL parameters theta given the
+ * fixed archetype k, pi(theta) = p(theta | k) * prod_e ((1 - eps_e) L_e + eps_e)^alpha_e,
+ * the same product replay weights by. Proposal: a Gaussian random walk on
+ * log|theta_p| (sign kept) for every parameter but bars, and on theta itself
+ * for bars. That walk is symmetric in log space, not in theta, so the
+ * Hastings ratio carries the Jacobian: q(theta | theta') / q(theta' | theta)
+ * = prod_p |theta'_p| / |theta_p|. Acceptance:
+ * log a = log pi(theta') - log pi(theta) + sum_p (log|theta'_p| - log|theta_p|).
+ */
+export function rejuvenate(
+  belief: Belief,
+  prior: Belief,
+  util: UtilityMatrix,
+  log: readonly LoggedEvidence[],
+  ctx: AreaContext,
+  profile: Profile,
+  seed: number,
+): { belief: Belief; util: UtilityMatrix } {
+  const n = belief.n;
+  const essBeforeMove = effectiveSampleSize(belief.weights);
+  if (n === 0 || essBeforeMove >= REJUVENATE_ESS_SHARE * n) return { belief, util };
+
+  const rng = createRng(moveSeed(seed, log.length));
+  const step = walkSd(belief).map((sd) => MH_STEP_SHARE * sd);
+  const logLik = new Float64Array(n);
+  addLogLikelihood(logLik, prior, log, bindLikelihood(util, ctx, profile));
+
+  // Systematic resampling: copies of prior samples carry their utility rows and log-likelihoods.
+  const picks = systematicResample(belief.weights, rng.next());
+  const nA = util.nAreas;
+  const theta = new Float64Array(n * PARAM_COUNT);
+  const archetype = new Uint8Array(n);
+  const u = new Float32Array(n * nA);
+  const curLik = new Float64Array(n);
+  const curPrior = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const src = picks[i]!;
+    theta.set(prior.theta.subarray(src * PARAM_COUNT, (src + 1) * PARAM_COUNT), i * PARAM_COUNT);
+    archetype[i] = prior.archetype[src]!;
+    u.set(util.u.subarray(src * nA, (src + 1) * nA), i * nA);
+    curLik[i] = logLik[src]!;
+  }
+  const uniform = new Float64Array(n).fill(1 / n);
+  const moved: Belief = { n, theta, archetype, weights: uniform, scale: prior.scale, rejuvenated: true, essBeforeMove };
+  for (let i = 0; i < n; i++) curPrior[i] = logPriorDensity(moved, i);
+
+  for (let s = 0; s < MH_STEPS; s++) {
+    const proposal = new Float64Array(n * PARAM_COUNT);
+    const logJacobian = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const row = i * PARAM_COUNT;
+      for (let p = 0; p < PARAM_COUNT; p++) {
+        const v = theta[row + p]!;
+        const dz = step[p]! * rng.normal();
+        if (p === BARS_INDEX) {
+          proposal[row + p] = v + dz;
+        } else {
+          proposal[row + p] = v * Math.exp(dz); // log|v'| = log|v| + dz, sign kept
+          logJacobian[i] = logJacobian[i]! + dz;
+        }
+      }
+    }
+    const proposed: Belief = { n, theta: proposal, archetype, weights: uniform, scale: prior.scale };
+    const propUtil = noiseFreeUtilities(proposed, ctx, profile);
+    const propLik = new Float64Array(n);
+    addLogLikelihood(propLik, proposed, log, bindLikelihood(propUtil, ctx, profile));
+    for (let i = 0; i < n; i++) {
+      const propPrior = logPriorDensity(proposed, i);
+      const logA = propLik[i]! + propPrior - curLik[i]! - curPrior[i]! + logJacobian[i]!;
+      if (!(Math.log(rng.next()) < logA)) continue; // NaN rejects
+      theta.set(proposal.subarray(i * PARAM_COUNT, (i + 1) * PARAM_COUNT), i * PARAM_COUNT);
+      u.set(propUtil.u.subarray(i * nA, (i + 1) * nA), i * nA);
+      curLik[i] = propLik[i]!;
+      curPrior[i] = propPrior;
+    }
+  }
+
+  return { belief: moved, util: { u, nSamples: n, nAreas: nA, noisy: { areaIdx: new Int32Array(0), u: new Float32Array(0) } } };
+}
+
+/** Seed of the resampling and move stream: one per (session seed, log length). */
+function moveSeed(seed: number, logLength: number): number {
+  return (Math.imul(seed ^ 0x2545f491, 0x9e3779b1) ^ Math.imul(logLength + 1, 0x85ebca6b)) >>> 0;
+}
+
+/** Indices of n draws by systematic resampling: one uniform offset u0 in [0, 1), points (k + u0) / n. */
+function systematicResample(weights: Float64Array, u0: number): Uint32Array {
+  const n = weights.length;
+  let total = 0;
+  for (let i = 0; i < n; i++) total += weights[i]!;
+  const picks = new Uint32Array(n);
+  let cum = weights[0]! / total;
+  let src = 0;
+  for (let k = 0; k < n; k++) {
+    const point = (k + u0) / n;
+    while (cum < point && src < n - 1) cum += weights[++src]! / total;
+    picks[k] = src;
+  }
+  return picks;
+}
+
+/** Weighted sd of each parameter in the random walk's coordinates: log|theta| except bars. */
+function walkSd(belief: Belief): number[] {
+  const mean = new Float64Array(PARAM_COUNT);
+  const sq = new Float64Array(PARAM_COUNT);
+  let total = 0;
+  for (let i = 0; i < belief.n; i++) {
+    const w = belief.weights[i]!;
+    total += w;
+    for (let p = 0; p < PARAM_COUNT; p++) {
+      const v = belief.theta[i * PARAM_COUNT + p]!;
+      const x = p === BARS_INDEX ? v : Math.log(Math.abs(v));
+      mean[p] = mean[p]! + w * x;
+      sq[p] = sq[p]! + w * x * x;
+    }
+  }
+  return Array.from(mean, (m, p) => {
+    const mu = m / total;
+    return Math.sqrt(Math.max(0, sq[p]! / total - mu * mu));
+  });
+}
+
+/** log of the lognormal density of |x| at median `median` (x and median of one sign): density over x, not log x. */
+function logLognormal(x: number, median: number, sigma: number): number {
+  const lx = Math.log(Math.abs(x));
+  const d = lx - Math.log(Math.abs(median));
+  return -lx - (d * d) / (2 * sigma * sigma);
+}
+
+/**
+ * log p(theta_i | archetype_i) over the original parameters, up to a constant
+ * that depends only on the archetype and scale (the archetype never moves).
+ * Mirrors samplePrior.
+ */
+function logPriorDensity(belief: Belief, i: number): number {
+  const scale = belief.scale;
+  const name = ARCHETYPES[belief.archetype[i]!]!;
+  const percent = ARCHETYPE_PERCENT[name];
+  const row = i * PARAM_COUNT;
+  const th = belief.theta;
+  let lp = logLognormal(th[row + C_T_INDEX]!, (scale / C_T_DIVISOR) * ARCHETYPE_TIME_MULTIPLIER[name], C_T_SIGMA);
+  for (let j = 0; j < FEATURE_KEYS.length; j++) {
+    const key = FEATURE_KEYS[j]!;
+    const centre = scale * (percent[key] / 100);
+    const v = th[row + FEATURE_OFFSET + j]!;
+    if (EITHER_SIGN.has(key)) {
+      const d = (v - centre) / (BARS_SD_SHARE * scale);
+      lp -= (d * d) / 2;
+    } else {
+      lp += logLognormal(v, centre, W_SIGMA);
+    }
+  }
+  lp += logLognormal(th[row + LAMBDA_B_INDEX]!, 1, LAMBDA_B_SIGMA);
+  lp += logLognormal(th[row + GAMMA_INDEX]!, GAMMA_MEDIAN, GAMMA_SIGMA);
+  return lp;
+}
+
+/** Weighted median of one parameter. */
+export function weightedMedian(belief: Belief, p: number): number {
+  return weightedQuantiles(belief, p, [0.5])[0]!;
 }
 
 /** Weighted quantiles of one parameter: smallest value whose cumulative weight reaches q. */
@@ -201,7 +395,7 @@ export const summarizeBelief: SummarizeBelief = (belief, essFloor = DEFAULT_ESS_
         : null,
     };
   });
-  const ess = effectiveSampleSize(belief.weights);
+  const ess = preMoveEss(belief);
   return { params, ess, lowConfidence: ess < essFloor, scale: belief.scale };
 };
 

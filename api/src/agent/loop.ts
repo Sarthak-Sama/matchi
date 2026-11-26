@@ -1,12 +1,23 @@
 // One turn: build context, call the model, run tools, auto-recommend after a
 // state change, check grounding (one retry), then emit state and done.
-import type { AgentStateView, AgentStreamEvent, GroundingFailure, NextQuestion } from "@tokyo/shared";
+import type {
+  AgentStateView,
+  AgentStreamEvent,
+  GroundingFailure,
+  NextQuestion,
+} from "@tokyo/shared";
 
 import { buildView } from "../routes/agent-direct.js";
 import type { Figure } from "./grounding.js";
 import type { GroundingResult } from "./grounding.js";
 import { checkGrounding } from "./grounding.js";
-import type { ChatMessage, ModelClient, ModelRequest, ModelResponse, ModelToolCall } from "./model-client.js";
+import type {
+  ChatMessage,
+  ModelClient,
+  ModelRequest,
+  ModelResponse,
+  ModelToolCall,
+} from "./model-client.js";
 import { buildSystemPrompt } from "./prompt.js";
 import type { AgentTools, ToolContext, ToolResult } from "./tools.js";
 import { MUTATING_TOOLS, toPercent } from "./tools.js";
@@ -119,7 +130,9 @@ export function sanitizeReply(text: string): { text: string; flagged: boolean } 
 }
 
 const messageOf = (t: { role: string; content: string }): ChatMessage =>
-  t.role === "assistant" ? { role: "assistant", content: t.content } : { role: "user", content: t.content };
+  t.role === "assistant"
+    ? { role: "assistant", content: t.content }
+    : { role: "user", content: t.content };
 
 /** Stored assistant turns that still carry markup (sessions polluted earlier) are left out of context. */
 const isMessages = (turns: readonly { role: string; content: string }[]): ChatMessage[] =>
@@ -147,6 +160,9 @@ function questionSentence(q: NextQuestion, ctx: ToolContext, view: AgentStateVie
     const b = areaName(ctx, view, q.b);
     return a !== null && b !== null ? `Which would you prefer, ${a} or ${b}?` : null;
   }
+  if (q.kind === "time_tradeoff") {
+    return `Would you pay ¥${q.yen.toLocaleString("en-US")} more a month to save ${q.minutes} minutes each way?`;
+  }
   const names = q.set.map((id) => areaName(ctx, view, id)).filter((n): n is string => n !== null);
   return names.length > 0 ? `Which of these appeals to you most: ${names.join(", ")}?` : null;
 }
@@ -156,7 +172,10 @@ function questionSentence(q: NextQuestion, ctx: ToolContext, view: AgentStateVie
  * chance of being best, as a whole percent like the tools round it) is in the
  * state the page shows. `figures` is what grounding must be allowed to see.
  */
-export function fallbackReply(view: AgentStateView, ctx: ToolContext): { text: string; figures: unknown[] } {
+export function fallbackReply(
+  view: AgentStateView,
+  ctx: ToolContext,
+): { text: string; figures: unknown[] } {
   const rec = view.recommendation;
   const top = rec?.shortlist[0];
   const parts: string[] = [];
@@ -164,15 +183,23 @@ export function fallbackReply(view: AgentStateView, ctx: ToolContext): { text: s
   if (top) {
     const percent = toPercent(top.pBest);
     figures.push({ chance_best_percent: percent });
-    parts.push(`${top.nameEn ?? top.nameJa} is the strongest match so far, with a ${String(percent)}% chance of being best.`);
+    parts.push(
+      `${top.nameEn ?? top.nameJa} is the strongest match so far, with a ${String(percent)}% chance of being best.`,
+    );
   }
   const question = rec?.nextQuestion ? questionSentence(rec.nextQuestion, ctx, view) : null;
+  // The trade-off question quotes its own figures, so grounding must see them.
+  if (rec?.nextQuestion?.kind === "time_tradeoff") {
+    figures.push({ yen: rec.nextQuestion.yen, minutes: rec.nextQuestion.minutes });
+  }
   parts.push(question ?? "The cards show the details.");
   return { text: parts.join(" "), figures };
 }
 
 const groundingRecord = (check: GroundingResult): GroundingRecord =>
-  check.pass ? { pass: true, unmatched: [] } : { pass: false, unmatched: check.unmatched.map((f) => f.raw) };
+  check.pass
+    ? { pass: true, unmatched: [] }
+    : { pass: false, unmatched: check.unmatched.map((f) => f.raw) };
 
 /** Never throws: a failure becomes an `error` event, and `done` is always last. Returns what the turn did. */
 export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
@@ -206,7 +233,11 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
     const userTurns = session.turns.filter((t) => t.role === "user").length;
     if (userTurns >= MAX_TURNS_PER_SESSION) {
       record.outcome = "TURN_LIMIT";
-      emit({ type: "error", code: "TURN_LIMIT", message: `This session has reached ${String(MAX_TURNS_PER_SESSION)} turns; start a new one.` });
+      emit({
+        type: "error",
+        code: "TURN_LIMIT",
+        message: `This session has reached ${String(MAX_TURNS_PER_SESSION)} turns; start a new one.`,
+      });
       return record;
     }
 
@@ -215,7 +246,11 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
     const messages: ChatMessage[] = [
       {
         role: "system",
-        content: buildSystemPrompt({ view: before, questionsAsked: snapshot.questionsAsked, columnComments: input.columnComments }),
+        content: buildSystemPrompt({
+          view: before,
+          questionsAsked: snapshot.questionsAsked,
+          columnComments: input.columnComments,
+        }),
       },
       ...isMessages(session.turns.slice(-CONTEXT_TURNS * 2)),
       { role: "user", content: input.message },
@@ -241,13 +276,25 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
       const toolStartedAt = Date.now();
       let result: ToolResult;
       if (!harness && toolCallsUsed >= MAX_TOOL_CALLS_PER_TURN) {
-        result = { ok: false, error: { code: "budget_exceeded", message: `At most ${String(MAX_TOOL_CALLS_PER_TURN)} tool calls per turn; answer now.` } };
+        result = {
+          ok: false,
+          error: {
+            code: "budget_exceeded",
+            message: `At most ${String(MAX_TOOL_CALLS_PER_TURN)} tool calls per turn; answer now.`,
+          },
+        };
       } else {
         if (!harness) toolCallsUsed++;
         result = await tools.run(call.name, call.arguments, ctx);
       }
       record.toolCalls.push({ name: call.name, ok: result.ok, ms: Date.now() - toolStartedAt });
-      emit({ type: "tool_result", id: call.id, name: call.name, ok: result.ok, result: result.ok ? result.result : result.error });
+      emit({
+        type: "tool_result",
+        id: call.id,
+        name: call.name,
+        ok: result.ok,
+        result: result.ok ? result.result : result.error,
+      });
       if (result.ok) toolResults.push(result.result);
       return result;
     };
@@ -285,14 +332,26 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
           const result = await runOne(call);
           if (result.ok && MUTATING_TOOLS.has(call.name)) stale = true;
           if (result.ok && call.name === "recommend") stale = false;
-          toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+          toolMessages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: JSON.stringify(result),
+          });
         }
         if (stale) {
           // A changed belief with a stale shortlist must never reach the page.
-          const call: ModelToolCall = { id: `harness_recommend_${String(++autoId)}`, name: "recommend", arguments: "{}" };
+          const call: ModelToolCall = {
+            id: `harness_recommend_${String(++autoId)}`,
+            name: "recommend",
+            arguments: "{}",
+          };
           const result = await runOne(call, true);
           assistant.tool_calls!.push(call);
-          toolMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+          toolMessages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            content: JSON.stringify(result),
+          });
         }
         messages.push(assistant, ...toolMessages);
       }
@@ -321,16 +380,26 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
       text = clean.flagged || clean.text === "" ? useFallback() : clean.text;
     }
     let checkedText = text;
-    let check = checkGrounding({ reply: text, toolResults: [...toolResults, ...extraFigures], profile: profile() });
+    let check = checkGrounding({
+      reply: text,
+      toolResults: [...toolResults, ...extraFigures],
+      profile: profile(),
+    });
     record.firstGrounding = groundingRecord(check);
     if (!check.pass && extraFigures.length === 0) {
       emit({ type: "grounding", pass: false, failures: toFailures(text, check.unmatched) });
       if (modelCalls < MAX_MODEL_CALLS_PER_TURN) {
         modelCalls++;
-        messages.push({ role: "assistant", content: text }, { role: "user", content: correctionMessage(check.unmatched) });
+        messages.push(
+          { role: "assistant", content: text },
+          { role: "user", content: correctionMessage(check.unmatched) },
+        );
         let retryText: string | null = null;
         try {
-          const retry = await model.complete({ messages, ...(input.signal ? { signal: input.signal } : {}) });
+          const retry = await model.complete({
+            messages,
+            ...(input.signal ? { signal: input.signal } : {}),
+          });
           const clean = sanitizeReply(retry.text);
           record.markupLeaked ||= clean.flagged;
           retryText = clean.flagged || clean.text === "" ? null : clean.text;
@@ -339,17 +408,28 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
         }
         text = retryText ?? useFallback();
         checkedText = text;
-        check = checkGrounding({ reply: text, toolResults: [...toolResults, ...extraFigures], profile: profile() });
+        check = checkGrounding({
+          reply: text,
+          toolResults: [...toolResults, ...extraFigures],
+          profile: profile(),
+        });
       }
     }
     record.finalGrounding = groundingRecord(check);
     if (!check.pass) text = dropSentences(text, check.unmatched);
 
     if (text !== "") emit({ type: "text", delta: text });
-    emit({ type: "grounding", pass: check.pass, failures: check.pass ? [] : toFailures(checkedText, check.unmatched) });
+    emit({
+      type: "grounding",
+      pass: check.pass,
+      failures: check.pass ? [] : toFailures(checkedText, check.unmatched),
+    });
     emit({ type: "state", state: after });
 
-    session.turns.push({ role: "user", content: input.message }, { role: "assistant", content: text });
+    session.turns.push(
+      { role: "user", content: input.message },
+      { role: "assistant", content: text },
+    );
   } catch (err) {
     record.outcome = "TURN_FAILED";
     emit({

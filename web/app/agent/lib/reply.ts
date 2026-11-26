@@ -16,7 +16,8 @@ export interface QuickChoice {
 export function choicesFor(view: AgentStateView | null): QuickChoice[] {
   const rec = view?.recommendation;
   const q = rec?.nextQuestion;
-  if (!rec || !q || rec.shouldStop || q.kind === "profile_fact") return [];
+  if (!rec || !q || rec.shouldStop || q.kind === "profile_fact" || q.kind === "time_tradeoff")
+    return [];
   const ids = q.kind === "pair" ? [q.a, q.b] : q.set;
   const items = ids.map((id) => rec.shortlist.find((s) => s.localityId === id));
   // A partial choice set would misrepresent the question.
