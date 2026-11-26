@@ -1,10 +1,11 @@
 // POST /v1/agent/turn: one agent turn as a server-sent event stream.
 import type { AgentStreamEvent } from "@tokyo/shared";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { PassThrough } from "node:stream";
 import { z } from "zod";
 
 import { ApiError } from "../application.js";
+import type { TurnRecord } from "../agent/loop.js";
 import { runTurn } from "../agent/loop.js";
 import type { ModelClient } from "../agent/model-client.js";
 import { createModelClientFromEnv } from "../agent/model-client.js";
@@ -30,6 +31,19 @@ const TurnBodySchema = z.object({
 
 /** Lower than the global ceiling: every turn costs model calls. */
 const TURN_RATE_LIMIT = { max: 20, timeWindow: "1 minute" };
+
+/** Logged, then stored as one agent_events row. A failed write only logs: the turn already answered. */
+async function recordTurn(request: FastifyRequest, pool: AgentPool, sessionId: string, record: TurnRecord): Promise<void> {
+  request.log.info({ turn: record }, "agent turn");
+  try {
+    await pool.query("INSERT INTO public.agent_events (session_id, kind, payload) VALUES ($1, 'turn', $2)", [
+      sessionId,
+      JSON.stringify(record),
+    ]);
+  } catch (err) {
+    request.log.warn({ err, sessionId }, "agent turn event write failed");
+  }
+}
 
 export function formatSse(event: AgentStreamEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
@@ -84,8 +98,10 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
       if (event.type !== "done") emit(event);
     };
     void (async () => {
+      let record: TurnRecord | undefined;
       try {
-        await runTurn({
+        record = await runTurn({
+          traceId: request.id,
           message,
           model,
           tools,
@@ -115,6 +131,7 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
           });
         }
         emit({ type: "done" });
+        if (record !== undefined) await recordTurn(request, deps.pool, session.id, record);
         stream.end();
       }
     })();

@@ -14,6 +14,7 @@ import type { DbPool } from "./db.js";
 import type { TransitGraphs } from "./domain/transit/graph.js";
 import { registerAgentRoute } from "./routes/agent.js";
 import { registerAgentDirectRoute } from "./routes/agent-direct.js";
+import { registerAgentEventsRoute } from "./routes/agent-events.js";
 import { registerDataStatusRoute } from "./routes/data-status.js";
 import { registerHealthRoute } from "./routes/health.js";
 import { registerNeighborhoodRoute } from "./routes/neighborhoods.js";
@@ -119,6 +120,7 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const getAgentRuntime = createAgentRuntimeGetter(deps, createEngine);
     registerAgentDirectRoute(instance, { getRuntime: getAgentRuntime });
     registerAgentRoute(instance, { getRuntime: getAgentRuntime, pool: deps.pool });
+    registerAgentEventsRoute(instance, { pool: deps.pool });
     done();
   });
 

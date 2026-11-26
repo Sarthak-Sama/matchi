@@ -68,6 +68,7 @@ function setup(steps: ScriptedStep[], turns: AgentSession["turns"] = []) {
   const events: AgentStreamEvent[] = [];
   const run = (message: string) =>
     runTurn({
+      traceId: "trace-1",
       message,
       model,
       tools: createAgentTools(() => ["1LDK"]),
@@ -309,7 +310,12 @@ describe("readChatStream", () => {
     });
     const deltas: string[] = [];
     const r = await readChatStream(body, (d) => deltas.push(d));
-    expect(r).toEqual({ text: "Hello", toolCalls: [{ id: "c1", name: "recommend", arguments: '{"k":3}' }] });
+    expect(r).toEqual({
+      text: "Hello",
+      toolCalls: [{ id: "c1", name: "recommend", arguments: '{"k":3}' }],
+      usage: null,
+      finishReason: null,
+    });
     expect(deltas).toEqual(["Hel", "lo"]);
   });
 });

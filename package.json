@@ -30,6 +30,15 @@
     "data:refresh": "tsx --env-file-if-exists=.env scripts/src/data-refresh.ts",
     "data:validate": "tsx --env-file-if-exists=.env scripts/src/data-validate.ts",
     "data:reset-real": "tsx --env-file-if-exists=.env scripts/src/data-reset-real.ts",
+    "eval:sim": "tsx --env-file-if-exists=.env scripts/src/eval/simulate.ts",
+    "eval:personas": "tsx --env-file-if-exists=.env scripts/src/eval/personas.ts",
+    "fetch:gtfs": "tsx --env-file-if-exists=.env scripts/src/fetch-gtfs.ts",
+    "import:commute-reference": "tsx --env-file-if-exists=.env scripts/src/import-commute-reference.ts",
+    "calibrate:transit": "tsx --env-file-if-exists=.env scripts/src/calibrate-transit.ts",
+    "import:estat-detail": "tsx --env-file-if-exists=.env scripts/src/import-estat-detail.ts",
+    "import:rent-reference": "tsx --env-file-if-exists=.env scripts/src/import-rent-reference.ts",
+    "import:safety": "tsx --env-file-if-exists=.env scripts/src/import-safety.ts",
+    "db:agent-role": "tsx --env-file-if-exists=.env scripts/src/agent-role.ts",
     "build:ward-plate": "tsx --env-file-if-exists=.env scripts/src/build-ward-plate.ts"
   },
   "devDependencies": {

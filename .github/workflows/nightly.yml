@@ -1,0 +1,30 @@
+name: Nightly personas
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+jobs:
+  personas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Staging only. Never pass --allow-prod here, and never point this at production.
+      AGENT_BASE_URL: ${{ secrets.STAGING_API_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The personas script only talks to the staging API over HTTP; the model key lives there.
+      - run: pnpm eval:personas --repeat 5
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: personas
+          path: scripts/src/eval/out/
+          if-no-files-found: ignore

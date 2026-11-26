@@ -30,9 +30,24 @@ export interface ModelRequest {
   signal?: AbortSignal;
 }
 
-export interface ModelResponse {
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
+/** What the stream carries; `ms` is added by the client that timed the call. */
+export interface StreamResult {
   text: string;
   toolCalls: ModelToolCall[];
+  /** Null when the provider sent no usage chunk. */
+  usage: TokenUsage | null;
+  /** The provider's finish_reason (stop, tool_calls, length, ...), null if absent. */
+  finishReason: string | null;
+}
+
+export interface ModelResponse extends StreamResult {
+  /** Wall time of the call, until the stream was fully read. */
+  ms: number;
 }
 
 export interface ModelClient {
@@ -60,6 +75,8 @@ export interface OpenAiCompatibleOptions {
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TIMEOUT_MS = 25_000;
+/** Bounds a runaway reply; a grounded turn answer is far shorter. */
+const MAX_COMPLETION_TOKENS = 1_500;
 
 interface StreamDelta {
   content?: string | null;
@@ -70,15 +87,22 @@ interface StreamDelta {
   }[];
 }
 
+interface StreamChunk {
+  choices?: { delta?: StreamDelta; finish_reason?: string | null }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+}
+
 /** Parses an SSE body of chat.completion.chunk objects. Exported for tests. */
 export async function readChatStream(
   body: ReadableStream<Uint8Array>,
   onText?: (delta: string) => void,
-): Promise<ModelResponse> {
+): Promise<StreamResult> {
   const decoder = new TextDecoder();
   const reader = body.getReader();
   let buffer = "";
   let text = "";
+  let usage: TokenUsage | null = null;
+  let finishReason: string | null = null;
   const calls = new Map<number, { id: string; name: string; arguments: string }>();
 
   const handleLine = (line: string): void => {
@@ -86,13 +110,19 @@ export async function readChatStream(
     if (!trimmed.startsWith("data:")) return;
     const data = trimmed.slice(5).trim();
     if (data === "" || data === "[DONE]") return;
-    let chunk: { choices?: { delta?: StreamDelta }[] };
+    let chunk: StreamChunk;
     try {
       chunk = JSON.parse(data) as typeof chunk;
     } catch {
       return;
     }
-    const delta = chunk.choices?.[0]?.delta;
+    // The usage chunk comes last, with an empty choices list.
+    if (chunk.usage) {
+      usage = { promptTokens: chunk.usage.prompt_tokens ?? 0, completionTokens: chunk.usage.completion_tokens ?? 0 };
+    }
+    const choice = chunk.choices?.[0];
+    if (choice?.finish_reason) finishReason = choice.finish_reason;
+    const delta = choice?.delta;
     if (delta === undefined) return;
     if (typeof delta.content === "string" && delta.content !== "") {
       text += delta.content;
@@ -125,7 +155,7 @@ export async function readChatStream(
   const toolCalls = [...calls.entries()]
     .sort(([a], [b]) => a - b)
     .map(([index, call]) => ({ ...call, id: call.id || `call_${String(index)}` }));
-  return { text, toolCalls };
+  return { text, toolCalls, usage, finishReason };
 }
 
 export function createOpenAiCompatibleModel(options: OpenAiCompatibleOptions): ModelClient {
@@ -138,6 +168,8 @@ export function createOpenAiCompatibleModel(options: OpenAiCompatibleOptions): M
       const body: Record<string, unknown> = {
         model: options.model,
         stream: true,
+        stream_options: { include_usage: true },
+        max_tokens: MAX_COMPLETION_TOKENS,
         messages: request.messages.map((m) =>
           m.role === "assistant"
             ? {
@@ -162,6 +194,7 @@ export function createOpenAiCompatibleModel(options: OpenAiCompatibleOptions): M
           function: { name: t.name, description: t.description, parameters: t.parameters },
         }));
       }
+      const startedAt = Date.now();
       const response = await fetchImpl(url, {
         method: "POST",
         headers: {
@@ -176,7 +209,8 @@ export function createOpenAiCompatibleModel(options: OpenAiCompatibleOptions): M
         // The status only: provider error bodies can echo request content.
         throw new Error(`model request failed with HTTP ${String(response.status)}`);
       }
-      return readChatStream(response.body, request.onText);
+      const result = await readChatStream(response.body, request.onText);
+      return { ...result, ms: Date.now() - startedAt };
     },
   };
 }
@@ -200,7 +234,7 @@ export function createModelClientFromEnv(env: NodeJS.ProcessEnv = process.env): 
 export type ScriptedStep =
   | { text: string; toolCalls?: undefined }
   | { text?: string; toolCalls: { id?: string; name: string; input: unknown }[] }
-  | ((request: ModelRequest) => ModelResponse);
+  | ((request: ModelRequest) => Pick<ModelResponse, "text" | "toolCalls">);
 
 export interface ScriptedModel extends ModelClient {
   /** Every request received, in order (messages copied). */
@@ -217,7 +251,7 @@ export function createScriptedModel(steps: readonly ScriptedStep[]): ScriptedMod
     async complete(request) {
       requests.push({ ...request, messages: [...request.messages] });
       const step = steps[next++];
-      let response: ModelResponse;
+      let response: Pick<ModelResponse, "text" | "toolCalls">;
       if (step === undefined) response = { text: "", toolCalls: [] };
       else if (typeof step === "function") response = step(request);
       else {
@@ -231,7 +265,7 @@ export function createScriptedModel(steps: readonly ScriptedStep[]): ScriptedMod
         };
       }
       if (response.text !== "") request.onText?.(response.text);
-      return response;
+      return { ...response, usage: null, finishReason: response.toolCalls.length > 0 ? "tool_calls" : "stop", ms: 0 };
     },
   };
 }

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgis/postgis:16
+        env:
+          POSTGRES_USER: tokyo
+          POSTGRES_PASSWORD: tokyo
+          POSTGRES_DB: tokyo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tokyo -d tokyo_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # The database name must end in _test, or vitest.setup.database-guard.ts
+      # refuses to run the destructive integration suites.
+      DATABASE_URL: postgresql://tokyo:tokyo@localhost:5432/tokyo_test
+    steps:
+      - uses: actions/checkout@v4
+      # Takes the pnpm version from the packageManager field in package.json.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      # The POSTGRES_USER is a superuser, so 0001 can create postgis and pg_trgm.
+      # The matchi_agent_ro role is not needed: the migrations skip it when absent.
+      - run: pnpm db:migrate
+      - run: pnpm test
+      # Fails if mean regret at q=6 or ECE regresses against scripts/src/eval/baseline.json.
+      - run: pnpm eval:sim --check-baseline

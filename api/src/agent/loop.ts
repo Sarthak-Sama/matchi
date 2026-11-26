@@ -4,8 +4,9 @@ import type { AgentStateView, AgentStreamEvent, GroundingFailure, NextQuestion }
 
 import { buildView } from "../routes/agent-direct.js";
 import type { Figure } from "./grounding.js";
+import type { GroundingResult } from "./grounding.js";
 import { checkGrounding } from "./grounding.js";
-import type { ChatMessage, ModelClient, ModelToolCall } from "./model-client.js";
+import type { ChatMessage, ModelClient, ModelRequest, ModelResponse, ModelToolCall } from "./model-client.js";
 import { buildSystemPrompt } from "./prompt.js";
 import type { AgentTools, ToolContext, ToolResult } from "./tools.js";
 import { MUTATING_TOOLS, toPercent } from "./tools.js";
@@ -17,7 +18,45 @@ export const MAX_MODEL_CALLS_PER_TURN = 7;
 export const CONTEXT_TURNS = 8;
 export const MAX_TURNS_PER_SESSION = 40;
 
+export interface ModelCallRecord {
+  ms: number;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  finishReason: string | null;
+}
+
+export interface ToolCallRecord {
+  name: string;
+  ok: boolean;
+  ms: number;
+}
+
+export interface GroundingRecord {
+  pass: boolean;
+  /** The figures no tool result backed. */
+  unmatched: string[];
+}
+
+/** `ok`, or the code of the error event the turn ended on. */
+export type TurnOutcome = "ok" | "TURN_LIMIT" | "TURN_FAILED";
+
+/** What one turn did, for the agent_events row and the log line. */
+export interface TurnRecord {
+  /** The request id. */
+  traceId: string;
+  ms: number;
+  outcome: TurnOutcome;
+  modelCalls: ModelCallRecord[];
+  toolCalls: ToolCallRecord[];
+  /** The reply as the model first wrote it, and the one the page got. Null when no reply was checked. */
+  firstGrounding: GroundingRecord | null;
+  finalGrounding: GroundingRecord | null;
+  fallbackUsed: boolean;
+  markupLeaked: boolean;
+}
+
 export interface RunTurnInput {
+  traceId: string;
   message: string;
   model: ModelClient;
   tools: AgentTools;
@@ -132,15 +171,43 @@ export function fallbackReply(view: AgentStateView, ctx: ToolContext): { text: s
   return { text: parts.join(" "), figures };
 }
 
-/** Never throws: a failure becomes an `error` event, and `done` is always last. */
-export async function runTurn(input: RunTurnInput): Promise<void> {
-  const { emit, toolContext: ctx, model, tools } = input;
+const groundingRecord = (check: GroundingResult): GroundingRecord =>
+  check.pass ? { pass: true, unmatched: [] } : { pass: false, unmatched: check.unmatched.map((f) => f.raw) };
+
+/** Never throws: a failure becomes an `error` event, and `done` is always last. Returns what the turn did. */
+export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
+  const { emit, toolContext: ctx, tools } = input;
   const session = ctx.session;
+  const startedAt = Date.now();
+  const record: TurnRecord = {
+    traceId: input.traceId,
+    ms: 0,
+    outcome: "ok",
+    modelCalls: [],
+    toolCalls: [],
+    firstGrounding: null,
+    finalGrounding: null,
+    fallbackUsed: false,
+    markupLeaked: false,
+  };
+  const model = {
+    async complete(request: ModelRequest): Promise<ModelResponse> {
+      const response = await input.model.complete(request);
+      record.modelCalls.push({
+        ms: response.ms,
+        promptTokens: response.usage?.promptTokens ?? null,
+        completionTokens: response.usage?.completionTokens ?? null,
+        finishReason: response.finishReason,
+      });
+      return response;
+    },
+  };
   try {
     const userTurns = session.turns.filter((t) => t.role === "user").length;
     if (userTurns >= MAX_TURNS_PER_SESSION) {
+      record.outcome = "TURN_LIMIT";
       emit({ type: "error", code: "TURN_LIMIT", message: `This session has reached ${String(MAX_TURNS_PER_SESSION)} turns; start a new one.` });
-      return;
+      return record;
     }
 
     const before = buildView(session.engine);
@@ -171,6 +238,7 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
       }
       ran++;
       emit({ type: "tool_call", id: call.id, name: call.name, input: parsedInput });
+      const toolStartedAt = Date.now();
       let result: ToolResult;
       if (!harness && toolCallsUsed >= MAX_TOOL_CALLS_PER_TURN) {
         result = { ok: false, error: { code: "budget_exceeded", message: `At most ${String(MAX_TOOL_CALLS_PER_TURN)} tool calls per turn; answer now.` } };
@@ -178,6 +246,7 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
         if (!harness) toolCallsUsed++;
         result = await tools.run(call.name, call.arguments, ctx);
       }
+      record.toolCalls.push({ name: call.name, ok: result.ok, ms: Date.now() - toolStartedAt });
       emit({ type: "tool_result", id: call.id, name: call.name, ok: result.ok, result: result.ok ? result.result : result.error });
       if (result.ok) toolResults.push(result.result);
       return result;
@@ -238,6 +307,7 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
     const fallback = fallbackReply(after, ctx);
     let extraFigures: unknown[] = [];
     const useFallback = (): string => {
+      record.fallbackUsed = true;
       extraFigures = fallback.figures;
       return fallback.text;
     };
@@ -247,10 +317,12 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
       text = useFallback();
     } else {
       const clean = sanitizeReply(finalText ?? "");
+      record.markupLeaked ||= clean.flagged;
       text = clean.flagged || clean.text === "" ? useFallback() : clean.text;
     }
     let checkedText = text;
     let check = checkGrounding({ reply: text, toolResults: [...toolResults, ...extraFigures], profile: profile() });
+    record.firstGrounding = groundingRecord(check);
     if (!check.pass && extraFigures.length === 0) {
       emit({ type: "grounding", pass: false, failures: toFailures(text, check.unmatched) });
       if (modelCalls < MAX_MODEL_CALLS_PER_TURN) {
@@ -260,6 +332,7 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
         try {
           const retry = await model.complete({ messages, ...(input.signal ? { signal: input.signal } : {}) });
           const clean = sanitizeReply(retry.text);
+          record.markupLeaked ||= clean.flagged;
           retryText = clean.flagged || clean.text === "" ? null : clean.text;
         } catch (err) {
           if (ran === 0) throw err;
@@ -269,6 +342,7 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
         check = checkGrounding({ reply: text, toolResults: [...toolResults, ...extraFigures], profile: profile() });
       }
     }
+    record.finalGrounding = groundingRecord(check);
     if (!check.pass) text = dropSentences(text, check.unmatched);
 
     if (text !== "") emit({ type: "text", delta: text });
@@ -277,12 +351,15 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
 
     session.turns.push({ role: "user", content: input.message }, { role: "assistant", content: text });
   } catch (err) {
+    record.outcome = "TURN_FAILED";
     emit({
       type: "error",
       code: "TURN_FAILED",
       message: err instanceof Error ? err.message.slice(0, 300) : "The turn failed.",
     });
   } finally {
+    record.ms = Date.now() - startedAt;
     emit({ type: "done" });
   }
+  return record;
 }
