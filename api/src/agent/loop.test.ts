@@ -13,7 +13,7 @@ const AREAS = [{ locality_id: "L1" }, { locality_id: "L2" }] as AreaFeatures[];
 const REC: Recommendation = {
   shortlist: [
     {
-      localityId: "L1", nameEn: "Ebisu", nameJa: "恵比寿", wardNameEn: "Shibuya", rentYen: 82_340,
+      localityId: "L1", nameEn: "Ebisu", nameJa: "恵比寿", wardNameEn: "Shibuya", lat: 35.65, lon: 139.71, nearestStation: null, safety: null, rentYen: 82_340,
       commuteMinutes: 23.4, monthlyTravelHours: 16.3, pBest: 0.4567, regretYen: 1_234, role: null,
       breakdown: { rent: -82_340, timeCost: -10_000, features: {} as never, budgetPenalty: 0, capPenalty: 0, total: -92_340 },
       vsMedian: { rent: 0, timeCost: 0, features: {} as never, budgetPenalty: 0, capPenalty: 0, total: 0 },
@@ -100,9 +100,9 @@ describe("runTurn", () => {
       "tool_result:observe",
       "tool_call:recommend",
       "tool_result:recommend",
+      "state",
       "text",
       "grounding",
-      "state",
       "done",
     ]);
     expect(t.events.find((e) => e.type === "text")).toEqual({ type: "text", delta: GROUNDED });
@@ -137,10 +137,9 @@ describe("runTurn", () => {
     ]);
     await t.run("what do you suggest?");
     const types = t.events.map((e) => e.type);
-    expect(types.slice(-5)).toEqual(["grounding", "text", "grounding", "state", "done"]);
-    const [first, last] = t.events.filter((e) => e.type === "grounding");
-    expect(first).toMatchObject({ pass: false, failures: [{ figure: "¥95,000", context: "Ebisu rent is ¥95,000 a month." }] });
-    expect(last).toEqual({ type: "grounding", pass: true, failures: [] });
+    expect(types.slice(-4)).toEqual(["state", "text", "grounding", "done"]);
+    // Only the final check reaches the page; the first pass lives in the turn record.
+    expect(t.events.filter((e) => e.type === "grounding")).toEqual([{ type: "grounding", pass: true, failures: [] }]);
     expect(t.events.find((e) => e.type === "text")).toEqual({ type: "text", delta: GROUNDED });
     expect(t.model.requests).toHaveLength(3);
     const retry = t.model.requests[2]!;
@@ -182,7 +181,7 @@ describe("runTurn", () => {
       },
     ]);
     await t.run("hi");
-    expect(t.events).toEqual([{ type: "error", code: "TURN_FAILED", message: "upstream 500" }, { type: "done" }]);
+    expect(t.events).toEqual([{ type: "error", code: "TURN_FAILED", message: "Something went wrong answering that." }, { type: "done" }]);
   });
 
   const DSML = "Let me check. <｜DSML｜ function_calls><｜DSML｜ invoke name=\"lookup\"><｜DSML｜ parameter name=\"query\">代田</｜DSML｜ parameter></｜DSML｜ invoke></｜DSML｜ function_calls>";
@@ -198,7 +197,7 @@ describe("runTurn", () => {
     expect(noMarkup(t.events)).toBe(true);
     expect(t.events.filter((e) => e.type === "grounding")).toEqual([{ type: "grounding", pass: true, failures: [] }]);
     const types = t.events.map((e) => e.type);
-    expect(types.slice(-4)).toEqual(["text", "grounding", "state", "done"]);
+    expect(types.slice(-4)).toEqual(["state", "text", "grounding", "done"]);
     expect(t.session.turns.at(-1)).toEqual({ role: "assistant", content: FALLBACK });
     expect(t.model.requests).toHaveLength(2);
   });
@@ -256,7 +255,7 @@ describe("runTurn", () => {
     ]);
     await t.run("hi");
     expect(t.events.some((e) => e.type === "error")).toBe(false);
-    expect(t.events.map((e) => e.type).slice(-4)).toEqual(["text", "grounding", "state", "done"]);
+    expect(t.events.map((e) => e.type).slice(-4)).toEqual(["state", "text", "grounding", "done"]);
     expect(t.events.find((e) => e.type === "text")).toEqual({ type: "text", delta: FALLBACK });
   });
 

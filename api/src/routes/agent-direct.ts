@@ -32,6 +32,7 @@ const EvidenceBodySchema = z.object({ items: z.array(EvidenceSchema).min(1).max(
 const RecommendBodySchema = z.object({ k: z.number().int().min(1).max(20).optional() });
 const WhyNotBodySchema = z.object({ localityId: z.string().min(1) });
 const CompareBodySchema = z.object({ a: z.string().min(1), b: z.string().min(1) });
+const CreateSessionBodySchema = z.object({ fromId: z.string().min(1).max(100).optional() });
 const SessionParamsSchema = z.object({ id: z.string().min(1) });
 const EvidenceParamsSchema = z.object({ id: z.string().min(1) });
 const EvidenceQuerySchema = z.object({ sessionId: z.string().min(1) });
@@ -72,6 +73,20 @@ export async function enforceDailyLimit(pool: DbPool, ip: string, kind: UsageKin
       ? "Daily limit reached; try again tomorrow."
       : "The agent has used its budget for today; try again tomorrow.";
   throw new ApiError(decision.status, decision.code, message);
+}
+
+/**
+ * A new session with the source's profile and evidence and no turns, for share
+ * links and "continue in a new chat". The source session is only read.
+ */
+async function forkSession(sessions: SessionStore, fromId: string): Promise<AgentSession> {
+  const source = await requireSession(sessions, fromId);
+  const fork = await sessions.create();
+  fork.engine.restore(source.engine.snapshot(), source.anchorTimes);
+  fork.seed = source.seed;
+  fork.anchorTimes = { ...source.anchorTimes };
+  await sessions.save(fork);
+  return fork;
 }
 
 /**
@@ -127,14 +142,16 @@ export function registerAgentDirectRoute(app: FastifyInstance, deps: AgentDirect
   };
 
   app.post("/v1/agent/session", async (request, reply) => {
+    const { fromId } = parseOrThrow(CreateSessionBodySchema, request.body ?? {});
     await enforceDailyLimit(deps.pool, request.ip, "session");
-    const session = await (await deps.getRuntime()).sessions.create();
+    const { sessions } = await deps.getRuntime();
+    const session = fromId === undefined ? await sessions.create() : await forkSession(sessions, fromId);
     reply.status(200).send({ sessionId: session.id, view: buildView(session.engine) });
   });
 
   app.get("/v1/agent/session/:id", async (request, reply) => {
     const { session } = await sessionFor(request);
-    reply.status(200).send({ view: buildView(session.engine) });
+    reply.status(200).send({ view: buildView(session.engine), turns: session.turns });
   });
 
   app.put("/v1/agent/session/:id/profile", async (request, reply) => {

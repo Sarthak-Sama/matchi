@@ -151,6 +151,7 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
           columnComments: runtime.features.columnComments,
           emit: turnEmit,
           signal,
+          onError: (err) => request.log.error({ err, sessionId }, "agent turn failed"),
         });
       } catch (err) {
         // runTurn reports its own failures as events; this is a last resort.

@@ -8,11 +8,16 @@ export function AgentHeader({
   workingOpen,
   onWorking,
   onRestart,
+  onShare,
+  onCopyShortlist,
 }: {
   busy: boolean;
   workingOpen: boolean;
   onWorking: () => void;
   onRestart: () => void;
+  /** Copies a link to a private copy of this session. */
+  onShare: () => void;
+  onCopyShortlist: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
   useEffect(() => {
@@ -40,6 +45,19 @@ export function AgentHeader({
             onClick={onWorking}
           >
             Show the working
+          </button>
+          <button
+            disabled={busy}
+            className={`${linkBtn} min-h-11 text-[11px] sm:text-[12.5px] ${confirm ? "hidden sm:inline-flex" : ""}`}
+            onClick={onShare}
+          >
+            Share
+          </button>
+          <button
+            className={`${linkBtn} hidden min-h-11 text-[12.5px] sm:inline-flex`}
+            onClick={onCopyShortlist}
+          >
+            Copy shortlist
           </button>
           {confirm ? (
             <div className="flex items-center gap-2 text-xs">

@@ -328,11 +328,25 @@ export interface AreaConfidence {
   commuteBandMinutes: number;
   lateReturnNotCovered: boolean;
 }
+/** Crime relative to other areas (terciles of reported offences per 1,000 residents); never the raw rate. */
+export type CrimeBand = 'low' | 'typical' | 'high';
+export interface AreaSafety {
+  /** 1 (safest) to 5. */
+  quakeRank: number | null;
+  /** Share of the area in deep flood zones, 0 to 1. */
+  floodShare: number | null;
+  crimeBand: CrimeBand | null;
+}
 export interface ShortlistItem {
   localityId: string;
   nameEn: string | null;
   nameJa: string;
   wardNameEn: string | null;
+  lat: number;
+  lon: number;
+  nearestStation: { nameJa: string; nameEn: string | null } | null;
+  /** Null when none of the three safety figures is known for the area. */
+  safety: AreaSafety | null;
   rentYen: number;
   /** One-way minutes to the main anchor; null with no anchor. */
   commuteMinutes: number | null;

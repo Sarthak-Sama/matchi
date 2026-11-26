@@ -62,3 +62,37 @@ export function entryFromEvent(event: AgentStreamEvent): TraceEntry | null {
       };
   }
 }
+
+const MAX_QUERY_LABEL = 40;
+
+/** One plain line for what the guide is doing now, shown under the typing indicator. */
+export function stepLabel(name: string, input?: unknown): string {
+  switch (name) {
+    case "lookup": {
+      const query = (input as { query?: unknown } | null)?.query;
+      return typeof query === "string" && query.trim() !== ""
+        ? `Looking up ${query.trim().slice(0, MAX_QUERY_LABEL)}…`
+        : "Looking up a place…";
+    }
+    case "set_profile":
+      return "Updating your brief…";
+    case "observe":
+      return "Noting what you told me…";
+    case "remove_evidence":
+      return "Taking that out of your brief…";
+    case "recommend":
+      return "Re-ranking areas…";
+    case "why_not":
+      return "Checking why that area isn’t on the list…";
+    case "relax":
+      return "Testing looser limits…";
+    case "compare":
+      return "Comparing the two areas…";
+    case "query_areas":
+      return "Searching the area data…";
+    case "grounding":
+      return "Checking the figures…";
+    default:
+      return "Working on it…";
+  }
+}

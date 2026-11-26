@@ -1,35 +1,52 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import type { AgentController } from "../lib/useAgent";
 import { confidenceMeter, hasBrief, plainParam } from "../lib/derive";
+import { trackAreaOnce } from "../lib/areaEvents";
 import { makeNameOf } from "../lib/evidence";
 import { AreaCard } from "./AreaCard";
 import { YourBrief } from "./YourBrief";
-import { RelaxList } from "./Shortlist";
+import { DataSources, RelaxList } from "./Shortlist";
+import { ShortlistMap } from "./ShortlistMap";
 import { btn, linkBtn } from "./ui";
+const COLLAPSED_COUNT = 3;
+
 export function ShortlistPane({
   agent,
   onDetails,
   onArea,
   deltas,
   summary,
+  busy = false,
 }: {
   deltas: Record<string, number | "New">;
   summary: string;
   agent: AgentController;
   onDetails: () => void;
   onArea: (id: string) => void;
+  /** A turn is running: the shortlist may change under the reader. */
+  busy?: boolean;
 }) {
   const reduced = useReducedMotion();
   const [expanded, setExpanded] = useState(false);
+  const [showMap, setShowMap] = useState(false);
   const rec = agent.view?.recommendation;
   const profile = agent.view?.profile;
   const ready = hasBrief(profile);
   const meter = rec ? confidenceMeter(rec) : null;
   const names = makeNameOf(rec?.shortlist ?? []);
+  const visibleCount = expanded ? (rec?.shortlist.length ?? 0) : COLLAPSED_COUNT;
+  const visibleIds = (rec?.shortlist ?? []).slice(0, visibleCount).map((s) => s.localityId);
+  const visibleKey = visibleIds.join(",");
+  useEffect(() => {
+    visibleKey
+      .split(",")
+      .filter(Boolean)
+      .forEach((id, rank) => trackAreaOnce("impression", agent.sessionId, id, { rank: rank + 1 }));
+  }, [visibleKey, agent.sessionId]);
   return (
-    <div>
+    <div className={`transition-opacity motion-reduce:transition-none ${busy ? "opacity-60" : ""}`} aria-busy={busy}>
       <p className="sr-only" aria-live="polite">
         {summary}
       </p>
@@ -104,7 +121,7 @@ export function ShortlistPane({
                     <motion.li
                       layout={reduced ? false : "position"}
                       transition={{ duration: reduced ? 0 : 0.36, ease: [0.22, 0.61, 0.36, 1] }}
-                      hidden={!expanded && i >= 3}
+                      hidden={!expanded && i >= COLLAPSED_COUNT}
                       key={item.localityId}
                       data-testid="shortlist-card"
                       className={`border border-line bg-paper-soft p-4 ${i === 0 ? "border-t-2 border-t-ink" : ""}`}
@@ -121,10 +138,26 @@ export function ShortlistPane({
                   ))}
                 </ul>
               </LayoutGroup>
-              {rec.shortlist.length > 3 && (
-                <button className={`${linkBtn} min-h-11`} onClick={() => setExpanded(!expanded)}>
-                  {expanded ? "Show fewer" : `Show ${rec.shortlist.length - 3} more`}
+              <div className="flex flex-wrap items-center justify-between gap-x-4">
+                {rec.shortlist.length > COLLAPSED_COUNT ? (
+                  <button className={`${linkBtn} min-h-11`} onClick={() => setExpanded(!expanded)}>
+                    {expanded
+                      ? "Show fewer"
+                      : `Show ${rec.shortlist.length - COLLAPSED_COUNT} more`}
+                  </button>
+                ) : (
+                  <span />
+                )}
+                <button className={`${linkBtn} min-h-11`} onClick={() => setShowMap(!showMap)}>
+                  {showMap ? "Hide map" : "Show on map"}
                 </button>
+              </div>
+              {showMap && (
+                <ShortlistMap
+                  shortlist={rec.shortlist}
+                  anchor={profile?.anchors[0]}
+                  onSelect={onArea}
+                />
               )}
             </>
           )}
@@ -173,6 +206,7 @@ export function ShortlistPane({
           )}
         </>
       )}
+      <DataSources />
     </div>
   );
 }

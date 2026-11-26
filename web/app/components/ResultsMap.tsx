@@ -171,6 +171,8 @@ interface ResultsMapProps {
   readonly onHighlight: (localityId: string | null) => void;
   readonly onSelect: (result: NeighborhoodResult) => void;
   readonly expanded: boolean;
+  /** Replaces the commute, rent and score wording for callers whose results lack those /find fields. */
+  readonly detail?: (result: NeighborhoodResult) => string;
 }
 
 export function ResultsMap({
@@ -180,6 +182,7 @@ export function ResultsMap({
   onHighlight,
   onSelect,
   expanded,
+  detail,
 }: ResultsMapProps) {
   const reducedMotion = useReducedMotion();
   const destinationPoint = useMemo(
@@ -346,7 +349,11 @@ export function ResultsMap({
             onFocus={() => onHighlight(result.localityId)}
             onBlur={() => onHighlight(null)}
             onClick={() => onSelect(result)}
-            aria-label={`Rank ${result.rank}: ${localityDisplayName(result.nameEn, result.nameJa)}, ${localitySecondaryLabel(result)} — ${Math.round(result.commute.totalMinutes)} minute commute, ${formatYenCompact(result.rent.lowYen)} to ${formatYenCompact(result.rent.highYen)} modeled rent. Open the neighborhood entry.`}
+            aria-label={
+              detail
+                ? `Rank ${result.rank}: ${displayName}, ${detail(result)}. Open the neighborhood entry.`
+                : `Rank ${result.rank}: ${displayName}, ${localitySecondaryLabel(result)} — ${Math.round(result.commute.totalMinutes)} minute commute, ${formatYenCompact(result.rent.lowYen)} to ${formatYenCompact(result.rent.highYen)} modeled rent. Open the neighborhood entry.`
+            }
             className="group absolute grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full outline-none"
             style={{
               left: `${(pin.x / VIEW_W) * 100}%`,
@@ -375,7 +382,7 @@ export function ResultsMap({
                   {displayName}
                 </span>
                 <span className="mt-1 block font-mono text-[9px] tracking-wide whitespace-nowrap text-ink-muted uppercase">
-                  Best match · {Math.round(result.overallScore)} pts
+                  {detail ? detail(result) : `Best match · ${Math.round(result.overallScore)} pts`}
                 </span>
               </span>
             )}
@@ -390,8 +397,9 @@ export function ResultsMap({
                 {displayName}
               </span>
               <span className="mt-1 block text-[10px] leading-relaxed text-sage">
-                {localitySecondaryLabel(result)} · {Math.round(result.commute.totalMinutes)} min ·{" "}
-                {formatYenCompact(result.rent.medianYen)} median
+                {detail
+                  ? detail(result)
+                  : `${localitySecondaryLabel(result)} · ${Math.round(result.commute.totalMinutes)} min · ${formatYenCompact(result.rent.medianYen)} median`}
               </span>
               <span className="mt-1.5 block text-[9px] font-semibold tracking-[0.12em] text-paper uppercase">
                 Open neighborhood →

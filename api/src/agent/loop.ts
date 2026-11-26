@@ -77,6 +77,8 @@ export interface RunTurnInput {
   columnComments: Readonly<Record<string, string>>;
   emit: (event: AgentStreamEvent) => void;
   signal?: AbortSignal;
+  /** Where the detail of a failed turn goes; the page only ever sees a typed code. */
+  onError?: (err: unknown) => void;
 }
 
 function sentenceAround(text: string, raw: string): string {
@@ -257,6 +259,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
     let finalText: string | null = null;
     /** Tool executions this turn, harness recommends included. */
     let ran = 0;
+    let stateSent = false;
 
     const runOne = async (call: ModelToolCall, harness = false): Promise<ToolResult> => {
       let parsedInput: unknown = call.arguments;
@@ -322,9 +325,13 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
         };
         const toolMessages: ChatMessage[] = [];
         let stale = false;
+        let mutated = false;
         for (const call of response.toolCalls) {
           const result = await runOne(call);
-          if (result.ok && MUTATING_TOOLS.has(call.name)) stale = true;
+          if (result.ok && MUTATING_TOOLS.has(call.name)) {
+            stale = true;
+            mutated = true;
+          }
           if (result.ok && call.name === "recommend") stale = false;
           toolMessages.push({
             role: "tool",
@@ -346,6 +353,11 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
             tool_call_id: call.id,
             content: JSON.stringify(result),
           });
+        }
+        // The cards can update while the model is still writing; only the prose waits for grounding.
+        if (mutated) {
+          emit({ type: "state", state: buildView(session.engine) });
+          stateSent = true;
         }
         messages.push(assistant, ...toolMessages);
       }
@@ -382,7 +394,6 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
     record.firstGrounding = groundingRecord(check);
     record.markupLeaked ||= check.markup;
     if (!check.pass && extraFigures.length === 0) {
-      emit({ type: "grounding", pass: false, failures: toFailures(text, check.unmatched) });
       if (modelCalls < MAX_MODEL_CALLS_PER_TURN) {
         modelCalls++;
         messages.push(
@@ -414,13 +425,15 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
     record.markupLeaked ||= check.markup;
     if (!check.pass) text = dropSentences(text, check.unmatched);
 
+    // The state went out right after the last change; a turn that changed nothing still ends with one.
+    if (!stateSent) emit({ type: "state", state: after });
+    // One text event and one grounding event, both final: no figure reaches the page unchecked.
     if (text !== "") emit({ type: "text", delta: text });
     emit({
       type: "grounding",
       pass: check.pass,
       failures: check.pass ? [] : toFailures(checkedText, check.unmatched),
     });
-    emit({ type: "state", state: after });
 
     session.turns.push(
       { role: "user", content: input.message },
@@ -428,11 +441,8 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
     );
   } catch (err) {
     record.outcome = "TURN_FAILED";
-    emit({
-      type: "error",
-      code: "TURN_FAILED",
-      message: err instanceof Error ? err.message.slice(0, 300) : "The turn failed.",
-    });
+    input.onError?.(err);
+    emit({ type: "error", code: "TURN_FAILED", message: "Something went wrong answering that." });
   } finally {
     record.ms = Date.now() - startedAt;
     emit({ type: "done" });

@@ -19,7 +19,7 @@ vi.mock("../agent/usage.js", () => ({
 const REC: Recommendation = {
   shortlist: [
     {
-      localityId: "L1", nameEn: "Ebisu", nameJa: "恵比寿", wardNameEn: "Shibuya", rentYen: 82_340,
+      localityId: "L1", nameEn: "Ebisu", nameJa: "恵比寿", wardNameEn: "Shibuya", lat: 35.65, lon: 139.71, nearestStation: null, safety: null, rentYen: 82_340,
       commuteMinutes: 23.4, monthlyTravelHours: 16.3, pBest: 0.4567, regretYen: 1_234, role: null,
       breakdown: { rent: -82_340, timeCost: -10_000, features: {} as never, budgetPenalty: 0, capPenalty: 0, total: -92_340 },
       vsMedian: { rent: 0, timeCost: 0, features: {} as never, budgetPenalty: 0, capPenalty: 0, total: 0 },
@@ -125,9 +125,9 @@ describe("POST /v1/agent/turn", () => {
       "tool_result",
       "call:recommend",
       "tool_result",
+      "state",
       "text",
       "grounding",
-      "state",
       "done",
     ]);
     expect(events.find((e) => e.type === "text")).toEqual({ type: "text", delta: GROUNDED });
@@ -190,8 +190,8 @@ describe("POST /v1/agent/turn", () => {
     const res = await app.inject({ method: "POST", url: "/v1/agent/turn", payload: { sessionId: "s1", message: "suggest?" } });
     await app.close();
     const events = parseSse(res.body);
-    expect(events.map((e) => e.type).slice(-5)).toEqual(["grounding", "text", "grounding", "state", "done"]);
-    expect(events.filter((e) => e.type === "grounding").map((e) => e.type === "grounding" && e.pass)).toEqual([false, true]);
+    expect(events.map((e) => e.type).slice(-4)).toEqual(["state", "text", "grounding", "done"]);
+    expect(events.filter((e) => e.type === "grounding").map((e) => e.type === "grounding" && e.pass)).toEqual([true]);
     expect(model!.requests).toHaveLength(3);
   });
 

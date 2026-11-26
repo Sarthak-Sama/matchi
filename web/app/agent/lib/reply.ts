@@ -16,8 +16,8 @@ export interface QuickChoice {
 export function choicesFor(view: AgentStateView | null): QuickChoice[] {
   const rec = view?.recommendation;
   const q = rec?.nextQuestion;
-  if (!rec || !q || rec.shouldStop || q.kind === "profile_fact" || q.kind === "time_tradeoff")
-    return [];
+  if (!rec || !q || rec.shouldStop || q.kind === "profile_fact") return [];
+  if (q.kind === "time_tradeoff") return tradeoffChoices(q);
   const ids = q.kind === "pair" ? [q.a, q.b] : q.set;
   const items = ids.map((id) => rec.shortlist.find((s) => s.localityId === id));
   // A partial choice set would misrepresent the question.
@@ -43,6 +43,14 @@ export function choicesFor(view: AgentStateView | null): QuickChoice[] {
       ],
     };
   });
+}
+
+function tradeoffChoices(q: { yen: number; minutes: number }): QuickChoice[] {
+  const price = `${yen(q.yen)} more a month to save ${q.minutes} minutes each way`;
+  return [
+    { label: "Yes", message: `Yes, I'd pay ${price}.` },
+    { label: "No", message: `No, I wouldn't pay ${price}.` },
+  ].map((c) => ({ ...c, sublabel: null, metrics: [] }));
 }
 
 /** Consolidate only a matching comparison; unrelated tables and extra facts survive. */

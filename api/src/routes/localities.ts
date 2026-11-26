@@ -5,9 +5,34 @@ import type { AppDeps } from "../application.js";
 import { ApiError } from "../application.js";
 import { parseOrThrow } from "./lib/validation.js";
 
+const MAX_BATCH_IDS = 10;
+
+const batchQuerySchema = z
+  .object({
+    ids: z
+      .string()
+      .transform((value) => [...new Set(value.split(",").filter(Boolean))])
+      .pipe(z.array(z.string()).min(1).max(MAX_BATCH_IDS)),
+  })
+  .strict();
+
 const paramsSchema = z.object({ localityId: z.string().min(1) }).strict();
 
 export function registerLocalityRoute(app: FastifyInstance, deps: AppDeps): void {
+  // Polygons for a shortlist map; the order of `ids` is kept and unknown ids are skipped.
+  app.get("/v1/localities", async (request) => {
+    const { ids } = parseOrThrow(batchQuerySchema, request.query);
+    const result = (await deps.pool.query(
+      `SELECT l.locality_id AS "localityId", l.name_en AS "nameEn", l.name_ja AS "nameJa",
+        ST_Y(l.centroid) AS lat, ST_X(l.centroid) AS lon, ST_AsGeoJSON(l.geom)::jsonb AS polygon
+       FROM public.localities l
+       JOIN unnest($1::text[]) WITH ORDINALITY AS wanted(id, position) ON wanted.id = l.locality_id
+       ORDER BY wanted.position`,
+      [ids],
+    )) as { rows: unknown[] };
+    return { results: result.rows };
+  });
+
   app.get("/v1/localities/:localityId", async (request) => {
     const { localityId } = parseOrThrow(paramsSchema, request.params);
     const result = (await deps.pool.query(

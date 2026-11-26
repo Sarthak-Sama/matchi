@@ -13,8 +13,11 @@ import {
   PARAM_COUNT,
   type AreaConfidence,
   type AreaContext,
+  type AreaFeatures,
+  type AreaSafety,
   type Belief,
   type BuildUtilities,
+  type CrimeBand,
   type EngineDefaults,
   type Evidence,
   type GreedyShortlist,
@@ -320,6 +323,23 @@ function confidenceOf(a: number, ctx: AreaContext, profile: Profile): AreaConfid
   };
 }
 
+/** Tercile cut points of the known crime rates; areas rank against each other, so business districts do not distort the bands. */
+function crimeCuts(areas: readonly AreaFeatures[]): { low: number; high: number } | null {
+  const rates = areas.flatMap((a) => (a.crime_per_1k != null && Number.isFinite(a.crime_per_1k) ? [a.crime_per_1k] : []));
+  if (rates.length < 3) return null;
+  rates.sort((x, y) => x - y);
+  return { low: rates[Math.floor(rates.length / 3)]!, high: rates[Math.floor((2 * rates.length) / 3)]! };
+}
+
+function safetyOf(area: AreaFeatures, cuts: ReturnType<typeof crimeCuts>): AreaSafety | null {
+  const rate = area.crime_per_1k;
+  const crimeBand: CrimeBand | null =
+    rate == null || !cuts ? null : rate < cuts.low ? 'low' : rate >= cuts.high ? 'high' : 'typical';
+  const quakeRank = area.quake_rank ?? null;
+  const floodShare = area.flood_share ?? null;
+  return quakeRank === null && floodShare === null && crimeBand === null ? null : { quakeRank, floodShare, crimeBand };
+}
+
 export const recommend: Recommend = (belief, util, ctx, profile, opts) => {
   const { defaults } = opts;
   const k = Math.max(0, Math.floor(opts.k));
@@ -350,6 +370,7 @@ export const recommend: Recommend = (belief, util, ctx, profile, opts) => {
     }
   }
 
+  const cuts = crimeCuts(ctx.areas);
   const items: ShortlistItem[] = picks.map((a, r) => {
     // Regret on the noisy matrix over C (R5); a pick outside C has none to report.
     const col = pickCols[r]!;
@@ -370,6 +391,12 @@ export const recommend: Recommend = (belief, util, ctx, profile, opts) => {
       nameEn: area.name_en,
       nameJa: area.name_ja,
       wardNameEn: area.ward_name_en,
+      lat: area.lat,
+      lon: area.lon,
+      nearestStation: area.nearest_station_name_ja
+        ? { nameJa: area.nearest_station_name_ja, nameEn: area.nearest_station_name_en ?? null }
+        : null,
+      safety: safetyOf(area, cuts),
       rentYen: ctx.rent[a]!,
       commuteMinutes: t1 !== undefined ? t1 : null,
       monthlyTravelHours: terms.hours[a]!,

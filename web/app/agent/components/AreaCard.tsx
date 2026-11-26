@@ -1,9 +1,10 @@
 "use client";
 import { areaName, dislikeArea, likeArea } from "../lib/evidence";
 import { chanceLabel, matchStrength, whyLine } from "../lib/derive";
-import { yen } from "../lib/format";
-import type { ShortlistItem } from "../lib/types";
+import { aboutYen, percent } from "../lib/format";
+import type { AreaSafety, ShortlistItem } from "../lib/types";
 import type { AgentController } from "../lib/useAgent";
+import { AreaMapLink } from "./AreaMapLink";
 import { btn, linkBtn } from "./ui";
 export function AreaFacts({ item }: { item: ShortlistItem }) {
   return (
@@ -11,15 +12,9 @@ export function AreaFacts({ item }: { item: ShortlistItem }) {
       <div>
         <dt className="sr-only">Estimated monthly rent</dt>
         <dd className="text-lg font-medium">
-          {yen(item.rentYen)}{" "}
-          <span className="text-xs font-normal text-ink-muted">
-            /mo{" "}
-            <abbr
-              className="no-underline"
-              title="Modelled rent estimate, not an available apartment listing"
-            >
-              est.
-            </abbr>
+          {aboutYen(item.rentYen)} <span className="text-xs font-normal text-ink-muted">/mo</span>
+          <span className="block text-[11px] font-normal text-ink-muted">
+            Modelled, not a listing
           </span>
         </dd>
       </div>
@@ -41,6 +36,37 @@ export function AreaFacts({ item }: { item: ShortlistItem }) {
     </dl>
   );
 }
+export function SafetyChips({ safety }: { safety: AreaSafety | null }) {
+  if (!safety) return null;
+  const chips = [
+    safety.quakeRank !== null && {
+      label: `Quake ${safety.quakeRank}/5`,
+      hint: "Earthquake risk rank, 1 (safest) to 5",
+    },
+    safety.floodShare !== null && {
+      label: `Flood ${percent(safety.floodShare)}`,
+      hint: "Share of the area in deep flood zones",
+    },
+    safety.crimeBand !== null && {
+      label: `Crime ${safety.crimeBand}`,
+      hint: "Reported crime compared with other areas",
+    },
+  ].filter((chip) => chip !== false);
+  return (
+    <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Safety">
+      {chips.map((chip) => (
+        <li
+          key={chip.label}
+          title={chip.hint}
+          className="border border-line px-1.5 py-0.5 text-[11px] text-ink-muted"
+        >
+          {chip.label}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function AreaCard({
   item,
   index,
@@ -80,6 +106,15 @@ export function AreaCard({
         )}
       </div>
       <AreaFacts item={item} />
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3">
+        {item.nearestStation && (
+          <p className="text-xs text-ink-muted">
+            Near {item.nearestStation.nameEn ?? item.nearestStation.nameJa}
+          </p>
+        )}
+        <AreaMapLink item={item} sessionId={agent.sessionId} />
+      </div>
+      <SafetyChips safety={item.safety} />
       <p className="mt-3 text-[13px] leading-relaxed">{whyLine(item, list)}</p>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <div

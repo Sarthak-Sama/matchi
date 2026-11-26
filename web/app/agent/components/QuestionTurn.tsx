@@ -4,7 +4,7 @@ import { LAYOUT_IDS, LAYOUTS } from "@tokyo/shared";
 import { answersFor, makeNameOf } from "../lib/evidence";
 import { buildProfile, formFromProfile, type ProfileForm } from "../lib/profile";
 import { hasBrief } from "../lib/derive";
-import { yen } from "../lib/format";
+import { aboutYen, yen } from "../lib/format";
 import type { AgentController } from "../lib/useAgent";
 import { GuideTurn } from "./Chat";
 import { btn, btnPrimary } from "./ui";
@@ -19,8 +19,8 @@ export function QuestionTurn({
 }) {
   const rec = agent.view?.recommendation;
   const q = useMemo(() => rec?.nextQuestion, [rec]);
+  const { addReceipt } = agent;
   const names = makeNameOf(rec?.shortlist ?? []);
-  const [receipts, setReceipts] = useState<string[]>([]);
   const [pending, setPending] = useState<{
     label: string;
     view: typeof agent.view;
@@ -37,10 +37,10 @@ export function QuestionTurn({
             ([key, value]) => form[key as keyof ProfileForm] === value,
           )
         : agent.view.evidence.length > (pending.view?.evidence.length ?? 0);
-      if (accepted) setReceipts((r) => [...r, pending.label]);
+      if (accepted) addReceipt(pending.label);
     }
     setPending(null);
-  }, [agent.busy, agent.view, pending]);
+  }, [agent.busy, agent.view, pending, addReceipt]);
   const disabled = agent.busy || agent.streaming || !!pending;
   function save(patch: Partial<ProfileForm>, label: string) {
     if (!agent.view) return;
@@ -56,15 +56,10 @@ export function QuestionTurn({
     setPending({ label, view: agent.view, patch });
     void agent.saveProfile(built.profile);
   }
-  if (!hasBrief(agent.view?.profile) && agent.chatStatus !== "off" && !agent.chatNotice)
+  if (!hasBrief(agent.view?.profile) && agent.chatStatus !== "off")
     return null;
   return (
     <>
-      {receipts.map((label, i) => (
-        <p key={i} className="border-l border-line pl-3 text-xs text-ink-muted">
-          ✓ {label}
-        </p>
-      ))}
       {rec?.shortlist.length === 0 ? (
         <GuideTurn>
           <p>Nothing fits every limit yet. Let’s revisit your limits.</p>
@@ -169,10 +164,12 @@ export function QuestionTurn({
                 <p>
                   {q.kind === "pair"
                     ? "Quick one — which would you rather live in?"
-                    : "Which of these would you pick?"}
+                    : q.kind === "time_tradeoff"
+                      ? `Would you pay ${yen(q.yen)} more a month to save ${q.minutes} minutes each way?`
+                      : "Which of these would you pick?"}
                 </p>
                 <div
-                  className={`mt-3 grid gap-2 font-sans ${q.kind === "pair" ? "grid-cols-2" : ""}`}
+                  className={`mt-3 grid gap-2 font-sans ${q.kind === "pair" || q.kind === "time_tradeoff" ? "grid-cols-2" : ""}`}
                 >
                   {answersFor(q, names).map((a, i) => {
                     const id =
@@ -184,22 +181,26 @@ export function QuestionTurn({
                           ? q.set[i]
                           : undefined;
                     const item = rec?.shortlist.find((s) => s.localityId === id);
+                    const receipt =
+                      q.kind === "time_tradeoff"
+                        ? `You would${a.label === "No" ? " not" : ""} pay ${yen(q.yen)} more to save ${q.minutes} min`
+                        : `You picked ${a.label}`;
                     return (
                       <button
-                        key={id}
+                        key={id ?? a.label}
                         className={`${btn} flex-col items-start py-3 text-left`}
                         disabled={disabled}
                         onClick={() => {
-                          setPending({ label: `You picked ${a.label}`, view: agent.view });
+                          setPending({ label: receipt, view: agent.view });
                           void agent.addEvidence([a.evidence]);
                         }}
                       >
                         <span>
-                          {pending?.label === `You picked ${a.label}` ? "Got it…" : a.label}
+                          {pending?.label === receipt ? "Got it…" : a.label}
                         </span>
                         {item && (
                           <span className="text-[11px] font-normal text-ink-muted">
-                            {yen(item.rentYen)} /mo
+                            {aboutYen(item.rentYen)} /mo
                             {item.commuteMinutes !== null
                               ? ` · ${Math.round(item.commuteMinutes)} min`
                               : ""}

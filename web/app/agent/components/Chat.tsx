@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import type { AgentController } from "../lib/useAgent";
+import type { ChatErrorInfo } from "../lib/errors";
+import type { AgentController, ChatMessage, TimelineItem } from "../lib/useAgent";
 import { cheaper, closer, quieter } from "../lib/evidence";
 import { friendlyText, hasBrief } from "../lib/derive";
+import { ExplanationBody } from "./ExplanationTurn";
 import { GuideReply } from "./GuideReply";
 import { btn, btnPrimary, linkBtn } from "./ui";
 
@@ -20,6 +22,105 @@ export function GuideTurn({ children }: { children: ReactNode }) {
     </div>
   );
 }
+function GroundingNote({ pass }: { pass: boolean }) {
+  return (
+    <p
+      className="mt-2 font-sans text-[11px] text-ink-muted"
+      title={pass ? "Every figure was checked against a tool result." : undefined}
+    >
+      {pass ? "✓ Figures checked" : "I removed a figure I couldn’t verify."}
+    </p>
+  );
+}
+function TimelineEntry({
+  item,
+  agent,
+  lastGuideId,
+  disabled,
+  onChoose,
+}: {
+  item: TimelineItem;
+  agent: AgentController;
+  lastGuideId: number | null;
+  disabled: boolean;
+  onChoose: (text: string) => void;
+}) {
+  const reduced = useReducedMotion();
+  if (item.kind === "receipt")
+    return <p className="border-l border-line pl-3 text-xs text-ink-muted">✓ {item.label}</p>;
+  if (item.kind === "explanation")
+    return (
+      <GuideTurn>
+        <ExplanationBody ex={item.explanation} names={item.names} />
+      </GuideTurn>
+    );
+  const m: ChatMessage = item.message;
+  return (
+    <motion.div
+      initial={reduced ? false : { opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: reduced ? 0 : 0.24, ease: [0.22, 0.61, 0.36, 1] }}
+      className={
+        m.role === "user" ? "ml-auto max-w-[85%] bg-sage/70 px-4 py-3 text-[14.5px] leading-relaxed" : ""
+      }
+    >
+      {m.role === "user" ? (
+        <p className="whitespace-pre-wrap">{friendlyText(m.text)}</p>
+      ) : (
+        <GuideTurn>
+          <GuideReply
+            text={friendlyText(m.text)}
+            choices={m.choices}
+            selected={agent.messages.find((next) => next.id > m.id && next.role === "user")?.text}
+            inactive={m.id !== lastGuideId || agent.messages.at(-1)?.role === "user"}
+            onChoose={onChoose}
+            disabled={disabled}
+          />
+          {m.grounding && <GroundingNote pass={m.grounding.pass} />}
+        </GuideTurn>
+      )}
+    </motion.div>
+  );
+}
+/** A countdown that ends at zero; the resend button waits for it. */
+function useCountdown(seconds: number | undefined): number {
+  const [left, setLeft] = useState(seconds ?? 0);
+  useEffect(() => {
+    setLeft(seconds ?? 0);
+    if (!seconds) return;
+    const timer = setInterval(() => setLeft((n) => Math.max(0, n - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [seconds]);
+  return left;
+}
+function ChatErrorNotice({
+  error,
+  disabled,
+  onResend,
+  onNewChat,
+}: {
+  error: ChatErrorInfo;
+  disabled: boolean;
+  onResend: () => void;
+  onNewChat: () => void;
+}) {
+  const left = useCountdown(error.waitSeconds);
+  return (
+    <div role="alert" className="border-l-2 border-brick pl-3 text-sm">
+      <p>{error.message}</p>
+      {error.action === "resend" && (
+        <button className={`${btn} mt-2`} disabled={disabled || left > 0} onClick={onResend}>
+          {left > 0 ? `Resend in ${left} s` : "Resend"}
+        </button>
+      )}
+      {error.action === "new_chat" && (
+        <button className={`${btn} mt-2`} disabled={disabled} onClick={onNewChat}>
+          Continue in a new chat (keeps your brief)
+        </button>
+      )}
+    </div>
+  );
+}
 export function Chat({
   agent,
   onDetails,
@@ -28,6 +129,7 @@ export function Chat({
 }: {
   agent: AgentController;
   onDetails: () => void;
+  /** The active question, pinned after the timeline. */
   children?: ReactNode;
   mobileShortlist?: ReactNode;
 }) {
@@ -39,14 +141,14 @@ export function Chat({
   const nearBottom = useRef(true);
   const wasStreaming = useRef(false);
   const reduced = useReducedMotion();
-  // Some servers send done after an error; keep the fallback visible until Retry clears the notice.
-  const off = agent.chatStatus === "off" || agent.chatNotice !== null;
+  // Only errors that make chat unusable (no model, daily limit) turn it off.
+  const off = agent.chatStatus === "off";
   const disabled = !agent.sessionId || agent.streaming || agent.busy || off;
   const fresh = agent.messages.length === 0 && !hasBrief(agent.view?.profile);
   const lastGuideId = useMemo(() => {
     for (let i = agent.messages.length - 1; i >= 0; i--) {
       const message = agent.messages[i]!;
-      if (message.role === "assistant" && !message.caught) return message.id;
+      if (message.role === "assistant") return message.id;
     }
     return null;
   }, [agent.messages]);
@@ -60,7 +162,7 @@ export function Chat({
     if (!log) return;
     if (nearBottom.current) log.scrollTo({ top: log.scrollHeight, behavior: "instant" });
     else setNewReply(true);
-  }, [agent.messages, agent.view?.recommendation, agent.explanation]);
+  }, [agent.timeline, agent.view?.recommendation, agent.chatError]);
   useEffect(() => {
     if (wasStreaming.current && !agent.streaming && !document.querySelector("dialog[open]"))
       inputRef.current?.focus();
@@ -147,52 +249,17 @@ export function Chat({
               </div>
             )
           )}
-          {agent.messages.map((m) => (
-            <motion.div
-              key={m.id}
-              initial={reduced ? false : { opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: reduced ? 0 : 0.24, ease: [0.22, 0.61, 0.36, 1] }}
-              className={
-                m.role === "user"
-                  ? "ml-auto max-w-[85%] bg-sage/70 px-4 py-3 text-[14.5px] leading-relaxed"
-                  : ""
-              }
-            >
-              {m.role === "user" ? (
-                <p className="whitespace-pre-wrap">{friendlyText(m.text)}</p>
-              ) : (
-                <GuideTurn>
-                  <div className={m.caught ? "line-through decoration-brick/60" : ""}>
-                    <GuideReply
-                      text={friendlyText(m.text)}
-                      choices={m.choices}
-                      selected={
-                        agent.messages.find((next) => next.id > m.id && next.role === "user")?.text
-                      }
-                      inactive={m.id !== lastGuideId || agent.messages.at(-1)?.role === "user"}
-                      onChoose={send}
-                      disabled={disabled}
-                    />
-                  </div>
-                  {m.grounding && (
-                    <p
-                      className={`mt-2 font-sans text-[11px] ${m.grounding.pass ? "text-moss" : "border-l-2 border-brick pl-3 text-brick"}`}
-                      title={
-                        m.grounding.pass
-                          ? "Every figure was checked against a tool result."
-                          : undefined
-                      }
-                    >
-                      {m.grounding.pass
-                        ? "✓ Figures checked"
-                        : `These figures couldn’t be checked: ${m.grounding.failures.map((f) => f.figure).join(", ") || "unmatched figures"}. The guide was asked to answer again.`}
-                    </p>
-                  )}
-                </GuideTurn>
-              )}
-            </motion.div>
+          {agent.timeline.map((item) => (
+            <TimelineEntry
+              key={item.seq}
+              item={item}
+              agent={agent}
+              lastGuideId={lastGuideId}
+              disabled={disabled}
+              onChoose={send}
+            />
           ))}
+          {children}
           {agent.streaming && (
             <div role="status" className="flex items-center gap-3 text-xs text-ink-muted">
               <span className="flex gap-1" aria-hidden="true">
@@ -205,10 +272,23 @@ export function Chat({
                   />
                 ))}
               </span>
-              Reading the city…
+              <span className="min-w-0 flex-1">{agent.step ?? "Reading the city…"}</span>
+              <button className={`${linkBtn} min-h-11`} onClick={agent.stop}>
+                Stop
+              </button>
             </div>
           )}
-          {!agent.streaming && children}
+          {agent.chatError && !off && (
+            <ChatErrorNotice
+              error={agent.chatError}
+              disabled={disabled}
+              onResend={() => {
+                nearBottom.current = true;
+                void agent.resend();
+              }}
+              onNewChat={() => void agent.continueInNewChat()}
+            />
+          )}
         </div>
       </div>
       {newReply && (
@@ -232,8 +312,8 @@ export function Chat({
           {off ? (
             <div className="py-2 text-sm">
               <p className="text-ink-muted">
-                Chat is resting right now — you can still set your details and answer the guide’s
-                questions.
+                {agent.chatError?.message ??
+                  "Chat is resting right now. You can still set your details and answer the guide’s questions."}
               </p>
               <div className="mt-3 flex gap-3">
                 <button className={btnPrimary} onClick={onDetails}>

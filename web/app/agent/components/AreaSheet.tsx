@@ -1,12 +1,14 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { trackArea, trackAreaOnce } from "../lib/areaEvents";
 import { areaName, makeNameOf, preferOverNeighbour } from "../lib/evidence";
 import { chanceLabel, whyLine } from "../lib/derive";
-import { yen, yenSigned } from "../lib/format";
+import { listingsSearchUrl, yen, yenSigned } from "../lib/format";
 import { FEATURE_KEY_LIST, termLabel, type BreakdownTerm, type ShortlistItem } from "../lib/types";
 import type { AgentController } from "../lib/useAgent";
+import { ExternalLinkIcon } from "../../components/icons";
 import { AreaMapLink } from "./AreaMapLink";
-import { AreaFacts } from "./AreaCard";
+import { AreaFacts, SafetyChips } from "./AreaCard";
 import { ExplanationBody } from "./ExplanationTurn";
 import { Sheet } from "./Sheet";
 import { btn, linkBtn } from "./ui";
@@ -21,6 +23,11 @@ export function AreaSheet({
 }) {
   const [all, setAll] = useState(false);
   const [compareId, setCompareId] = useState("");
+  const [chosen, setChosen] = useState(false);
+  const openedId = item?.localityId;
+  useEffect(() => {
+    if (openedId) trackAreaOnce("open", agent.sessionId, openedId);
+  }, [openedId, agent.sessionId]);
   const list = agent.view?.recommendation?.shortlist ?? [];
   const current = list.find((s) => s.localityId === item?.localityId) ?? item;
   const index = list.findIndex((s) => s.localityId === current?.localityId);
@@ -53,9 +60,10 @@ export function AreaSheet({
                 {current.wardNameEn}
                 {index >= 0 ? ` · Rank ${index + 1}` : ""}
               </p>
-              <AreaMapLink item={current} />
+              <AreaMapLink item={current} sessionId={agent.sessionId} />
             </div>
             <AreaFacts item={current} />
+            <SafetyChips safety={current.safety} />
             <p className="mt-3 text-sm leading-relaxed">{whyLine(current, list)}</p>
             <p className="mt-2 text-xs text-ink-muted">
               Chance this is your best fit: {chanceLabel(current.pBest)}
@@ -121,6 +129,30 @@ export function AreaSheet({
             </ul>
           </section>
           <div className="space-y-3 border-t border-line pt-4">
+            <div className="grid grid-cols-2 gap-2">
+              <a
+                className={btn}
+                href={listingsSearchUrl(current.nameJa, agent.view?.profile?.layout)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackArea("listing_click", agent.sessionId, current.localityId)}
+              >
+                Find listings
+                <ExternalLinkIcon className="size-3" />
+                <span className="sr-only">(opens in a new tab)</span>
+              </a>
+              <button
+                className={btn}
+                disabled={chosen}
+                aria-pressed={chosen}
+                onClick={() => {
+                  setChosen(true);
+                  trackArea("chosen", agent.sessionId, current.localityId);
+                }}
+              >
+                {chosen ? "Noted, thanks" : "I’d live here"}
+              </button>
+            </div>
             {prefer && neighbour && (
               <button
                 className={`${btn} w-full`}

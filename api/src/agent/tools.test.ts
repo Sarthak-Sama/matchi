@@ -22,7 +22,7 @@ const AREAS = [area("L1", "Ebisu"), area("L2", "Hiroo")];
 const REC: Recommendation = {
   shortlist: [
     {
-      localityId: "L1", nameEn: "Ebisu", nameJa: "恵比寿", wardNameEn: "Shibuya", rentYen: 82_340,
+      localityId: "L1", nameEn: "Ebisu", nameJa: "恵比寿", wardNameEn: "Shibuya", lat: 35.65, lon: 139.71, nearestStation: null, safety: null, rentYen: 82_340,
       commuteMinutes: 23.4, monthlyTravelHours: 16.27, pBest: 0.4567, regretYen: 1234, role: null,
       breakdown: { rent: -82_340, timeCost: -10_000, features: {} as never, budgetPenalty: 0, capPenalty: 0, total: -92_340 },
       vsMedian: { rent: 0, timeCost: 0, features: {} as never, budgetPenalty: 0, capPenalty: 0, total: 0 },

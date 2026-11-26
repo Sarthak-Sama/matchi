@@ -1,12 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
 import { comparisonRows, describeWhyNot } from "../lib/explain";
 import { friendlyText } from "../lib/derive";
-import { makeNameOf, type NameOf } from "../lib/evidence";
+import type { NameOf } from "../lib/evidence";
 import { percent, yenSigned } from "../lib/format";
 import { termLabel } from "../lib/types";
-import type { AgentController, Explanation } from "../lib/useAgent";
-import { GuideTurn } from "./Chat";
+import type { Explanation } from "../lib/useAgent";
 import { RelaxList } from "./Shortlist";
 export function ExplanationBody({ ex, names }: { ex: Explanation; names: NameOf }) {
   return (
@@ -38,23 +36,5 @@ export function ExplanationBody({ ex, names }: { ex: Explanation; names: NameOf 
         </>
       )}
     </div>
-  );
-}
-export function ExplanationTurn({ agent }: { agent: AgentController }) {
-  const [history, setHistory] = useState<{ ex: Explanation; names: NameOf }[]>([]);
-  const ex = agent.explanation;
-  const list = agent.view?.recommendation?.shortlist;
-  useEffect(() => {
-    if (ex)
-      setHistory((h) => (h.at(-1)?.ex === ex ? h : [...h, { ex, names: makeNameOf(list ?? []) }]));
-  }, [ex, list]);
-  return (
-    <>
-      {history.map((entry, i) => (
-        <GuideTurn key={i}>
-          <ExplanationBody {...entry} />
-        </GuideTurn>
-      ))}
-    </>
   );
 }

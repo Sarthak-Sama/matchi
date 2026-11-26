@@ -136,6 +136,11 @@ export function withoutId(e: LoggedEvidence): Evidence {
   return copy as Evidence;
 }
 
+function tradeoffAnswer(q: Extract<NextQuestion, { kind: "time_tradeoff" }>, accept: boolean): Evidence {
+  const e: Evidence = { type: "time_tradeoff", yen: q.yen, minutes: q.minutes, accept, strength: "normal" };
+  return { ...e, quote: describeEvidence(e, makeNameOf([])) };
+}
+
 /** Engine-only answers to the next question, where one is posed. */
 export function answersFor(q: NextQuestion, names: NameOf): { label: string; evidence: Evidence }[] {
   if (q.kind === "pair") {
@@ -146,6 +151,12 @@ export function answersFor(q: NextQuestion, names: NameOf): { label: string; evi
   }
   if (q.kind === "pick_from_shortlist") {
     return q.set.map((id) => ({ label: names(id), evidence: pickFromSet(id, q.set, names) }));
+  }
+  if (q.kind === "time_tradeoff") {
+    return [true, false].map((accept) => ({
+      label: accept ? "Yes" : "No",
+      evidence: tradeoffAnswer(q, accept),
+    }));
   }
   return [];
 }

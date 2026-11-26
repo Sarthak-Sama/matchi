@@ -10,6 +10,12 @@ import { EvidenceChips } from "./EvidenceChips";
 import { Trace } from "./Trace";
 import { btn } from "./ui";
 const tabs = ["Fine-tune", "What I think matters", "Left out", "Trace"];
+function stopCopy(reason: string | null): string {
+  if (reason === "question_limit") return "Stopping: the question limit is reached.";
+  if (reason === "nothing_left_to_learn")
+    return "Stopping: none of the questions I could ask would change the ranking.";
+  return "Stopping: that is below the threshold.";
+}
 export function WorkingDrawer({
   agent,
   open,
@@ -78,9 +84,7 @@ export function WorkingDrawer({
                   <>
                     What I still don’t know about you is worth about {yen(rec.riskYen)} a month.{" "}
                     {rec.shouldStop
-                      ? rec.stopReason === "question_limit"
-                        ? "Stopping: the question limit is reached."
-                        : "Stopping: that is below the threshold."
+                      ? stopCopy(rec.stopReason)
                       : "More answers would sharpen it."}
                   </>
                 ) : (

@@ -6,11 +6,11 @@ import { presentReply } from "./lib/reply";
 import { useAgent } from "./lib/useAgent";
 import { useRankChanges } from "./lib/useRankChanges";
 import { friendlyText, hasBrief } from "./lib/derive";
+import { shortlistText } from "./lib/share";
 import { AgentHeader } from "./components/AgentHeader";
 import { AreaSheet } from "./components/AreaSheet";
 import { Chat } from "./components/Chat";
 import { DetailsSheet } from "./components/DetailsSheet";
-import { ExplanationTurn } from "./components/ExplanationTurn";
 import { QuestionTurn } from "./components/QuestionTurn";
 import { Sheet } from "./components/Sheet";
 import { ShortlistPane } from "./components/ShortlistPane";
@@ -33,7 +33,6 @@ export default function AgentPage() {
   const lastMessage = agent.messages.at(-1);
   const replyHasChoices =
     lastMessage?.role === "assistant" &&
-    !lastMessage.caught &&
     presentReply(lastMessage.text, lastMessage.choices).choices.length > 0;
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [area, setArea] = useState<ShortlistItem | null>(null);
@@ -84,6 +83,26 @@ export default function AgentPage() {
       /* Storage may be disabled in private browsing. */
     }
   }
+  function toast(text: string) {
+    setLocal((t) => [...t, { id: Date.now(), text }]);
+  }
+  async function copyToClipboard(text: string, done: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(done);
+    } catch {
+      toast(`Copying failed. ${text.startsWith("http") ? text : "Your browser blocked the clipboard."}`);
+    }
+  }
+  async function share() {
+    const link = await agent.shareLink();
+    if (link) await copyToClipboard(link, "Link copied. It opens a copy of your brief.");
+  }
+  function copyShortlist() {
+    const list = agent.view?.recommendation?.shortlist ?? [];
+    if (list.length === 0) toast("There is no shortlist to copy yet.");
+    else void copyToClipboard(shortlistText(list), "Shortlist copied.");
+  }
   function restart() {
     setArea(null);
     setDetailsOpen(false);
@@ -94,6 +113,7 @@ export default function AgentPage() {
   const shortlist = (
     <ShortlistPane
       agent={agent}
+      busy={agent.streaming}
       deltas={ranks.deltas}
       summary={ranks.summary}
       onDetails={() => setDetailsOpen(true)}
@@ -126,6 +146,8 @@ export default function AgentPage() {
         workingOpen={workingOpen}
         onWorking={() => working(!workingOpen)}
         onRestart={restart}
+        onShare={() => void share()}
+        onCopyShortlist={copyShortlist}
       />
       <main className="mx-auto grid min-h-0 w-full max-w-[1360px] flex-1 grid-cols-1 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         <h1 className="sr-only">Matchi guide</h1>
@@ -145,7 +167,6 @@ export default function AgentPage() {
               onDetails={() => setDetailsOpen(true)}
               mobileShortlist={pill}
             >
-              <ExplanationTurn agent={agent} />
               <QuestionTurn
                 agent={agent}
                 onDetails={() => setDetailsOpen(true)}

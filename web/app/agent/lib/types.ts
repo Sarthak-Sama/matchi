@@ -9,6 +9,7 @@ export type {
   AgentStreamEvent,
   Anchor,
   AreaConfidence,
+  AreaSafety,
   BeliefSummary,
   Breakdown,
   BreakdownTerm,

@@ -15,6 +15,8 @@ import type {
 // Same base URL rule as web/lib/api.ts (NEXT_PUBLIC_API_BASE_URL, local default).
 const DEFAULT_API_BASE_URL = "http://localhost:4000";
 const REQUEST_TIMEOUT_MS = 30_000;
+/** A turn that sends nothing for this long is treated as dead. */
+const STREAM_INACTIVITY_MS = 45_000;
 
 function apiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
@@ -62,6 +64,13 @@ export interface SessionResponse {
 export interface ViewResponse {
   view: AgentStateView;
 }
+export interface StoredTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+export interface SessionStateResponse extends ViewResponse {
+  turns: StoredTurn[];
+}
 
 /**
  * The direct (engine-only) routes, as fixed in the P3/P5 briefs. The bodies of
@@ -70,7 +79,10 @@ export interface ViewResponse {
  */
 export const agentApi = {
   createSession: () => send<SessionResponse>("POST", "/v1/agent/session", {}),
-  getSession: (id: string) => send<ViewResponse>("GET", `/v1/agent/session/${encodeURIComponent(id)}`),
+  /** A copy of the session's profile and evidence with no turns; the original is never touched. */
+  forkSession: (fromId: string) => send<SessionResponse>("POST", "/v1/agent/session", { fromId }),
+  getSession: (id: string) =>
+    send<SessionStateResponse>("GET", `/v1/agent/session/${encodeURIComponent(id)}`),
   putProfile: (id: string, profile: Profile) =>
     send<{ result: ProfileResult; view: AgentStateView }>(
       "PUT",
@@ -114,60 +126,84 @@ export const agentApi = {
     ),
 };
 
+/** Aborts the request when nothing has arrived for `ms`; `poke` restarts the clock. */
+function inactivityGuard(parent: AbortSignal | undefined, ms: number) {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  parent?.addEventListener("abort", () => controller.abort(), { once: true });
+  const poke = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => controller.abort(), ms);
+  };
+  return { signal: controller.signal, poke, stop: () => clearTimeout(timer) };
+}
+
 /**
  * POST /v1/agent/turn and yield the SSE events as they arrive. A non-2xx status,
- * a missing body or a dropped connection becomes a synthetic `error` event so
- * the caller has one path for "chat is not available".
+ * a missing body, a dropped or stalled connection becomes a synthetic `error`
+ * event so the caller has one path for "this turn did not complete".
  */
 export async function* streamTurn(
   sessionId: string,
   message: string,
   signal?: AbortSignal,
 ): AsyncGenerator<AgentStreamEvent> {
-  let response: Response;
+  const guard = inactivityGuard(signal, STREAM_INACTIVITY_MS);
+  guard.poke();
   try {
-    response = await fetch(`${apiBaseUrl()}/v1/agent/turn`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ sessionId, message }),
-      signal,
-    });
-  } catch {
-    if (signal?.aborted) return;
-    yield { type: "error", message: "Could not reach the API.", code: "NETWORK_ERROR" };
-    return;
-  }
-
-  const contentType = response.headers.get("content-type") ?? "";
-  if (!response.ok || !response.body || !contentType.includes("text/event-stream")) {
-    let message = `Chat is not available (status ${response.status}).`;
-    let code: string | undefined;
+    let response: Response;
     try {
-      const body = (await response.json()) as { error?: { code?: string; message?: string } };
-      if (body.error?.message) message = body.error.message;
-      code = body.error?.code;
+      response = await fetch(`${apiBaseUrl()}/v1/agent/turn`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        body: JSON.stringify({ sessionId, message }),
+        signal: guard.signal,
+      });
     } catch {
-      // keep the default message
+      if (signal?.aborted) return;
+      const stalled = guard.signal.aborted;
+      yield {
+        type: "error",
+        message: stalled ? "The guide stopped responding." : "Could not reach the API.",
+        code: stalled ? "STREAM_INTERRUPTED" : "NETWORK_ERROR",
+      };
+      return;
     }
-    yield { type: "error", message, code };
-    return;
-  }
 
-  const parser = new SseParser();
-  const decoder = new TextDecoder();
-  const reader = response.body.getReader();
-  try {
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      for (const event of parser.push(decoder.decode(value, { stream: true }))) yield event;
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!response.ok || !response.body || !contentType.includes("text/event-stream")) {
+      let message = `Chat is not available (status ${response.status}).`;
+      let code: string | undefined;
+      try {
+        const body = (await response.json()) as { error?: { code?: string; message?: string } };
+        if (body.error?.message) message = body.error.message;
+        code = body.error?.code;
+      } catch {
+        // keep the default message
+      }
+      yield { type: "error", message, code };
+      return;
     }
-    for (const event of parser.push(decoder.decode())) yield event;
-    for (const event of parser.flush()) yield event;
-  } catch {
-    if (signal?.aborted) return;
-    yield { type: "error", message: "The chat stream was interrupted.", code: "STREAM_INTERRUPTED" };
+
+    const parser = new SseParser();
+    const decoder = new TextDecoder();
+    const reader = response.body.getReader();
+    try {
+      for (;;) {
+        guard.poke();
+        const { value, done } = await reader.read();
+        if (done) break;
+        for (const event of parser.push(decoder.decode(value, { stream: true }))) yield event;
+      }
+      for (const event of parser.push(decoder.decode())) yield event;
+      for (const event of parser.flush()) yield event;
+    } catch {
+      if (signal?.aborted) return;
+      yield { type: "error", message: "The chat stream was interrupted.", code: "STREAM_INTERRUPTED" };
+    } finally {
+      reader.releaseLock();
+    }
   } finally {
-    reader.releaseLock();
+    guard.stop();
   }
 }
