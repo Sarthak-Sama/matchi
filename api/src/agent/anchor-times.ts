@@ -42,6 +42,17 @@ const STATION_POINT_SQL = `
   FROM public.station_groups WHERE station_group_id = $1
 `;
 
+// Rail reaches beyond the 23 wards, but we have no localities there: an anchor
+// further out than this is refused even when trains get to it.
+const MAX_DISTANCE_OUTSIDE_WARDS_M = 3000;
+
+const OUTSIDE_WARDS_SQL = `
+  SELECT NOT EXISTS (
+    SELECT 1 FROM public.wards
+    WHERE ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
+  ) AS outside
+`;
+
 interface SampleRow extends LocalitySample {
   localityId: string;
 }
@@ -58,6 +69,13 @@ async function loadSamples(pool: DbPool): Promise<Map<string, LocalitySample[]>>
 }
 
 type Resolved = { ok: true; key: string; destination: Destination } | { ok: false; refused: RefusedAnchor };
+
+async function isOutsideWards(pool: DbPool, point: { lat: number; lon: number }): Promise<boolean> {
+  const result = (await pool.query(OUTSIDE_WARDS_SQL, [point.lon, point.lat, MAX_DISTANCE_OUTSIDE_WARDS_M])) as {
+    rows: { outside: boolean }[];
+  };
+  return result.rows[0]?.outside === true;
+}
 
 async function resolveAnchor(pool: DbPool, anchor: Anchor): Promise<Resolved> {
   const refuse = (reason: RefusedAnchor["reason"], message: string): Resolved => ({
@@ -107,8 +125,8 @@ async function resolveAnchor(pool: DbPool, anchor: Anchor): Promise<Resolved> {
  * offpeak graph according to anchor.period. NaN = no route from any sample point.
  *
  * Refusals: no stationId/point or unknown stationId -> unknown_station; a point
- * with no station within 1500 m -> no_station_within_1500m; an anchor that
- * resolves but reaches no area at all -> outside_coverage.
+ * with no station within 1500 m -> no_station_within_1500m; an anchor more than
+ * 3 km outside the ward union, or one that reaches no area at all -> outside_coverage.
  * Results are cached per (areas array, anchor target, period).
  */
 export function createComputeAnchorTimes(deps: AnchorTimesDeps): ComputeAnchorTimes {
@@ -142,6 +160,16 @@ export function createComputeAnchorTimes(deps: AnchorTimesDeps): ComputeAnchorTi
       const resolved = await resolveAnchor(deps.pool, anchor);
       if (!resolved.ok) {
         refused.push(resolved.refused);
+        continue;
+      }
+
+      const point = resolved.destination.point;
+      if (point !== null && (await isOutsideWards(deps.pool, point))) {
+        refused.push({
+          anchorId: anchor.id,
+          reason: "outside_coverage",
+          message: `This anchor is more than ${String(MAX_DISTANCE_OUTSIDE_WARDS_M / 1000)} km outside the 23 wards, which is all the data covers.`,
+        });
         continue;
       }
 

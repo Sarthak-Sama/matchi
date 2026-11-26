@@ -6,6 +6,7 @@ dist
 data/*
 !data/.gitkeep
 !data/catalog.json
+!data/rail-topology-overrides.json
 coverage
 *.log
 .DS_Store

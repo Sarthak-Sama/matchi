@@ -29,6 +29,7 @@ interface WardLandPriceRow {
 
 interface RentStatDbRow extends RentStatRow {
   readonly ward_code: string;
+  readonly market_factor: number;
 }
 
 export interface RentStepResult extends StepResult {
@@ -68,7 +69,7 @@ export async function runRentStep(pool: Pool): Promise<RentStepResult> {
       GROUP BY ward_code
     `);
       const rentStatsRes = await client.query<RentStatDbRow>(`
-      SELECT ward_code, period, source, rent_per_sqm_yen, management_fee_yen
+      SELECT ward_code, period, source, rent_per_sqm_yen, management_fee_yen, market_factor
       FROM rent_stats
     `);
 
@@ -127,7 +128,7 @@ export async function runRentStep(pool: Pool): Promise<RentStepResult> {
 
         const rentResult = estimateRent({
           layout: BASELINE_LAYOUT,
-          wardRentPerSqmYen: stat.rent_per_sqm_yen,
+          wardRentPerSqmYen: stat.rent_per_sqm_yen * stat.market_factor,
           managementFeeYen: stat.management_fee_yen,
           landPriceMultiplier: multiplier,
           landPricePointCount: pointCount,

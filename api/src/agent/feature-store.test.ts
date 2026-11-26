@@ -13,6 +13,7 @@ function stubPool(areas: Record<string, unknown>[], params: { key: string; value
     query: vi.fn(async (text: string) => {
       if (text.includes("agent.area_features") && text.includes("ORDER BY locality_id")) return { rows: areas };
       if (text.includes("agent.model_params")) return { rows: params };
+      if (/agent\.(commute_error_model|rent_size_curve|ward_rent_bands)/.test(text)) return { rows: [] };
       if (text.includes("col_description")) {
         return {
           rows: [

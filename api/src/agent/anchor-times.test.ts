@@ -23,7 +23,9 @@ const graphs = graphsFromEdges([edge("A", "B"), edge("B", "C")]);
 const areas = [{ locality_id: "x" }, { locality_id: "y" }] as AreaFeatures[];
 
 // Locality x has one sample at station A (5 min walk); y has no samples.
-function stubPool(opts: { stationPoint?: { lat: number | null; lon: number | null } | null; accessRows?: unknown[] } = {}) {
+function stubPool(
+  opts: { stationPoint?: { lat: number | null; lon: number | null } | null; accessRows?: unknown[]; outsideWards?: boolean } = {},
+) {
   const stationPoint = opts.stationPoint === undefined ? { lat: 35.0, lon: 139.0 } : opts.stationPoint;
   const query = vi.fn(async (text: string) => {
     if (text.includes("locality_samples")) {
@@ -40,6 +42,7 @@ function stubPool(opts: { stationPoint?: { lat: number | null; lon: number | nul
       };
     }
     if (text.includes("station_group_id = $1")) return { rows: stationPoint === null ? [] : [stationPoint] };
+    if (text.includes("public.wards")) return { rows: [{ outside: opts.outsideWards ?? false }] };
     if (text.includes("ST_DWithin")) return { rows: opts.accessRows ?? [] };
     throw new Error(`unexpected query: ${text}`);
   });
@@ -115,6 +118,13 @@ describe("createComputeAnchorTimes", () => {
     );
     expect(times).toEqual({});
     expect(refused[0]).toMatchObject({ reason: "outside_coverage" });
+  });
+
+  it("refuses an anchor more than 3 km outside the wards even when trains reach it", async () => {
+    const pool = stubPool({ outsideWards: true });
+    const { times, refused } = await createComputeAnchorTimes({ pool, graphs })([anchor()], areas);
+    expect(times).toEqual({});
+    expect(refused[0]).toMatchObject({ anchorId: "work", reason: "outside_coverage" });
   });
 
   it("keeps good anchors when another is refused", async () => {

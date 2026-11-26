@@ -33,6 +33,17 @@ refresh. OSM is normally rerun every one to three months.
 also refuses production-named URLs and needs `--confirm-dev-seed` outside a
 test/local database.
 
-The active layers are N03 2026, N02 2025, L01 2026, A55 2024, A31a 2025 and
-e-Stat 2023. Legacy A29/A31 archives are rollback-only and are not imported;
-they can be removed later to recover roughly 469 MB of local/archive storage.
+The active layers are N03 2026, N02 2025, L01 2026, A55 2024 and e-Stat 2023.
+Legacy A29/A31 archives are rollback-only and are not imported; they can be
+removed later to recover roughly 469 MB of local/archive storage.
+
+## Safety data
+
+`pnpm import:safety` fills `locality_safety` (earthquake rank, fire rank, flood
+share, crime per 1,000 residents) from files in `data/raw/safety/`, listed in
+the catalog: the Tokyo Metropolitan Government earthquake risk survey (9th
+round), MLIT A31a flood inundation (Tokyo, maximum scale) and the Metropolitan
+Police offences per town. Run it after `import:localities` (it joins on ward
+and town name and needs `localities.population`). A source whose file is
+missing is skipped with a warning; rows that match no locality are logged and
+never guessed.

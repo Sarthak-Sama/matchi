@@ -6,6 +6,7 @@ const MONORAIL_CLASSES = new Set(["14", "15", "22", "23"]);
 
 const LOCAL_RAIL_CLASSES = new Set(["13", "16", "21", "24", "25"]);
 
+const OPERATOR_TYPE_SHINKANSEN = "1";
 const OPERATOR_TYPE_MUNICIPAL = "3";
 
 const TOKYO_METRO = "東京地下鉄";
@@ -21,6 +22,7 @@ export interface RailModeInput {
 export function classifyRailMode(input: RailModeInput): RailMode | null {
   const { railwayClass, operatorType, operator } = input;
   if (railwayClass === null) return null;
+  if (operatorType === OPERATOR_TYPE_SHINKANSEN) return null;
 
   if (MONORAIL_CLASSES.has(railwayClass)) return "monorail";
   if (LOCAL_RAIL_CLASSES.has(railwayClass)) return "local_rail";

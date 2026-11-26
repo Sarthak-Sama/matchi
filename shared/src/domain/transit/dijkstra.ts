@@ -153,7 +153,7 @@ function stateKey(node: GraphNode, lineId: string | null): string {
   return `${node}${KEY_SEPARATOR}${lineId ?? NO_LINE}`;
 }
 
-function relax(current: SearchState, edge: GraphEdge): SearchState {
+function relax(current: SearchState, edge: GraphEdge, transferPenaltyMinutes: number): SearchState {
   const previous: DijkstraPrevious = {
     node: current.node,
     railLineId: edge.railLineId,
@@ -165,11 +165,11 @@ function relax(current: SearchState, edge: GraphEdge): SearchState {
     return {
       node: edge.from,
       currentLineId: null,
-      totalMinutes: current.totalMinutes + edge.travelMinutes + TRANSFER_PENALTY_MINUTES,
+      totalMinutes: current.totalMinutes + edge.travelMinutes + transferPenaltyMinutes,
       railMinutes: current.railMinutes + edge.travelMinutes,
       waitMinutes: current.waitMinutes,
       transferCount: current.transferCount + 1,
-      transferPenaltyMinutes: current.transferPenaltyMinutes + TRANSFER_PENALTY_MINUTES,
+      transferPenaltyMinutes: current.transferPenaltyMinutes + transferPenaltyMinutes,
 
       destinationWalkMinutes: current.destinationWalkMinutes,
       confidence: minConfidence(current.confidence, edge.confidence),
@@ -194,7 +194,7 @@ function relax(current: SearchState, edge: GraphEdge): SearchState {
   }
 
   const isImplicitTransfer = current.currentLineId !== null;
-  const penalty = isImplicitTransfer ? TRANSFER_PENALTY_MINUTES : 0;
+  const penalty = isImplicitTransfer ? transferPenaltyMinutes : 0;
   return {
     node: edge.from,
     currentLineId: edge.railLineId,
@@ -235,6 +235,7 @@ function normalizeSeeds(seeds: readonly DijkstraSeed[]): DijkstraSeed[] {
 export function reverseDijkstra(
   graph: TransitGraph,
   seeds: readonly DijkstraSeed[],
+  transferPenaltyMinutes: number = TRANSFER_PENALTY_MINUTES,
 ): DijkstraResult {
   if (seeds.length === 0) {
     throw new Error(
@@ -301,7 +302,7 @@ export function reverseDijkstra(
 
     const incoming = graph.reverse.get(current.node) ?? [];
     for (const edge of incoming) {
-      offer(relax(current, edge));
+      offer(relax(current, edge, transferPenaltyMinutes));
     }
   }
 

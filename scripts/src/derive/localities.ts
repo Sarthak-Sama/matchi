@@ -19,6 +19,36 @@ import type { RentStatRow } from "@tokyo/shared";
 import { withTransaction } from "../lib/db.js";
 import type { StepResult } from "./types.js";
 
+const LOCALITY_STATION_FALLBACK_RADIUS_M = 2500;
+
+type WardRentStat = RentStatRow & { ward_code: string; market_factor: number };
+
+// Nearest stations per locality sample point. The fallback pass only fills
+// localities that the normal pass left without any station.
+function sampleStationsSql(onlyUnserved: boolean): string {
+  return `INSERT INTO locality_sample_stations
+        (locality_id, sample_number, station_group_id, walk_distance_m, walk_minutes, station_rank)
+       SELECT locality_id, sample_number, station_group_id, distance_m,
+         CEIL(distance_m * $1 / $2)::integer, station_rank
+       FROM (
+         SELECT ls.locality_id, ls.sample_number, sg.station_group_id,
+           ST_Distance(ls.point::geography, sg.point::geography) AS distance_m,
+           row_number() OVER (
+             PARTITION BY ls.locality_id, ls.sample_number
+             ORDER BY ls.point <-> sg.point, sg.station_group_id
+           )::smallint AS station_rank
+         FROM locality_samples ls
+         JOIN station_groups sg ON ST_DWithin(ls.point::geography, sg.point::geography, $3)
+         ${
+           onlyUnserved
+             ? `WHERE NOT EXISTS (
+           SELECT 1 FROM locality_sample_stations served WHERE served.locality_id = ls.locality_id)`
+             : ""
+         }
+       ) ranked
+       WHERE station_rank <= $4`;
+}
+
 export function sufficiencyScore(value: number, target: number): number {
   return Math.min(100, (100 * Math.log1p(Math.max(0, value))) / Math.log1p(target));
 }
@@ -79,24 +109,20 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
       [LOCALITY_SAMPLE_COUNT],
     );
 
-    await client.query(
-      `INSERT INTO locality_sample_stations
-        (locality_id, sample_number, station_group_id, walk_distance_m, walk_minutes, station_rank)
-       SELECT locality_id, sample_number, station_group_id, distance_m,
-         CEIL(distance_m * $1 / $2)::integer, station_rank
-       FROM (
-         SELECT ls.locality_id, ls.sample_number, sg.station_group_id,
-           ST_Distance(ls.point::geography, sg.point::geography) AS distance_m,
-           row_number() OVER (
-             PARTITION BY ls.locality_id, ls.sample_number
-             ORDER BY ls.point <-> sg.point, sg.station_group_id
-           )::smallint AS station_rank
-         FROM locality_samples ls
-         JOIN station_groups sg ON ST_DWithin(ls.point::geography, sg.point::geography, $3)
-       ) ranked
-       WHERE station_rank <= $4`,
-      [WALK_DETOUR_FACTOR, WALK_SPEED_M_PER_MIN, LOCALITY_STATION_RADIUS_M, LOCALITY_STATION_LIMIT],
-    );
+    await client.query(sampleStationsSql(false), [
+      WALK_DETOUR_FACTOR,
+      WALK_SPEED_M_PER_MIN,
+      LOCALITY_STATION_RADIUS_M,
+      LOCALITY_STATION_LIMIT,
+    ]);
+    // Localities with no station in range are kept, with honest long walks.
+    // derive/access gives them access_confidence 'low' (walk beyond the first radius).
+    await client.query(sampleStationsSql(true), [
+      WALK_DETOUR_FACTOR,
+      WALK_SPEED_M_PER_MIN,
+      LOCALITY_STATION_FALLBACK_RADIUS_M,
+      LOCALITY_STATION_LIMIT,
+    ]);
 
     const { rowCount } = await client.query(
       `WITH sample_catchments AS MATERIALIZED (
@@ -268,14 +294,14 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
     const wardLand = await client.query<{ ward_code: string; median: string | null }>(`
       SELECT ward_code, percentile_cont(0.5) WITHIN GROUP (ORDER BY price_yen_per_sqm)::text AS median
       FROM land_prices WHERE use_category = 'residential' GROUP BY ward_code`);
-    const rentStats = await client.query<RentStatRow & { ward_code: string }>(
-      "SELECT ward_code, period, source, rent_per_sqm_yen, management_fee_yen FROM rent_stats",
+    const rentStats = await client.query<WardRentStat>(
+      "SELECT ward_code, period, source, rent_per_sqm_yen, management_fee_yen, market_factor FROM rent_stats",
     );
 
     const wardMedianLandPriceByCode = new Map(
       wardLand.rows.map((row) => [row.ward_code, row.median === null ? null : Number(row.median)]),
     );
-    const rentStatsByWardCode = new Map<string, (RentStatRow & { ward_code: string })[]>();
+    const rentStatsByWardCode = new Map<string, WardRentStat[]>();
     for (const row of rentStats.rows) {
       const existing = rentStatsByWardCode.get(row.ward_code) ?? [];
       rentStatsByWardCode.set(row.ward_code, [...existing, row]);
@@ -299,7 +325,7 @@ export async function runLocalitiesStep(pool: Pool): Promise<StepResult> {
          WHERE locality_id=$1`,
         [
           row.locality_id,
-          selected.rent_per_sqm_yen,
+          selected.rent_per_sqm_yen * selected.market_factor,
           selected.management_fee_yen,
           multiplier.multiplier,
           Number(row.count),

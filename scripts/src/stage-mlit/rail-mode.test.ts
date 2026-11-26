@@ -9,7 +9,11 @@ function input(railwayClass: string, operatorType: string, operator: string) {
 describe("classifyRailMode", () => {
   it("classifies JR ordinary railways as commuter rail", () => {
     expect(classifyRailMode(input("11", "2", "東日本旅客鉄道"))).toBe("commuter_rail");
-    expect(classifyRailMode(input("11", "1", "東海旅客鉄道"))).toBe("commuter_rail");
+    expect(classifyRailMode(input("11", "2", "東海旅客鉄道"))).toBe("commuter_rail");
+  });
+
+  it("drops Shinkansen, whose operator type is 1", () => {
+    expect(classifyRailMode(input("11", "1", "東日本旅客鉄道"))).toBeNull();
   });
 
   it("classifies Tokyo Metro as subway despite being a private operator", () => {

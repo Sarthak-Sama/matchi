@@ -5,7 +5,16 @@ interface Check {
   readonly label: string;
   readonly sql: string;
   readonly expect: (value: number) => boolean;
+  // Warn and skip, rather than fail, while the count of this query is zero.
+  readonly skipWhenEmpty?: { readonly sql: string; readonly reason: string };
 }
+
+const GOLDEN_REFERENCE_MAX_MAE_MINUTES = 4;
+
+const EMPTY_REFERENCE_SET = {
+  sql: "SELECT count(*)::int AS value FROM commute_reference",
+  reason: "commute_reference is empty (run pnpm import:commute-reference)",
+};
 
 const checks: readonly Check[] = [
   {
@@ -88,6 +97,36 @@ const checks: readonly Check[] = [
     sql: "SELECT count(*)::int AS value FROM localities WHERE name_en IS NULL OR btrim(name_en) = '' OR name_en = name_ja",
     expect: (n) => n === 0,
   },
+  {
+    label: "Yamanote line is a closed ring (stations not at degree 2)",
+    sql: `WITH members AS (
+            SELECT e.from_station_group_id AS station, count(DISTINCT e.to_station_group_id) AS degree
+            FROM rail_edges e JOIN rail_lines l USING (rail_line_id)
+            WHERE e.edge_type = 'ride' AND l.name_ja = '山手線'
+            GROUP BY e.from_station_group_id
+          )
+          SELECT (count(*) FILTER (WHERE degree <> 2) + CASE WHEN count(*) = 0 THEN 1 ELSE 0 END)::int AS value
+          FROM members`,
+    expect: (n) => n === 0,
+  },
+  {
+    label: "Shinkansen ride edges",
+    sql: "SELECT count(*)::int AS value FROM rail_edges e JOIN rail_lines l USING (rail_line_id) WHERE e.edge_type = 'ride' AND l.name_ja LIKE '%新幹線%'",
+    expect: (n) => n === 0,
+  },
+  {
+    label: `golden reference MAE (minutes, max ${String(GOLDEN_REFERENCE_MAX_MAE_MINUTES)})`,
+    // 1e9 when journeys are loaded but not compared yet, so it fails loudly.
+    sql: "SELECT COALESCE(avg(abs(model_minutes - reference_minutes)), 1e9) AS value FROM commute_reference WHERE model_minutes IS NOT NULL",
+    expect: (n) => n <= GOLDEN_REFERENCE_MAX_MAE_MINUTES,
+    skipWhenEmpty: EMPTY_REFERENCE_SET,
+  },
+  {
+    label: "commute error model rows",
+    sql: "SELECT count(*)::int AS value FROM commute_error_model",
+    expect: (n) => n > 0,
+    skipWhenEmpty: EMPTY_REFERENCE_SET,
+  },
 ];
 
 export async function runDataValidation(): Promise<void> {
@@ -95,6 +134,13 @@ export async function runDataValidation(): Promise<void> {
   try {
     const failures: string[] = [];
     for (const check of checks) {
+      if (check.skipWhenEmpty) {
+        const { rows } = await pool.query<{ value: number }>(check.skipWhenEmpty.sql);
+        if (Number(rows[0]?.value ?? 0) === 0) {
+          console.warn(`data:validate — skipped: ${check.label} (${check.skipWhenEmpty.reason})`);
+          continue;
+        }
+      }
       const { rows } = await pool.query<{ value: number }>(check.sql);
       const value = Number(rows[0]?.value ?? NaN);
       if (!check.expect(value)) failures.push(`${check.label}: ${String(value)}`);

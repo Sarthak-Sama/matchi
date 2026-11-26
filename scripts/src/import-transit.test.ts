@@ -14,7 +14,7 @@ import {
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { multiLineStringWKT, pointWKT } from "./fixtures/seed/geo.js";
+import { pointWKT } from "./fixtures/seed/geo.js";
 import type { GtfsPlanInput } from "./import-transit/gtfs-plan.js";
 import { buildGtfsPlan } from "./import-transit/gtfs-plan.js";
 import { resolveGtfsSource } from "./import-transit/gtfs-source.js";
@@ -556,56 +556,13 @@ describe("GTFS bulk tables are never persisted", () => {
 
 const databaseUrl = destructiveTestDatabaseUrl();
 
-async function buildLineGeometryFromEdges(pool: Pool, railLineId: string): Promise<void> {
-  const { rows: edgeRows } = await pool.query<{ from_id: string; to_id: string }>(
-    `SELECT DISTINCT from_station_group_id AS from_id, to_station_group_id AS to_id
-     FROM rail_edges WHERE rail_line_id = $1 AND edge_type = 'ride'`,
-    [railLineId],
-  );
-  if (edgeRows.length === 0) return;
-
-  const neighbors = new Map<string, Set<string>>();
-  for (const e of edgeRows) {
-    if (!neighbors.has(e.from_id)) neighbors.set(e.from_id, new Set());
-    if (!neighbors.has(e.to_id)) neighbors.set(e.to_id, new Set());
-    neighbors.get(e.from_id)?.add(e.to_id);
-    neighbors.get(e.to_id)?.add(e.from_id);
-  }
-
-  const endpoint = [...neighbors.entries()].find(([, n]) => n.size === 1)?.[0];
-  const start = endpoint ?? [...neighbors.keys()][0];
-  if (start === undefined) return;
-
-  const orderedIds: string[] = [start];
-  const visited = new Set([start]);
-  let current = start;
-  for (;;) {
-    const next = [...(neighbors.get(current) ?? [])].find((n) => !visited.has(n));
-    if (next === undefined) break;
-    orderedIds.push(next);
-    visited.add(next);
-    current = next;
-  }
-
-  const { rows: pointRows } = await pool.query<{
-    station_group_id: string;
-    lon: number;
-    lat: number;
-  }>(
-    `SELECT station_group_id, ST_X(point) AS lon, ST_Y(point) AS lat
-     FROM station_groups WHERE station_group_id = ANY($1::text[])`,
-    [orderedIds],
-  );
-  const byId = new Map(pointRows.map((r) => [r.station_group_id, [r.lon, r.lat] as const]));
-  const orderedPoints = orderedIds
-    .map((id) => byId.get(id))
-    .filter((p): p is readonly [number, number] => !!p);
-  if (orderedPoints.length < 2) return;
-
-  const wkt = multiLineStringWKT([orderedPoints]);
+async function addLineMembersFromEdges(pool: Pool, railLineId: string): Promise<void> {
   await pool.query(
-    `UPDATE rail_lines SET geom = ST_SetSRID(ST_GeomFromText($1), 4326) WHERE rail_line_id = $2`,
-    [wkt, railLineId],
+    `INSERT INTO station_line_members (station_group_id, rail_line_id)
+     SELECT DISTINCT station_group_id, $1
+     FROM rail_edges, LATERAL (VALUES (from_station_group_id), (to_station_group_id)) AS s(station_group_id)
+     WHERE rail_line_id = $1 AND edge_type = 'ride'`,
+    [railLineId],
   );
 }
 
@@ -661,7 +618,7 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
       "rl-chuo",
       "rl-fukutoshin",
     ]) {
-      await buildLineGeometryFromEdges(pool, line);
+      await addLineMembersFromEdges(pool, line);
     }
 
     const args: ImportTransitArgs = { fromTopology: true };
@@ -743,7 +700,7 @@ describe.runIf(Boolean(databaseUrl))("import:transit (DB integration)", () => {
         "sg-test-interchange-b->sg-test-interchange-a",
       ]);
       for (const row of rows) {
-        expect(row.peak_travel_minutes).toBe(0);
+        expect(row.peak_travel_minutes).toBe(3);
         expect(row.confidence).toBe("medium");
         expect(row.rail_line_id).toBeNull();
       }

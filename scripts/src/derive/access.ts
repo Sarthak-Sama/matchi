@@ -5,6 +5,7 @@ import {
   buildGraph,
   DIRECT_REACH_MINUTES,
   reverseDijkstra,
+  TRANSFER_PENALTY_MINUTES,
 } from "@tokyo/shared";
 import type { Confidence, RailEdgeRow, TransitGraph, TransitPeriod } from "@tokyo/shared";
 
@@ -25,10 +26,17 @@ export interface TravelTimeRow {
 
 // One reverse search per destination yields the time from every origin to
 // it, so N searches per period fill the N x N matrix. Self pairs are 0.
-export function computeTravelTimes(graph: TransitGraph): TravelTimeRow[] {
+export function computeTravelTimes(
+  graph: TransitGraph,
+  transferPenaltyMinutes: number = TRANSFER_PENALTY_MINUTES,
+): TravelTimeRow[] {
   const rows: TravelTimeRow[] = [];
   for (const destination of [...graph.nodes].sort()) {
-    const result = reverseDijkstra(graph, [{ node: destination, walkMinutes: 0 }]);
+    const result = reverseDijkstra(
+      graph,
+      [{ node: destination, walkMinutes: 0 }],
+      transferPenaltyMinutes,
+    );
     for (const origin of graph.nodes) {
       const state = result.get(origin);
       if (!state) continue;
@@ -145,7 +153,18 @@ async function loadEdges(client: PoolClient): Promise<RailEdgeRow[]> {
   return rows;
 }
 
-async function insertTravelTimes(client: PoolClient, rows: readonly TravelTimeRow[]): Promise<void> {
+// The fitted penalty from calibrate:transit, when it has been run.
+async function loadTransferPenalty(client: PoolClient): Promise<number> {
+  const { rows } = await client.query<{ value: number }>(
+    `SELECT value FROM transit_params WHERE key = 'transfer_penalty_minutes'`,
+  );
+  return rows[0]?.value ?? TRANSFER_PENALTY_MINUTES;
+}
+
+async function insertTravelTimes(
+  client: PoolClient,
+  rows: readonly TravelTimeRow[],
+): Promise<void> {
   for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
     const chunk = rows.slice(i, i + INSERT_CHUNK);
     await client.query(
@@ -218,7 +237,10 @@ const LOCALITY_ACCESS_SQL = `
     direct_reach_stations, stations_within_30_min, nearest_station_walk_min, confidence)
   SELECT l.locality_id, COALESCE(h.hub_minutes, '{}'::jsonb), h.centrality_minutes, s.line_count,
     s.direct_reach_stations, s.stations_within_30_min, s.nearest_walk,
-    CASE h.confidence_rank WHEN 0 THEN 'low' WHEN 1 THEN 'medium' WHEN 2 THEN 'high' END
+    -- Walks beyond the normal station radius come from the 2,500 m fallback pass (D6).
+    CASE WHEN s.nearest_walk > 25 THEN 'low'
+      ELSE CASE h.confidence_rank WHEN 0 THEN 'low' WHEN 1 THEN 'medium' WHEN 2 THEN 'high' END
+    END
   FROM localities l
   LEFT JOIN hub_summary h ON h.locality_id = l.locality_id
   LEFT JOIN sample_summary s ON s.locality_id = l.locality_id`;
@@ -230,7 +252,10 @@ export async function runAccessStep(pool: Pool): Promise<StepResult> {
     if (edges.length === 0) {
       throw new Error("derive/access: rail_edges is empty. Run `pnpm import:transit` first.");
     }
-    const times = PERIODS.flatMap((period) => computeTravelTimes(buildGraph(edges, period)));
+    const transferPenalty = await loadTransferPenalty(client);
+    const times = PERIODS.flatMap((period) =>
+      computeTravelTimes(buildGraph(edges, period), transferPenalty),
+    );
     const access = computeStationAccess(edges, times);
 
     await client.query("DELETE FROM locality_access");

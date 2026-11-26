@@ -28,6 +28,14 @@
     { "id": "a55-13121", "dataset": "A55", "release": "2024", "url": "https://nlftp.mlit.go.jp/ksj/gml/data/A55/A55-24/A55-24_13121_GEOJSON.zip", "archive": "A55-24_13121_GEOJSON.zip", "sourceDate": "2025-11-01", "sha256": "6a6695c5574225612ccec09bf0ee3ece910fb8ef058446f18a3ae9ef564b4e9a" },
     { "id": "a55-13122", "dataset": "A55", "release": "2024", "url": "https://nlftp.mlit.go.jp/ksj/gml/data/A55/A55-24/A55-24_13122_GEOJSON.zip", "archive": "A55-24_13122_GEOJSON.zip", "sourceDate": "2025-11-01", "sha256": "1e221eda9d678a872b22ba51df7bff80c73ebd046fed0825d4a74bf4035721df" },
     { "id": "a55-13123", "dataset": "A55", "release": "2024", "url": "https://nlftp.mlit.go.jp/ksj/gml/data/A55/A55-24/A55-24_13123_GEOJSON.zip", "archive": "A55-24_13123_GEOJSON.zip", "sourceDate": "2025-11-01", "sha256": "b0d1b386d3a0426b5a6bc16f992678f1382b6662d664cf8a854e354e6a1f6820" },
-    { "id": "japanpost-rome", "dataset": "JP_POST_ROME", "release": "2025-06", "url": "https://www.post.japanpost.jp/service/search/zipcode/download/roman/KEN_ALL_ROME.zip", "archive": "KEN_ALL_ROME.zip", "sourceDate": "2025-06-03", "sha256": "9764834dfd1d0148600c38b7fc4c00feae8443e81e68da3a49469447cd97707d" }
+    { "id": "japanpost-rome", "dataset": "JP_POST_ROME", "release": "2025-06", "url": "https://www.post.japanpost.jp/service/search/zipcode/download/roman/KEN_ALL_ROME.zip", "archive": "KEN_ALL_ROME.zip", "sourceDate": "2025-06-03", "sha256": "9764834dfd1d0148600c38b7fc4c00feae8443e81e68da3a49469447cd97707d" },
+    { "id": "tmg-quake-risk-9", "dataset": "TMG_QUAKE_RISK", "release": "9th round", "url": "https://www.toshiseibi.metro.tokyo.lg.jp/documents/d/toshiseibi/csv_bosai_chousa_6_download_all2", "archive": "quake-all2.csv", "sourceDate": "2022-09-01", "sha256": "62ad9f4479f43ea254ed89bdfbc289ee9ccf7f18546a3713c29e6d63bbabbfb9" },
+    { "id": "ksj-a31a-13-national", "dataset": "A31A", "release": "2025", "url": "https://nlftp.mlit.go.jp/ksj/gml/data/A31a/A31a-25/A31a-25_13_10_GEOJSON.zip", "archive": "A31a-25_13_10_GEOJSON.zip", "sourceDate": "2026-10-09", "sha256": "ecef23e95ac75554bfd42e6156800291b7af27bca49198002eab6f0394fe9f93" },
+    { "id": "ksj-a31a-13-prefecture", "dataset": "A31A", "release": "2025", "url": "https://nlftp.mlit.go.jp/ksj/gml/data/A31a/A31a-25/A31a-25_13_20_GEOJSON.zip", "archive": "A31a-25_13_20_GEOJSON.zip", "sourceDate": "2026-10-09", "sha256": "3101bac42ebb9693f7c9f92d994b7eb60a2cfe2bf2659a21dfb2a0886885e0b4" },
+    { "id": "mpd-crime-r7", "dataset": "MPD_CRIME", "release": "R7", "url": "https://www.keishicho.metro.tokyo.lg.jp/about_mpd/jokyo_tokei/jokyo/ninchikensu.files/R7.csv", "archive": "crime-R7.csv", "sourceDate": "2026-02-17", "sha256": "49594b704e4c34b3b7114910f3538718bf17e93ae258729bd09cf2bfb169cbd5" }
+  ],
+  "feeds": [
+    { "id": "odpt-gtfs-tokyometro", "url": "https://api.odpt.org/api/v4/files/TokyoMetro/data/TokyoMetro-Train-GTFS.zip", "archive": "TokyoMetro-Train-GTFS.zip" },
+    { "id": "odpt-gtfs-toei", "url": "https://api-public.odpt.org/api/v4/files/Toei/data/Toei-Train-GTFS.zip", "archive": "Toei-Train-GTFS.zip" }
   ]
 }

@@ -78,6 +78,8 @@ export interface AreaFeatures {
   reach_restaurant: number | null;
   nearest_station_walk_min: number | null;
   access_confidence: 'high' | 'medium' | 'low' | null;
+  /** Residents, 2020 census. Optional so older fixtures stay valid; null or absent means unknown. */
+  population?: number | null;
 }
 
 export const PeriodSchema = z.enum(['peak', 'offpeak']);
@@ -99,6 +101,29 @@ export interface ModelParams {
   rentElasticity: number; // 0.356
   /** Mid size in m2 per layout id (from LAYOUTS). */
   layoutAreaSqm: Readonly<Record<string, number>>;
+  /** [min, max] clamp on the land-value rent multiplier (model_params rent_local_multiplier_min/max). */
+  rentClamp?: readonly [number, number];
+  /** Commute model error per path confidence (agent.commute_error_model). Empty or absent when no reference journeys are loaded. */
+  commuteError?: Readonly<Partial<Record<'high' | 'medium' | 'low', CommuteErrorBand>>>;
+  /** Private-rental rent per tatami relative to all sizes, by living-room size class, ascending tatamiMin. Classes without a published median are left out. */
+  rentSizeCurve?: readonly RentSizeClass[];
+  /** ward_code -> interquartile ratio (75th / 25th percentile rent) of the ward's rented dwellings, from the survey rent bands. */
+  rentSpreadByWard?: Readonly<Record<string, number>>;
+}
+
+export interface CommuteErrorBand {
+  n: number;
+  meanErrorMinutes: number;
+  maeMinutes: number;
+  p90AbsErrorMinutes: number;
+}
+
+export interface RentSizeClass {
+  /** Living-room space in tatami, lower bound inclusive. */
+  tatamiMin: number;
+  /** Upper bound exclusive; null for the top class. */
+  tatamiMax: number | null;
+  relativeToAll: number;
 }
 
 export interface EngineDefaults {

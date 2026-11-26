@@ -11,7 +11,7 @@ import type { ParsedRailLine } from "./import-mlit/rail-lines.js";
 import { MIN_RAIL_LINES_ROWS, parseRailLines } from "./import-mlit/rail-lines.js";
 import type { MergedStationGroup } from "./import-mlit/station-merge.js";
 import { mergeStations } from "./import-mlit/station-merge.js";
-import { MIN_STATIONS_ROWS, parseStations } from "./import-mlit/stations.js";
+import { MIN_STATIONS_ROWS, parseStations, replaceStationLineMembers } from "./import-mlit/stations.js";
 import type { ParsedWard } from "./import-mlit/wards.js";
 import { assertTokyoWards, MIN_WARDS_ROWS, parseWards } from "./import-mlit/wards.js";
 import type { ParsedZoningArea } from "./import-mlit/zoning.js";
@@ -389,6 +389,7 @@ export async function runMlitImport(
   rowsImported += wardsResult.rowsWritten;
   rowsImported += await upsertStations(client, stationGroups, n02Date);
   rowsImported += await upsertRailLines(client, railLines, n02Date);
+  rowsImported += await replaceStationLineMembers(client, stationGroups);
   const residentialLandPriceCount = landPrices.filter(
     (r) => r.useCategory === "residential",
   ).length;
