@@ -52,6 +52,7 @@ export const FEATURE_LABELS: Record<FeatureKey, string> = {
   bars: "Bars",
   dining_reach: "Dining within reach",
   connectedness: "Connectedness",
+  safety: "Safety",
 };
 
 export const FEATURE_KEY_LIST = Object.keys(FEATURE_LABELS) as FeatureKey[];

@@ -20,7 +20,7 @@ const REC: Recommendation = {
     },
   ],
   feasibleCount: 2, riskYen: 2_345, shouldStop: false, stopReason: null, nextQuestion: null,
-  excluded: { nullRent: 0, nullLifestyle: 0, missingAccess: 0, disconnected: 0, overBudgetFirm: 0, overCommuteCapFirm: 0 },
+  excluded: { nullRent: 0, nullLifestyle: 0, missingAccess: 0, disconnected: 0, overBudgetFirm: 0, overCommuteCapFirm: 0, uninhabited: 0 },
   ess: 3000,
 };
 

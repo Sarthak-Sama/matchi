@@ -22,7 +22,9 @@ const AREA_FEATURES_SQL = `
     supermarket_count, restaurant_count, cafe_count, convenience_count,
     cuisine_variety_count, late_night_count, health_count,
     green_space_share, residential_zoning_share, road_rail_exposure_share,
-    bar_count, line_count, reach_restaurant, nearest_station_walk_min, access_confidence, population
+    bar_count, line_count, reach_restaurant, nearest_station_walk_min, access_confidence, population,
+    quake_rank, flood_share, crime_per_1k, safety_score,
+    nearest_station_name_ja, nearest_station_name_en, rent_market_refs
   FROM agent.area_features
   ORDER BY locality_id
 `;
@@ -150,6 +152,7 @@ function commuteErrorByConfidence(
  *    types.ts quotes 0.356, which is that value rounded.
  *  - layoutAreaSqm  <- LAYOUTS[id].midSqm for every layout id in shared/config/scoring.
  *  - rentClamp      <- model_params rows `rent_local_multiplier_min/max`, when both exist.
+ *  - betaShare, tauShare <- model_params rows `evidence_beta_share`, `evidence_tau_share` (migration 0025), when present.
  * The other model_params rows (reach_decay_minutes, CI and R2 rows) are not read by the engine.
  */
 export function toModelParams(
@@ -172,7 +175,18 @@ export function toModelParams(
     Number.isFinite(clampMax)
       ? { rentClamp: [clampMin, clampMax] as const }
       : {};
-  return { rentElasticity: elasticity, layoutAreaSqm, ...rentClamp, ...tables };
+  return {
+    rentElasticity: elasticity,
+    layoutAreaSqm,
+    ...rentClamp,
+    ...optionalParam("betaShare", byKey.get("evidence_beta_share")),
+    ...optionalParam("tauShare", byKey.get("evidence_tau_share")),
+    ...tables,
+  };
+}
+
+function optionalParam<K extends keyof ModelParams>(key: K, value: number | undefined): Partial<Pick<ModelParams, K>> {
+  return value !== undefined && Number.isFinite(value) ? ({ [key]: value } as Partial<Pick<ModelParams, K>>) : {};
 }
 
 function rentSizeCurve(rows: readonly SizeCurveRow[]): RentSizeClass[] {

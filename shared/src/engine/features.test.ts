@@ -19,9 +19,9 @@ describe('saturate', () => {
 });
 
 describe('featureTable', () => {
-  it('lists the twelve features in FEATURE_KEYS order with spec h values', () => {
+  it('lists the thirteen features in FEATURE_KEYS order with spec h values', () => {
     expect(featureTable.map((f) => f.key)).toEqual([...FEATURE_KEYS]);
-    expect(featureTable.map((f) => f.h)).toEqual([4, 40, 10, 12, 6, 8, 0.15, 0.6, 0.5, 6, null, 3]);
+    expect(featureTable.map((f) => f.h)).toEqual([4, 40, 10, 12, 6, 8, 0.15, 0.6, 0.5, 6, null, 3, 0.8]);
     expect(featureTable.find((f) => f.key === 'road_rail_exposure')!.sign).toBe('negative');
     expect(featureTable.find((f) => f.key === 'bars')!.sign).toBe('either');
   });
@@ -29,13 +29,13 @@ describe('featureTable', () => {
 
 describe('modelledRent', () => {
   const base = syntheticAreas(1)[0]!;
-  it('is r * m * A + f with m clamped to [0.7, 1.4]', () => {
+  it('is r * m * A + f with m clamped to the fallback [0.85, 1.15] (D7)', () => {
     const a: AreaFeatures = { ...base, rent_per_sqm_yen: 3000, management_fee_yen: 5000, land_value_yen_per_sqm: 1e6 };
     expect(modelledRent(a, 1e6, 24, SYNTHETIC_PARAMS)).toBeCloseTo(3000 * 24 + 5000, 6);
     const rich = { ...a, land_value_yen_per_sqm: 1e9 };
-    expect(modelledRent(rich, 1e6, 24, SYNTHETIC_PARAMS)).toBeCloseTo(3000 * 1.4 * 24 + 5000, 6);
+    expect(modelledRent(rich, 1e6, 24, SYNTHETIC_PARAMS)).toBeCloseTo(3000 * 1.15 * 24 + 5000, 6);
     const poor = { ...a, land_value_yen_per_sqm: 1 };
-    expect(modelledRent(poor, 1e6, 24, SYNTHETIC_PARAMS)).toBeCloseTo(3000 * 0.7 * 24 + 5000, 6);
+    expect(modelledRent(poor, 1e6, 24, SYNTHETIC_PARAMS)).toBeCloseTo(3000 * 0.85 * 24 + 5000, 6);
   });
   it('uses m = 1 for a null land value and NaN for null rent inputs (E04)', () => {
     const a: AreaFeatures = { ...base, rent_per_sqm_yen: 3000, management_fee_yen: 5000, land_value_yen_per_sqm: null };

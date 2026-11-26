@@ -7,6 +7,9 @@ import type { AnchorTimes, AreaFeatures, ModelParams, Profile } from './types.js
 export const SYNTHETIC_PARAMS: ModelParams = {
   rentElasticity: 0.356,
   layoutAreaSqm: { '1R': 21, '1K': 24, '1DK': 30, '1LDK': 38, '2K_2DK': 43, '2LDK': 55, '3LDK': 70 },
+  // Same values as the model_params rows evidence_beta_share / evidence_tau_share (migration 0025).
+  betaShare: 0.03,
+  tauShare: 0.01,
 };
 
 /** n synthetic areas over 3 synthetic wards, ids "syn-000"... */

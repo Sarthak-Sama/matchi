@@ -31,7 +31,7 @@ const REC: Recommendation = {
   ],
   feasibleCount: 2, riskYen: 2_345, shouldStop: false, stopReason: null,
   nextQuestion: { kind: "pair", a: "L1", b: "L2", pABeatsB: 0.512 },
-  excluded: { nullRent: 0, nullLifestyle: 0, missingAccess: 0, disconnected: 0, overBudgetFirm: 0, overCommuteCapFirm: 0 },
+  excluded: { uninhabited: 0, nullRent: 0, nullLifestyle: 0, missingAccess: 0, disconnected: 0, overBudgetFirm: 0, overCommuteCapFirm: 0 },
   ess: 3000,
 };
 

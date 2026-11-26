@@ -1,11 +1,11 @@
 // Utility matrix, greedy shortlist, P_best, regret, risk, stop rule and next
 // question (docs/plans/engine-spec.md, "The shortlist", "Ask or stop").
-// E01: EUS, Risk, regret, the stop rule and question choice read the
-// noise-free util.u; rent and travel noise exists only in util.noisy (P_best)
-// and in noisyUtilities (compare).
+// E01: EUS, the greedy shortlist and question choice read the noise-free
+// util.u. R5: P_best, regret, Risk and compare read one noisy matrix,
+// util.noisy, over the candidate set C (attachNoisy).
 import { C_T_INDEX, FEATURE_OFFSET, GAMMA_INDEX, LAMBDA_B_INDEX, distinguishingParam } from './belief.js';
 import { breakdownAt, medianFeasibleArea, subtractBreakdown } from './explain.js';
-import { areaTerms, capHours, travelHours } from './features.js';
+import { NEAR_PRICE_POINT_M, areaTerms, capHours, travelHours } from './features.js';
 import { createRng } from './rng.js';
 import {
   FEATURE_KEYS,
@@ -31,9 +31,6 @@ import {
 export const DEFAULTS: EngineDefaults = {
   samples: 4000,
   shortlistSize: 5,
-  betaShare: 0.03,
-  tauShare: 0.01,
-  epsilon: 0.05,
   stopRiskShare: 0.01,
   maxQuestions: 6,
   minQuestions: 2,
@@ -43,11 +40,10 @@ export const DEFAULTS: EngineDefaults = {
   sigmaRentFar: 0.12,
   travelNoiseShare: 0.15,
   travelNoiseMinMinutes: 3,
-  rentClamp: [0.7, 1.4],
   essFloor: 200,
 };
-/** Areas covered by util.noisy. */
-export const NOISY_TOP = 20;
+/** Feasible areas by expected utility in the candidate set C, besides the greedy shortlist. */
+export const NOISY_CANDIDATES = 40;
 /** Shortcut pair question: only areas with P_best above this. */
 export const PAIR_MIN_PBEST = 0.05;
 
@@ -108,15 +104,25 @@ function areaSeed(seed: number, a: number): number {
 }
 
 /**
+ * Sd of the commute estimate in minutes: the calibrated error for the area's
+ * access confidence (D4), else the fallback band max(3, 0.15 t).
+ */
+export function travelNoiseSd(ctx: AreaContext, a: number, minutes: number): number {
+  const calibrated = ctx.commuteSigma[a]!;
+  if (Number.isFinite(calibrated)) return calibrated;
+  return Math.max(DEFAULTS.travelNoiseMinMinutes, DEFAULTS.travelNoiseShare * minutes);
+}
+
+/**
  * Noisy U for the given areas: R_i = R exp(sigma z - sigma^2 / 2) (E09,
- * mean-preserving), t_im = max(1, t + max(3, 0.15 t) z) with one travel z per
- * sample and area shared by all anchors (spec; E09 clamp at 1 minute).
+ * mean-preserving), t_im = max(1, t + sd(t) z) with one travel z per sample
+ * and area shared by all anchors (spec; E09 clamp at 1 minute).
  */
 export const noisyUtilities: NoisyUtilities = (belief, ctx, profile, seed, areaIdx) => {
   const nC = areaIdx.length;
   const u = new Float32Array(belief.n * nC);
   const terms = areaTerms(ctx, profile);
-  const tc = capHours(profile);
+  const caps = capHours(profile);
   const B = profile.budget?.value;
   const nM = ctx.minutes.length;
   const mins: number[] = new Array(nM).fill(0);
@@ -135,16 +141,16 @@ export const noisyUtilities: NoisyUtilities = (belief, ctx, profile, seed, areaI
       const rent = ctx.rent[a]! * Math.exp(sigma * zR - (sigma * sigma) / 2);
       for (let m = 0; m < nM; m++) {
         const t = ctx.minutes[m]![a]!;
-        mins[m] = Math.max(1, t + Math.max(DEFAULTS.travelNoiseMinMinutes, DEFAULTS.travelNoiseShare * t) * zT);
+        mins[m] = Math.max(1, t + travelNoiseSd(ctx, a, t) * zT);
       }
-      const th = travelHours(mins, profile);
+      const th = travelHours(mins, profile, caps);
       const row = i * PARAM_COUNT;
       const c = belief.theta[row + C_T_INDEX]!;
       let v =
         -rent -
         c * th.hours -
         belief.theta[row + LAMBDA_B_INDEX]! * (B !== undefined ? Math.max(0, rent - B) : 0) -
-        belief.theta[row + GAMMA_INDEX]! * c * (tc !== null ? Math.max(0, th.main - tc) : 0);
+        belief.theta[row + GAMMA_INDEX]! * c * th.overCap;
       for (let j = 0; j < NF; j++) v += belief.theta[row + FEATURE_OFFSET + j]! * ctx.sat[s + j]!;
       u[i * nC + col] = v;
     }
@@ -152,35 +158,49 @@ export const noisyUtilities: NoisyUtilities = (belief, ctx, profile, seed, areaI
   return { areaIdx: Int32Array.from(areaIdx), u };
 };
 
-export const buildUtilities: BuildUtilities = (belief, ctx, profile, seed) => {
-  const util: UtilityMatrix = {
+/** Noise-free utilities only; util.noisy is empty until attachNoisy. */
+export function noiseFreeUtilities(belief: Belief, ctx: AreaContext, profile: Profile): UtilityMatrix {
+  return {
     u: noiseFreeU(belief, ctx, profile),
     nSamples: belief.n,
     nAreas: ctx.areas.length,
     noisy: { areaIdx: new Int32Array(0), u: new Float32Array(0) },
   };
-  return refreshNoisy(util, belief, ctx, profile, seed);
-};
+}
 
-/** Rebuilds util.noisy for the current weights' top 20 (call after every replay). */
-export function refreshNoisy(util: UtilityMatrix, belief: Belief, ctx: AreaContext, profile: Profile, seed: number): UtilityMatrix {
-  const idx = topFeasible(util, belief.weights, ctx.feasible, NOISY_TOP);
-  const same = idx.length === util.noisy.areaIdx.length && idx.every((a, c) => util.noisy.areaIdx[c] === a);
-  if (same) return util;
+/** C = the top NOISY_CANDIDATES feasible areas by expected utility, then any greedy pick not among them. */
+export function candidateSet(util: UtilityMatrix, weights: Float64Array, feasible: Uint8Array, k: number): number[] {
+  const c = topFeasible(util, weights, feasible, NOISY_CANDIDATES);
+  for (const a of greedyShortlist(util, weights, feasible, k)) if (!c.includes(a)) c.push(a);
+  return c;
+}
+
+/** util with util.noisy over C for the belief's weights and a shortlist of k (R5). */
+export function attachNoisy(util: UtilityMatrix, belief: Belief, ctx: AreaContext, profile: Profile, seed: number, k: number): UtilityMatrix {
+  const idx = candidateSet(util, belief.weights, ctx.feasible, k);
   return { ...util, noisy: noisyUtilities(belief, ctx, profile, seed, idx) };
 }
 
-/** Per-sample maximum of u over the feasible areas (-Infinity when none). */
-function maxOverFeasible(util: UtilityMatrix, feasible: Uint8Array): Float64Array {
-  const nA = util.nAreas;
+/** Noise-free utilities plus the noisy matrix over C for the default shortlist size. */
+export const buildUtilities: BuildUtilities = (belief, ctx, profile, seed) =>
+  attachNoisy(noiseFreeUtilities(belief, ctx, profile), belief, ctx, profile, seed, DEFAULTS.shortlistSize);
+
+/** Per-sample maximum of the noisy u over the feasible areas of C (-Infinity when none). */
+function maxOverCandidates(util: UtilityMatrix, feasible: Uint8Array): Float64Array {
+  const { areaIdx, u } = util.noisy;
+  const nC = areaIdx.length;
   const out = new Float64Array(util.nSamples).fill(-Infinity);
   for (let i = 0; i < util.nSamples; i++) {
-    const row = i * nA;
     let m = -Infinity;
-    for (let a = 0; a < nA; a++) if (feasible[a] && util.u[row + a]! > m) m = util.u[row + a]!;
+    for (let c = 0; c < nC; c++) if (feasible[areaIdx[c]!] && u[i * nC + c]! > m) m = u[i * nC + c]!;
     out[i] = m;
   }
   return out;
+}
+
+/** Column of each area in util.noisy; -1 when the area is not in C. */
+function noisyColumns(util: UtilityMatrix, areas: readonly number[]): number[] {
+  return areas.map((a) => util.noisy.areaIdx.indexOf(a));
 }
 
 /** Greedy maximisation of EUS(S) over feasible areas, min(k, |F|) picks (E16). Returns picks in greedy order. */
@@ -216,7 +236,7 @@ export const greedyShortlist: GreedyShortlist = (util, weights, feasible, k) => 
   return chosen;
 };
 
-/** P_best over the noisy top-20 feasible areas; zero elsewhere; sums to 1 when any are feasible. */
+/** P_best over the feasible areas of C, noisy; zero elsewhere; sums to 1 when any are feasible. */
 export const pBest: PBest = (util, weights, feasible) => {
   const out = new Float64Array(util.nAreas);
   const { areaIdx, u } = util.noisy;
@@ -237,17 +257,21 @@ export const pBest: PBest = (util, weights, feasible) => {
   return out;
 };
 
-/** Risk(S) = sum_i pi_i (max_F u_i - max_S u_i), noise-free. 0 when nothing is feasible. */
+/**
+ * Risk(S) = sum_i pi_i (max_C u_i - max_S u_i) on the noisy matrix over C
+ * (R5). Members of S outside C are ignored. 0 when nothing in C is feasible.
+ */
 export const riskOfSet: RiskOfSet = (util, weights, feasible, set) => {
-  const maxF = maxOverFeasible(util, feasible);
-  const nA = util.nAreas;
+  const maxC = maxOverCandidates(util, feasible);
+  const nC = util.noisy.areaIdx.length;
+  const cols = noisyColumns(util, set).filter((c) => c >= 0);
   let risk = 0;
   for (let i = 0; i < util.nSamples; i++) {
-    if (!Number.isFinite(maxF[i]!)) continue;
+    if (!Number.isFinite(maxC[i]!)) continue;
     let m = -Infinity;
-    for (const a of set) if (util.u[i * nA + a]! > m) m = util.u[i * nA + a]!;
-    if (!Number.isFinite(m)) return Infinity; // empty set against a non-empty F
-    risk += weights[i]! * Math.max(0, maxF[i]! - m);
+    for (const c of cols) if (util.noisy.u[i * nC + c]! > m) m = util.noisy.u[i * nC + c]!;
+    if (!Number.isFinite(m)) return Infinity; // empty set against a non-empty C
+    risk += weights[i]! * Math.max(0, maxC[i]! - m);
   }
   return risk;
 };
@@ -278,7 +302,7 @@ function confidenceOf(a: number, ctx: AreaContext, profile: Profile): AreaConfid
   const rent: AreaConfidence['rent'] =
     area.land_value_yen_per_sqm == null || area.land_price_used_fallback === true
       ? 'ward_fallback'
-      : ctx.sigmaRent[a]! <= DEFAULTS.sigmaRentNear
+      : area.land_value_nearest_m != null && area.land_value_nearest_m <= NEAR_PRICE_POINT_M
         ? 'near_price_point'
         : 'distant_price_point';
   const t1 = ctx.minutes[0]?.[a];
@@ -286,7 +310,7 @@ function confidenceOf(a: number, ctx: AreaContext, profile: Profile): AreaConfid
     rent,
     landValueNearestM: area.land_value_nearest_m,
     access: area.access_confidence,
-    commuteBandMinutes: t1 !== undefined && Number.isFinite(t1) ? Math.max(DEFAULTS.travelNoiseMinMinutes, DEFAULTS.travelNoiseShare * t1) : 0,
+    commuteBandMinutes: t1 !== undefined && Number.isFinite(t1) ? travelNoiseSd(ctx, a, t1) : 0,
     lateReturnNotCovered: profile.anchors.some((x) => x.lateReturn === true),
   };
 }
@@ -301,7 +325,9 @@ export const recommend: Recommend = (belief, util, ctx, profile, opts) => {
 
   const picks = greedyShortlist(util, weights, ctx.feasible, k);
   const pb = pBest(util, weights, ctx.feasible);
-  const maxF = maxOverFeasible(util, ctx.feasible);
+  const maxC = maxOverCandidates(util, ctx.feasible);
+  const pickCols = noisyColumns(util, picks);
+  const nC = util.noisy.areaIdx.length;
   const medianIdx = medianFeasibleArea(belief, ctx, profile);
   const medianBreakdown = medianIdx >= 0 ? breakdownAt(medianIdx, belief, ctx, profile) : null;
   const terms = areaTerms(ctx, profile);
@@ -319,9 +345,15 @@ export const recommend: Recommend = (belief, util, ctx, profile, opts) => {
     }
   }
 
-  const items: ShortlistItem[] = picks.map((a) => {
+  const items: ShortlistItem[] = picks.map((a, r) => {
+    // Regret on the noisy matrix over C (R5); a pick outside C has none to report.
+    const col = pickCols[r]!;
     let regret = 0;
-    for (let i = 0; i < util.nSamples; i++) regret += weights[i]! * Math.max(0, maxF[i]! - util.u[i * nA + a]!);
+    if (col >= 0) {
+      for (let i = 0; i < util.nSamples; i++) {
+        if (Number.isFinite(maxC[i]!)) regret += weights[i]! * Math.max(0, maxC[i]! - util.noisy.u[i * nC + col]!);
+      }
+    }
     const mask = new Uint8Array(util.nSamples);
     for (let i = 0; i < util.nSamples; i++) mask[i] = bestInS[i] === a ? 1 : 0;
     const role = picks.length > 1 ? distinguishingParam(belief, mask) : null;

@@ -10,6 +10,7 @@ const EXCLUDED_LABELS: Record<keyof ExcludedSummary, string> = {
   disconnected: "Cannot reach an anchor",
   overBudgetFirm: "Over the firm budget",
   overCommuteCapFirm: "Over the firm commute cap",
+  uninhabited: "Almost no residents",
 };
 
 export function RelaxList({

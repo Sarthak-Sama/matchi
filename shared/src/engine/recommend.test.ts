@@ -24,8 +24,8 @@ describe('utilities', () => {
     }
   });
 
-  it('noisy block covers at most 20 feasible areas and is reproducible per area', () => {
-    expect(util.noisy.areaIdx.length).toBeLessThanOrEqual(20);
+  it('noisy block covers C (top 40 plus the greedy shortlist), feasible only, and is reproducible per area', () => {
+    expect(util.noisy.areaIdx.length).toBeLessThanOrEqual(40 + 5);
     for (const a of util.noisy.areaIdx) expect(ctx.feasible[a]).toBe(1);
     const a = util.noisy.areaIdx[3]!;
     const alone = noisyUtilities(belief, ctx, profile, 1, [a]);
@@ -159,9 +159,10 @@ describe('createEngine', () => {
   it('flags a contradiction and names the item it conflicts with', () => {
     const e = createEngine(areas, SYNTHETIC_PARAMS, 1);
     e.setProfile(syntheticProfile(), times);
-    const first = e.observe({ type: 'direction', feature: 'bars', sign: 1, strength: 'strong' });
-    e.observe({ type: 'direction', feature: 'bars', sign: 1, strength: 'strong' });
-    const r = e.observe({ type: 'direction', feature: 'bars', sign: -1, strength: 'normal' });
+    // Taps (R4: epsilon 0.02); against text items the 0.10 floor keeps p above the threshold.
+    const first = e.observe({ type: 'direction', feature: 'bars', sign: 1, strength: 'strong', source: 'tap' });
+    e.observe({ type: 'direction', feature: 'bars', sign: 1, strength: 'strong', source: 'tap' });
+    const r = e.observe({ type: 'direction', feature: 'bars', sign: -1, strength: 'normal', source: 'tap' });
     expect(r.ok && r.surprising).toBe(true);
     expect(r.ok && first.ok && r.conflictsWith).toBeTruthy();
   });

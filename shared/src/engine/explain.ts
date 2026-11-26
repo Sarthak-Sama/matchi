@@ -2,7 +2,7 @@
 // "Explanations"). Computed from the same samples and utilities as the
 // recommendation. Does not import recommend.ts (recommend imports this file).
 import { C_T_INDEX, FEATURE_OFFSET, GAMMA_INDEX, LAMBDA_B_INDEX, distinguishingParam, weightedMoments } from './belief.js';
-import { areaTerms, buildAreaContext, dataGap } from './features.js';
+import { anchorCaps, areaTerms, buildAreaContext, dataGap } from './features.js';
 import {
   FEATURE_KEYS,
   type AreaContext,
@@ -14,6 +14,7 @@ import {
   type ExplainRelax,
   type ExplainWhyNot,
   type FeatureKey,
+  type Limit,
   type Profile,
   type RelaxOption,
   type UtilityMatrix,
@@ -121,6 +122,7 @@ export const explainWhyNot: ExplainWhyNot = (localityId, belief, util, ctx, prof
 
   if (!ctx.feasible[x]) {
     const gap = dataGap(ctx.areas[x]!);
+    if (gap === 'uninhabited') return { kind: 'fails_firm_limit', localityId, limit: 'uninhabited', by: 0, unit: 'none' };
     if (gap === 'nullRent' || !Number.isFinite(ctx.rent[x]!)) return { kind: 'fails_firm_limit', localityId, limit: 'null_rent', by: 0, unit: 'none' };
     if (gap === 'nullLifestyle') return { kind: 'fails_firm_limit', localityId, limit: 'null_lifestyle', by: 0, unit: 'none' };
     if (gap === 'missingAccess') return { kind: 'fails_firm_limit', localityId, limit: 'no_access', by: 0, unit: 'none' };
@@ -129,10 +131,14 @@ export const explainWhyNot: ExplainWhyNot = (localityId, belief, util, ctx, prof
     if (budget?.firm && ctx.rent[x]! > budget.value) {
       return { kind: 'fails_firm_limit', localityId, limit: 'budget', by: ctx.rent[x]! - budget.value, unit: 'yen' };
     }
-    const cap = profile.commuteCap;
-    const t1 = ctx.minutes[0]?.[x];
-    if (cap?.firm && t1 !== undefined && t1 > cap.value) {
-      return { kind: 'fails_firm_limit', localityId, limit: 'commute_cap', by: t1 - cap.value, unit: 'minutes' };
+    const caps = anchorCaps(profile);
+    for (let m = 0; m < caps.length; m++) {
+      const cap = caps[m];
+      const t = ctx.minutes[m]?.[x];
+      if (cap?.firm && t !== undefined && t > cap.value) {
+        const anchorId = profile.anchors[m]!.id;
+        return { kind: 'fails_firm_limit', localityId, limit: 'commute_cap', by: t - cap.value, unit: 'minutes', anchorId };
+      }
     }
   }
 
@@ -207,14 +213,23 @@ export const explainCompare: ExplainCompare = (a, b, belief, util, ctx, profile)
   return { a, b, diff, pABeatsB: p };
 };
 
+/** The profile with anchor m's cap replaced; the main anchor's legacy profile.commuteCap is updated in place of a missing anchor cap. */
+function withAnchorCap(profile: Profile, m: number, cap: Limit): Profile {
+  if (m === 0 && profile.anchors[0]?.cap === undefined && profile.commuteCap !== undefined) {
+    return { ...profile, commuteCap: cap };
+  }
+  return { ...profile, anchors: profile.anchors.map((a, i) => (i === m ? { ...a, cap } : a)) };
+}
+
 /**
- * Fixed steps per limit that is set (E27: unset limits skipped). Gains are
+ * Fixed steps per limit that is set (E27: unset limits skipped); one
+ * commute_cap group per capped anchor (E8). Gains are
  * against the current profile: areasGained = feasible count change,
  * yenGained = rise of the best expected U over the feasible set (exact
  * expected U from the parameter moments; 0 when nothing was feasible before
  * or after). The belief is kept as is (same samples and scale). binding marks
- * every step of the limit with the larger yen gain at its first step (ties:
- * more areas gained). `seed` is unused: no noise enters relax.
+ * every step of the limit (and anchor) with the largest yen gain at its first
+ * step (ties: more areas gained, then the earlier limit). `seed` is unused: no noise enters relax.
  */
 export const explainRelax: ExplainRelax = (areas, params, profile, anchorTimes, belief) => {
   const { mean, gammaCt } = weightedMoments(belief);
@@ -232,10 +247,11 @@ export const explainRelax: ExplainRelax = (areas, params, profile, anchorTimes, 
   };
   const base = evaluate(profile);
   const options: RelaxOption[] = [];
-  const add = (limit: RelaxOption['limit'], step: number, newValue: number, p: Profile): void => {
+  const add = (limit: RelaxOption['limit'], step: number, newValue: number, p: Profile, anchorId?: string): void => {
     const r = evaluate(p);
     const yenGained = Number.isFinite(base.best) && Number.isFinite(r.best) ? Math.max(0, r.best - base.best) : 0;
-    options.push({ limit, step, newValue, areasGained: r.count - base.count, yenGained, binding: false });
+    const option: RelaxOption = { limit, step, newValue, areasGained: r.count - base.count, yenGained, binding: false };
+    options.push(anchorId !== undefined ? { ...option, anchorId } : option);
   };
   if (profile.budget) {
     for (const s of RELAX_BUDGET_STEPS) {
@@ -243,20 +259,21 @@ export const explainRelax: ExplainRelax = (areas, params, profile, anchorTimes, 
       add('budget', s, v, { ...profile, budget: { ...profile.budget, value: v } });
     }
   }
-  if (profile.commuteCap) {
+  anchorCaps(profile).forEach((cap, m) => {
+    if (!cap) return;
+    const anchorId = profile.anchors[m]!.id;
     for (const s of RELAX_CAP_STEPS) {
-      const v = profile.commuteCap.value + s;
-      add('commute_cap', s, v, { ...profile, commuteCap: { ...profile.commuteCap, value: v } });
+      const v = cap.value + s;
+      add('commute_cap', s, v, withAnchorCap(profile, m, { ...cap, value: v }), anchorId);
     }
+  });
+  const group = (o: RelaxOption): string => `${o.limit}:${o.anchorId ?? ''}`;
+  let binding: RelaxOption | null = null;
+  for (const o of options) {
+    const isFirstStep = options.find((x) => group(x) === group(o)) === o;
+    if (!isFirstStep) continue;
+    if (!binding || o.yenGained > binding.yenGained || (o.yenGained === binding.yenGained && o.areasGained > binding.areasGained)) binding = o;
   }
-  const first = (limit: RelaxOption['limit']): RelaxOption | undefined => options.find((o) => o.limit === limit);
-  const fb = first('budget');
-  const fc = first('commute_cap');
-  let binding: RelaxOption['limit'] | null = null;
-  if (fb && fc) {
-    binding = fb.yenGained > fc.yenGained || (fb.yenGained === fc.yenGained && fb.areasGained >= fc.areasGained) ? 'budget' : 'commute_cap';
-  } else if (fb) binding = 'budget';
-  else if (fc) binding = 'commute_cap';
-  for (const o of options) o.binding = o.limit === binding;
+  for (const o of options) o.binding = binding !== null && group(o) === group(binding);
   return options;
 };

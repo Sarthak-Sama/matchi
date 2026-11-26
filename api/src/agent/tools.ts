@@ -1,6 +1,6 @@
 // The nine agent tools: zod-validated input, compact rounded JSON out, and
 // typed error results instead of exceptions (docs/plans/agent-harness-plan.md, "Tools").
-import { AnchorSchema, EvidenceSchema, FeatureKeySchema, LimitSchema, ProfileSchema } from "@tokyo/shared";
+import { AnchorSchema, FeatureKeySchema, LimitSchema, ModelEvidenceSchema, ProfileSchema } from "@tokyo/shared";
 import type {
   AreaFeatures,
   BeliefSummary,
@@ -119,10 +119,20 @@ function areaNames(area: AreaFeatures | undefined): { untrusted_text: Record<str
   };
 }
 
-function areaRef(ctx: ToolContext, id: string): Record<string, unknown> {
+function areaById(ctx: ToolContext, id: string): AreaFeatures | undefined {
   const idx = ctx.features.areaIndex.get(id);
-  const area = idx === undefined ? undefined : ctx.features.areas[idx];
-  return { area_id: id, names: areaNames(area) };
+  return idx === undefined ? undefined : ctx.features.areas[idx];
+}
+
+function areaRef(ctx: ToolContext, id: string): Record<string, unknown> {
+  return { area_id: id, names: areaNames(areaById(ctx, id)) };
+}
+
+/** D8: survey rent, scaled to listing references for the ward. */
+function rentLabel(area: AreaFeatures | undefined): string {
+  const refs = area?.rent_market_refs;
+  if (refs === null || refs === undefined) return "modelled monthly rent from the housing survey";
+  return `modelled from survey, adjusted to listings (${String(refs)} refs)`;
 }
 
 function formatBreakdown(b: Breakdown): Record<string, unknown> {
@@ -191,7 +201,7 @@ export function formatRecommendation(rec: Recommendation, ctx: ToolContext): Rec
         untrusted_text: { name_en: item.nameEn, name_ja: item.nameJa, ward_name_en: item.wardNameEn },
       },
       rent_yen: roundRent(item.rentYen),
-      rent_label: "modelled monthly rent, ward-level estimate",
+      rent_label: rentLabel(areaById(ctx, item.localityId)),
       commute_minutes: finiteOrNull(item.commuteMinutes, roundMinutes),
       commute_label: "estimated one-way minutes to the main anchor",
       monthly_travel_hours: finiteOrNull(item.monthlyTravelHours, roundHours),
@@ -257,6 +267,7 @@ function formatProfile(p: Profile): Record<string, unknown> {
       trips_per_week: a.tripsPerWeek,
       period: a.period,
       late_return: a.lateReturn ?? false,
+      cap: a.cap ? { minutes: a.cap.value, firm: a.cap.firm, label: "one-way minutes to this anchor" } : null,
     })),
     layout: p.layout ?? null,
     budget: p.budget ? { yen: p.budget.value, firm: p.budget.firm, label: "monthly rent budget" } : null,
@@ -442,8 +453,9 @@ function defineTools(layouts: () => readonly string[]) {
     name: "set_profile",
     description:
       "Store facts about the person's life: anchors (places they travel to, each with a station id from lookup " +
-      "or a point, trips per week, peak or offpeak), layout, budget (monthly yen, firm or not), commute cap " +
-      "(one-way minutes to the first anchor, firm or not), and per-feature 'enough' multipliers. Partial updates: " +
+      "or a point, trips per week, peak or offpeak, and an optional cap: one-way minutes to that anchor, firm or not), " +
+      "layout, budget (monthly yen, firm or not), commute cap (one-way minutes to the first anchor, firm or not; " +
+      "same as the first anchor's cap), and per-feature 'enough' multipliers. Partial updates: " +
       "fields left out keep their value; anchors, when given, replace the list (the first is the main anchor).",
     schema: SetProfileInputSchema,
     async run(input, ctx) {
@@ -494,7 +506,8 @@ function defineTools(layouts: () => readonly string[]) {
     },
   };
 
-  const observeSchema = z.object({ items: z.array(EvidenceSchema).min(1).max(10) }).strict();
+  // The model never sets source: it is stripped here and stamped 'text' below (R4).
+  const observeSchema = z.object({ items: z.array(ModelEvidenceSchema).min(1).max(10) }).strict();
   const observe: ToolDef<typeof observeSchema> = {
     name: "observe",
     description:
@@ -504,7 +517,7 @@ function defineTools(layouts: () => readonly string[]) {
     schema: observeSchema,
     run({ items }, ctx) {
       const results = items.map((item) => {
-        const r = ctx.session.engine.observe(item);
+        const r = ctx.session.engine.observe({ ...item, source: "text" });
         if (!r.ok) return { ok: false, type: item.type, error: r.error };
         return {
           ok: true,

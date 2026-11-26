@@ -18,15 +18,17 @@ export const FEATURE_KEYS = [
   'bars',
   'dining_reach',
   'connectedness',
+  // Appended last so the packed index of every earlier parameter is unchanged.
+  'safety',
 ] as const;
 export const FeatureKeySchema = z.enum(FEATURE_KEYS);
 export type FeatureKey = z.infer<typeof FeatureKeySchema>;
 
-/** theta = (c_T, w_1..w_12, lambda_B, gamma). Index order of the packed sample vector. */
+/** theta = (c_T, w_1..w_13, lambda_B, gamma). Index order of the packed sample vector. */
 export const PARAM_KEYS = ['c_t', ...FEATURE_KEYS, 'lambda_b', 'gamma'] as const;
 export const ParamKeySchema = z.enum(PARAM_KEYS);
 export type ParamKey = z.infer<typeof ParamKeySchema>;
-export const PARAM_COUNT = PARAM_KEYS.length; // 15
+export const PARAM_COUNT = PARAM_KEYS.length; // 16
 
 export const ARCHETYPES = ['student', 'young_professional', 'couple', 'family', 'remote_worker'] as const;
 export type Archetype = (typeof ARCHETYPES)[number];
@@ -80,6 +82,18 @@ export interface AreaFeatures {
   access_confidence: 'high' | 'medium' | 'low' | null;
   /** Residents, 2020 census. Optional so older fixtures stay valid; null or absent means unknown. */
   population?: number | null;
+  /** Earthquake risk rank 1 (safest) to 5. Shown on cards; the engine reads safety_score only. */
+  quake_rank?: number | null;
+  /** Share of the area in deep (0.5 m or more) flood zones, 0 to 1. Shown on cards. */
+  flood_share?: number | null;
+  /** Reported offences per 1,000 residents. Shown on cards; never a utility input (inflated where few live). */
+  crime_per_1k?: number | null;
+  /** 0 (least safe) to 1, combining the three above. Null means no data: the feature takes the median. */
+  safety_score?: number | null;
+  nearest_station_name_ja?: string | null;
+  nearest_station_name_en?: string | null;
+  /** Listing reference rents behind the ward's market adjustment; 0 = city-wide factor. */
+  rent_market_refs?: number | null;
 }
 
 export const PeriodSchema = z.enum(['peak', 'offpeak']);
@@ -109,6 +123,9 @@ export interface ModelParams {
   rentSizeCurve?: readonly RentSizeClass[];
   /** ward_code -> interquartile ratio (75th / 25th percentile rent) of the ward's rented dwellings, from the survey rent bands. */
   rentSpreadByWard?: Readonly<Record<string, number>>;
+  /** Choice noise beta and statement noise tau as shares of scale (model_params evidence_beta_share / evidence_tau_share). */
+  betaShare?: number;
+  tauShare?: number;
 }
 
 export interface CommuteErrorBand {
@@ -129,9 +146,6 @@ export interface RentSizeClass {
 export interface EngineDefaults {
   samples: number; // 4000
   shortlistSize: number; // 5
-  betaShare: number; // 0.03
-  tauShare: number; // 0.01
-  epsilon: number; // 0.05
   stopRiskShare: number; // 0.01
   maxQuestions: number; // 6
   /** P8 deviation: the risk stop applies only once this many questions are answered. */
@@ -142,11 +156,13 @@ export interface EngineDefaults {
   sigmaRentFar: number; // 0.12
   travelNoiseShare: number; // 0.15
   travelNoiseMinMinutes: number; // 3
-  rentClamp: readonly [number, number]; // [0.7, 1.4]
   essFloor: number; // 200
 }
 
 // ---------- Profile ----------
+
+export const LimitSchema = z.object({ value: z.number().positive(), firm: z.boolean() });
+export type Limit = z.infer<typeof LimitSchema>;
 
 export const AnchorSchema = z.object({
   id: z.string().min(1),
@@ -158,11 +174,10 @@ export const AnchorSchema = z.object({
   period: PeriodSchema.default('peak'),
   /** Flags the result: last trains are not in the data. */
   lateReturn: z.boolean().optional(),
+  /** One-way minutes cap for this anchor. The main anchor's cap may instead be profile.commuteCap. */
+  cap: LimitSchema.optional(),
 });
 export type Anchor = z.infer<typeof AnchorSchema>;
-
-export const LimitSchema = z.object({ value: z.number().positive(), firm: z.boolean() });
-export type Limit = z.infer<typeof LimitSchema>;
 
 export const ProfileSchema = z.object({
   /** First anchor is the main anchor (T_1). */
@@ -171,7 +186,7 @@ export const ProfileSchema = z.object({
   layout: z.string().optional(),
   /** Monthly yen. */
   budget: LimitSchema.optional(),
-  /** One-way minutes to the main anchor. */
+  /** One-way minutes to the main anchor (kept for older sessions; anchors[0].cap wins when both are set). */
   commuteCap: LimitSchema.optional(),
   /** Multipliers on h per feature ("lots, not just enough"). */
   enoughMultipliers: z.partialRecord(FeatureKeySchema, z.number().positive()).default({}),
@@ -195,7 +210,13 @@ export interface ProfileResult {
 
 export const StrengthSchema = z.enum(['weak', 'normal', 'strong']);
 export type Strength = z.infer<typeof StrengthSchema>;
-export const STRENGTH_ALPHA: Readonly<Record<Strength, number>> = { weak: 0.5, normal: 1, strong: 2 };
+export const STRENGTH_ALPHA: Readonly<Record<Strength, number>> = { weak: 0.5, normal: 1, strong: 1.5 };
+
+/** Who produced an item: a tap on the page, or the model reading free text. Stamped by the server. */
+export const EvidenceSourceSchema = z.enum(['tap', 'text']);
+export type EvidenceSource = z.infer<typeof EvidenceSourceSchema>;
+/** Lapse rate epsilon per source: a tap is rarely a slip, a reading of free text more often is. */
+export const SOURCE_EPSILON: Readonly<Record<EvidenceSource, number>> = { tap: 0.02, text: 0.1 };
 
 export const MagnitudeTierSchema = z.enum(['low', 'medium', 'high', 'essential']);
 export type MagnitudeTier = z.infer<typeof MagnitudeTierSchema>;
@@ -206,35 +227,45 @@ export const MAGNITUDE_TIER_SHARE: Readonly<Record<MagnitudeTier, number>> = {
   essential: 0.08,
 };
 
-const evidenceBase = {
+const modelEvidenceBase = {
   /** Assigned by the engine in observe() when absent. */
   id: z.string().optional(),
   strength: StrengthSchema.default('normal'),
   /** The person's words; shown on the chip. */
   quote: z.string().optional(),
 };
+const evidenceBase = {
+  ...modelEvidenceBase,
+  /** Absent means 'text', so stored sessions from before the field still parse. */
+  source: EvidenceSourceSchema.optional(),
+};
 const areaId = z.string().min(1);
 
-export const EvidenceSchema = z.discriminatedUnion('type', [
-  z.object({ ...evidenceBase, type: z.literal('prefer_area'), a: areaId, b: areaId }),
-  z.object({ ...evidenceBase, type: z.literal('pick_from_set'), chosen: areaId, set: z.array(areaId).min(2) }),
-  z.object({ ...evidenceBase, type: z.literal('reject_area'), rejected: areaId, set: z.array(areaId).min(2) }),
-  z.object({ ...evidenceBase, type: z.literal('direction'), feature: FeatureKeySchema, sign: z.union([z.literal(1), z.literal(-1)]) }),
-  z.object({ ...evidenceBase, type: z.literal('magnitude'), feature: FeatureKeySchema, tier: MagnitudeTierSchema }),
-  z.object({ ...evidenceBase, type: z.literal('compare_importance'), more: FeatureKeySchema, less: FeatureKeySchema }),
-  z.object({
-    ...evidenceBase,
-    type: z.literal('time_tradeoff'),
-    yen: z.number().positive(),
-    /** One-way minutes saved. */
-    minutes: z.number().positive(),
-    accept: z.boolean(),
-    /** Defaults to the main anchor's trips per week. */
-    tripsPerWeek: z.number().positive().optional(),
-  }),
-  z.object({ ...evidenceBase, type: z.literal('like_area'), area: areaId }),
-  z.object({ ...evidenceBase, type: z.literal('dislike_area'), area: areaId }),
-]);
+function evidenceUnion<B extends typeof modelEvidenceBase>(base: B) {
+  return z.discriminatedUnion('type', [
+    z.object({ ...base, type: z.literal('prefer_area'), a: areaId, b: areaId }),
+    z.object({ ...base, type: z.literal('pick_from_set'), chosen: areaId, set: z.array(areaId).min(2) }),
+    z.object({ ...base, type: z.literal('reject_area'), rejected: areaId, set: z.array(areaId).min(2) }),
+    z.object({ ...base, type: z.literal('direction'), feature: FeatureKeySchema, sign: z.union([z.literal(1), z.literal(-1)]) }),
+    z.object({ ...base, type: z.literal('magnitude'), feature: FeatureKeySchema, tier: MagnitudeTierSchema }),
+    z.object({ ...base, type: z.literal('compare_importance'), more: FeatureKeySchema, less: FeatureKeySchema }),
+    z.object({
+      ...base,
+      type: z.literal('time_tradeoff'),
+      yen: z.number().positive(),
+      /** One-way minutes saved. */
+      minutes: z.number().positive(),
+      accept: z.boolean(),
+      /** Defaults to the main anchor's trips per week. */
+      tripsPerWeek: z.number().positive().optional(),
+    }),
+    z.object({ ...base, type: z.literal('like_area'), area: areaId }),
+    z.object({ ...base, type: z.literal('dislike_area'), area: areaId }),
+  ]);
+}
+export const EvidenceSchema = evidenceUnion(evidenceBase);
+/** What the model may send: no source, which the server stamps. Unknown keys such as a source are stripped. */
+export const ModelEvidenceSchema = evidenceUnion(modelEvidenceBase);
 export type Evidence = z.infer<typeof EvidenceSchema>;
 export type EvidenceType = Evidence['type'];
 /** An item in the log: id is always set. */
@@ -320,6 +351,8 @@ export type NextQuestion =
   | { kind: 'pair'; a: string; b: string; pABeatsB: number; evoiYen?: number };
 /** Count per reason; an area is counted once, under the first reason in this order. */
 export interface ExcludedSummary {
+  /** Fewer than 100 residents (offices, parks, port land); unknown population is not excluded. */
+  uninhabited: number;
   /** Null rent_per_sqm_yen or management_fee_yen. */
   nullRent: number;
   /** Any null lifestyle column (zoning share, exposure share, bar_count, ...). */
@@ -333,6 +366,8 @@ export interface ExcludedSummary {
 }
 export interface RelaxOption {
   limit: 'budget' | 'commute_cap';
+  /** commute_cap only: the anchor whose cap is raised. */
+  anchorId?: string;
   /** 0.05 | 0.10 | 0.20 share for budget; 5 | 10 | 15 minutes for commute cap. */
   step: number;
   newValue: number;
@@ -360,7 +395,15 @@ export interface Recommendation {
 export type WhyNot =
   | { kind: 'unknown_area'; localityId: string }
   | { kind: 'is_top_pick'; localityId: string }
-  | { kind: 'fails_firm_limit'; localityId: string; limit: 'budget' | 'commute_cap' | 'null_rent' | 'null_lifestyle' | 'no_access' | 'disconnected'; by: number; unit: 'yen' | 'minutes' | 'none' }
+  | {
+      kind: 'fails_firm_limit';
+      localityId: string;
+      limit: 'budget' | 'commute_cap' | 'uninhabited' | 'null_rent' | 'null_lifestyle' | 'no_access' | 'disconnected';
+      by: number;
+      unit: 'yen' | 'minutes' | 'none';
+      /** commute_cap only: the anchor whose cap is missed. */
+      anchorId?: string;
+    }
   | { kind: 'wins_for_some'; localityId: string; weight: number; param: ParamKey; ratio: number }
   | { kind: 'needs_weight_change'; localityId: string; term: BreakdownTerm; factor: number; gapYen: number }
   | { kind: 'dominated'; localityId: string; gapYen: number };
@@ -447,6 +490,11 @@ export interface AreaContext {
   /** s_j(x_aj), row-major: sat[a * FEATURE_KEYS.length + j]. */
   sat: Float64Array;
   sigmaRent: Float64Array;
+  /** Calibrated sd of the commute estimate in minutes, by the area's access confidence; NaN = uncalibrated (use the fallback band). */
+  commuteSigma: Float64Array;
+  /** ModelParams.betaShare / tauShare; absent = the engine's fallback constants. */
+  betaShare?: number;
+  tauShare?: number;
   /** 1 = passes every firm limit and has access values. */
   feasible: Uint8Array;
   excluded: ExcludedSummary;
@@ -462,29 +510,30 @@ export type BuildAreaContext = (areas: readonly AreaFeatures[], params: ModelPar
 /** belief.ts */
 export type SamplePrior = (scale: number, seed: number, n?: number) => Belief;
 export type EffectiveSampleSize = (weights: Float64Array) => number;
-/** Prior times every likelihood in the log; returns a new Belief with fresh weights. */
+/** Prior times every likelihood in the log; returns a new Belief with fresh weights. epsilon overrides the per-item SOURCE_EPSILON. */
 export type Replay = (prior: Belief, log: readonly LoggedEvidence[], likelihood: Likelihood, epsilon?: number) => Belief;
 export type SummarizeBelief = (belief: Belief, essFloor?: number) => BeliefSummary;
 
 /**
- * recommend.ts. E01: `u` is NOISE-FREE, u[i * nAreas + a]. EUS, Risk, regret,
- * the stop rule and question choice read `u` only. Rent and travel-time noise
- * exists only in `noisy`, for P_best (over the top 20 feasible areas by
- * expected utility) and compare's "a beats b".
+ * recommend.ts. `u` is NOISE-FREE, u[i * nAreas + a]: EUS, the greedy
+ * shortlist, likelihoods and question choice read it. Rent and travel-time
+ * noise exists only in `noisy`, one matrix over the candidate set C (top 40
+ * feasible by expected utility plus the greedy shortlist), which P_best,
+ * regret, Risk and compare all read (R5).
  */
 export interface UtilityMatrix {
   u: Float32Array;
   nSamples: number;
   nAreas: number;
-  /** Rebuilt whenever weights change the top 20. */
+  /** Empty until attached (attachNoisy); the engine caches it per belief and profile version. */
   noisy: {
-    /** Area indices covered, at most 20, by expected noise-free utility. */
+    /** Area indices in C. */
     areaIdx: Int32Array;
     /** u[i * areaIdx.length + c] for column c = position in areaIdx. */
     u: Float32Array;
   };
 }
-/** Noisy utilities for an arbitrary area list (compare's pair may be outside the top 20). */
+/** Noisy utilities for an arbitrary area list; an area's values do not depend on which other areas are listed. */
 export type NoisyUtilities = (belief: Belief, ctx: AreaContext, profile: Profile, seed: number, areaIdx: readonly number[]) => UtilityMatrix['noisy'];
 export type BuildUtilities = (belief: Belief, ctx: AreaContext, profile: Profile, seed: number) => UtilityMatrix;
 
@@ -496,7 +545,7 @@ export type SurpriseThreshold = (e: Evidence) => number;
 
 /** recommend.ts */
 export type GreedyShortlist = (util: UtilityMatrix, weights: Float64Array, feasible: Uint8Array, k: number) => number[];
-/** Length nAreas; zero outside util.noisy.areaIdx; sums to 1. */
+/** Length nAreas; zero outside util.noisy.areaIdx; sums to 1. Risk reads util.noisy too. */
 export type PBest = (util: UtilityMatrix, weights: Float64Array, feasible: Uint8Array) => Float64Array;
 export type RiskOfSet = (util: UtilityMatrix, weights: Float64Array, feasible: Uint8Array, set: readonly number[]) => number;
 export type Recommend = (belief: Belief, util: UtilityMatrix, ctx: AreaContext, profile: Profile, opts: { k: number; questionsAsked: number; defaults: EngineDefaults }) => Recommendation;

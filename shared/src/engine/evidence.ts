@@ -1,12 +1,13 @@
 // Evidence likelihoods, predictive probability and surprise
 // (docs/plans/engine-spec.md, "Evidence"). E01: every likelihood reads the
 // noise-free util.u. Pure and deterministic.
-import { FEATURE_OFFSET, C_T_INDEX, LAMBDA_B_INDEX, DEFAULT_EPSILON } from './belief.js';
+import { FEATURE_OFFSET, C_T_INDEX, LAMBDA_B_INDEX } from './belief.js';
 import { monthlyHours } from './features.js';
 import {
   FEATURE_KEYS,
   MAGNITUDE_TIER_SHARE,
   PARAM_COUNT,
+  SOURCE_EPSILON,
   type AreaContext,
   type EngineError,
   type Evidence,
@@ -18,7 +19,11 @@ import {
   type UtilityMatrix,
 } from './types.js';
 
-/** Choice noise beta and statement noise tau, as shares of scale. */
+/**
+ * Choice noise beta and statement noise tau, as shares of scale, used only
+ * when ModelParams carries none. The values in use come from model_params
+ * (evidence_beta_share, evidence_tau_share) via AreaContext.
+ */
 export const BETA_SHARE = 0.03;
 export const TAU_SHARE = 0.01;
 /** Width of the magnitude kernel in log space. */
@@ -150,8 +155,8 @@ function likeArea(x: number, like: boolean, belief: { theta: Float64Array }, uti
 export const likelihood: Likelihood = (e, belief, util, ctx, profile, out) => {
   const n = belief.n;
   const B = belief.scale;
-  const beta = BETA_SHARE * B;
-  const tau = TAU_SHARE * B;
+  const beta = (ctx.betaShare ?? BETA_SHARE) * B;
+  const tau = (ctx.tauShare ?? TAU_SHARE) * B;
   const nA = util.nAreas;
   const th = belief.theta;
   switch (e.type) {
@@ -228,8 +233,8 @@ export function bindLikelihood(util: UtilityMatrix, ctx: AreaContext, profile: P
   return (e, belief, _u, _c, _p, out) => likelihood(e, belief, util, ctx, profile, out);
 }
 
-/** p_e = sum_i pi_i ((1 - eps) L_i + eps). Strength alpha is not applied (spec). */
-export const predictive: Predictive = (weights, likelihoods, epsilon = DEFAULT_EPSILON) => {
+/** p_e = sum_i pi_i ((1 - eps) L_i + eps). Strength alpha is not applied (spec). Pass the item's epsilon (itemEpsilon). */
+export const predictive: Predictive = (weights, likelihoods, epsilon = SOURCE_EPSILON.text) => {
   let p = 0;
   for (let i = 0; i < weights.length; i++) {
     const l = likelihoods[i]!;

@@ -107,7 +107,8 @@ export function registerAgentDirectRoute(app: FastifyInstance, deps: AgentDirect
   app.post("/v1/agent/session/:id/evidence", async (request, reply) => {
     const { session, runtime } = await sessionFor(request);
     const { items } = parseOrThrow(EvidenceBodySchema, request.body);
-    const results: ObserveResult[] = items.map((item) => session.engine.observe(item));
+    // Direct routes carry the person's taps (R4); the client cannot claim otherwise.
+    const results: ObserveResult[] = items.map((item) => session.engine.observe({ ...item, source: "tap" }));
     await runtime.sessions.save(session);
     reply.status(200).send({ results, view: buildView(session.engine) });
   });

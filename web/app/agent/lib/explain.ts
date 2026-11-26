@@ -20,6 +20,7 @@ export function describeWhyNot(w: WhyNot, names: NameOf): string {
         null_lifestyle: "its lifestyle data is incomplete",
         no_access: "its access data is missing",
         disconnected: "it cannot be reached from your anchor",
+        uninhabited: "almost nobody lives there",
       };
       return `${name} is left out because ${reason[w.limit]}.`;
     }

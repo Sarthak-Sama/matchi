@@ -7,11 +7,13 @@ import {
   FEATURE_KEYS,
   PARAM_COUNT,
   PARAM_KEYS,
+  SOURCE_EPSILON,
   STRENGTH_ALPHA,
   type AreaContext,
   type Archetype,
   type Belief,
   type EffectiveSampleSize,
+  type EvidenceSource,
   type FeatureKey,
   type ParamKey,
   type ParamSummary,
@@ -23,14 +25,13 @@ import {
 } from './types.js';
 
 export const DEFAULT_SAMPLES = 4000;
-export const DEFAULT_EPSILON = 0.05;
 export const DEFAULT_ESS_FLOOR = 200;
 
 /** Index of each parameter in a packed sample. */
 export const C_T_INDEX = 0;
 export const FEATURE_OFFSET = 1;
-export const LAMBDA_B_INDEX = FEATURE_OFFSET + FEATURE_KEYS.length; // 13
-export const GAMMA_INDEX = LAMBDA_B_INDEX + 1; // 14
+export const LAMBDA_B_INDEX = FEATURE_OFFSET + FEATURE_KEYS.length; // 14
+export const GAMMA_INDEX = LAMBDA_B_INDEX + 1; // 15
 
 /** c_T median = scale / 133 (rent a third of pay, 160 paid hours, time at 40% of hourly pay). */
 export const C_T_DIVISOR = 133;
@@ -42,13 +43,13 @@ export const LAMBDA_B_SIGMA = 0.7;
 export const GAMMA_MEDIAN = 3;
 export const GAMMA_SIGMA = 0.5;
 
-/** Archetype medians, percent of budget, in FEATURE_KEYS order (spec table; hand-set starting values). */
+/** Archetype medians, percent of budget, in FEATURE_KEYS order (spec table; hand-set starting values; safety is a modest D10 addition). */
 export const ARCHETYPE_PERCENT: Readonly<Record<Archetype, Readonly<Record<FeatureKey, number>>>> = {
-  student: { supermarkets: 3, dining: 2, konbini: 3, cuisine_variety: 1, late_night: 3, health: 1, green_space: 1, residential_calm: 1, road_rail_exposure: -1, bars: 2, dining_reach: 2, connectedness: 2 },
-  young_professional: { supermarkets: 2, dining: 4, konbini: 3, cuisine_variety: 3, late_night: 3, health: 1, green_space: 2, residential_calm: 2, road_rail_exposure: -2, bars: 2, dining_reach: 3, connectedness: 3 },
-  couple: { supermarkets: 4, dining: 4, konbini: 1, cuisine_variety: 3, late_night: 1, health: 2, green_space: 3, residential_calm: 3, road_rail_exposure: -3, bars: 0, dining_reach: 2, connectedness: 2 },
-  family: { supermarkets: 5, dining: 2, konbini: 1, cuisine_variety: 1, late_night: 0.5, health: 4, green_space: 5, residential_calm: 5, road_rail_exposure: -4, bars: -3, dining_reach: 1, connectedness: 1 },
-  remote_worker: { supermarkets: 4, dining: 4, konbini: 2, cuisine_variety: 2, late_night: 1, health: 2, green_space: 4, residential_calm: 4, road_rail_exposure: -4, bars: 0, dining_reach: 2, connectedness: 1 },
+  student: { supermarkets: 3, dining: 2, konbini: 3, cuisine_variety: 1, late_night: 3, health: 1, green_space: 1, residential_calm: 1, road_rail_exposure: -1, bars: 2, dining_reach: 2, connectedness: 2, safety: 1 },
+  young_professional: { supermarkets: 2, dining: 4, konbini: 3, cuisine_variety: 3, late_night: 3, health: 1, green_space: 2, residential_calm: 2, road_rail_exposure: -2, bars: 2, dining_reach: 3, connectedness: 3, safety: 1 },
+  couple: { supermarkets: 4, dining: 4, konbini: 1, cuisine_variety: 3, late_night: 1, health: 2, green_space: 3, residential_calm: 3, road_rail_exposure: -3, bars: 0, dining_reach: 2, connectedness: 2, safety: 2 },
+  family: { supermarkets: 5, dining: 2, konbini: 1, cuisine_variety: 1, late_night: 0.5, health: 4, green_space: 5, residential_calm: 5, road_rail_exposure: -4, bars: -3, dining_reach: 1, connectedness: 1, safety: 3 },
+  remote_worker: { supermarkets: 4, dining: 4, konbini: 2, cuisine_variety: 2, late_night: 1, health: 2, green_space: 4, residential_calm: 4, road_rail_exposure: -4, bars: 0, dining_reach: 2, connectedness: 1, safety: 2 },
 };
 /** Multiplier on the c_T median per archetype. */
 export const ARCHETYPE_TIME_MULTIPLIER: Readonly<Record<Archetype, number>> = {
@@ -61,6 +62,10 @@ export const ARCHETYPE_TIME_MULTIPLIER: Readonly<Record<Archetype, number>> = {
 
 const EITHER_SIGN: ReadonlySet<FeatureKey> = new Set<FeatureKey>(['bars']);
 
+/** Features drawn from their own stream, so adding them left every earlier draw of a seed unchanged. */
+const LATE_FEATURES: ReadonlySet<FeatureKey> = new Set<FeatureKey>(['safety']);
+const LATE_STREAM_SALT = 0x5afe7e11;
+
 /**
  * n weighted samples of theta, weights 1/n. Every yen parameter is a fraction
  * of `scale` and the draw order does not depend on it, so the same seed with a
@@ -68,6 +73,7 @@ const EITHER_SIGN: ReadonlySet<FeatureKey> = new Set<FeatureKey>(['bars']);
  */
 export const samplePrior: SamplePrior = (scale, seed, n = DEFAULT_SAMPLES) => {
   const rng = createRng(seed);
+  const lateRng = createRng((seed ^ LATE_STREAM_SALT) >>> 0);
   const theta = new Float64Array(n * PARAM_COUNT);
   const archetype = new Uint8Array(n);
   const weights = new Float64Array(n).fill(n > 0 ? 1 / n : 0);
@@ -81,9 +87,10 @@ export const samplePrior: SamplePrior = (scale, seed, n = DEFAULT_SAMPLES) => {
     for (let j = 0; j < FEATURE_KEYS.length; j++) {
       const key = FEATURE_KEYS[j]!;
       const centre = scale * (percent[key] / 100);
+      const r = LATE_FEATURES.has(key) ? lateRng : rng;
       theta[row + FEATURE_OFFSET + j] = EITHER_SIGN.has(key)
-        ? centre + BARS_SD_SHARE * scale * rng.normal()
-        : centre * rng.lognormal(0, W_SIGMA); // sign comes from the archetype percent
+        ? centre + BARS_SD_SHARE * scale * r.normal()
+        : centre * r.lognormal(0, W_SIGMA); // sign comes from the archetype percent
     }
     theta[row + LAMBDA_B_INDEX] = rng.lognormal(0, LAMBDA_B_SIGMA);
     theta[row + GAMMA_INDEX] = rng.lognormal(Math.log(GAMMA_MEDIAN), GAMMA_SIGMA);
@@ -108,12 +115,13 @@ const UNBOUND_PROFILE = undefined as unknown as Profile;
 
 /**
  * Prior times every likelihood in the log:
- * pi_i proportional to prior_i * prod_e ((1 - eps) L_e(theta_i) + eps)^alpha_e.
+ * pi_i proportional to prior_i * prod_e ((1 - eps_e) L_e(theta_i) + eps_e)^alpha_e,
+ * eps_e = SOURCE_EPSILON[source] unless `epsilon` overrides it (R4).
  * E05: accumulated as log weights, normalised once. E17: items are applied in
  * id order, so any log order gives bit-identical weights.
  * `likelihood` must be bound to its util/ctx/profile (bindLikelihood).
  */
-export const replay: Replay = (prior, log, likelihood, epsilon = DEFAULT_EPSILON) => {
+export const replay: Replay = (prior, log, likelihood, epsilon) => {
   const n = prior.n;
   const logw = new Float64Array(n);
   for (let i = 0; i < n; i++) logw[i] = Math.log(prior.weights[i]!);
@@ -124,10 +132,11 @@ export const replay: Replay = (prior, log, likelihood, epsilon = DEFAULT_EPSILON
     out.fill(0);
     likelihood(e, prior, UNBOUND_UTIL, UNBOUND_CTX, UNBOUND_PROFILE, out);
     const alpha = STRENGTH_ALPHA[e.strength ?? 'normal'] ?? 1;
+    const eps = epsilon ?? itemEpsilon(e);
     for (let i = 0; i < n; i++) {
       const l = out[i]!;
       const clamped = l > 1 ? 1 : l > 0 ? l : 0; // NaN -> 0: the floor alone applies
-      logw[i] = logw[i]! + alpha * Math.log((1 - epsilon) * clamped + epsilon);
+      logw[i] = logw[i]! + alpha * Math.log((1 - eps) * clamped + eps);
     }
   }
 
@@ -135,7 +144,7 @@ export const replay: Replay = (prior, log, likelihood, epsilon = DEFAULT_EPSILON
   for (let i = 0; i < n; i++) if (logw[i]! > max) max = logw[i]!;
   const weights = new Float64Array(n);
   if (!Number.isFinite(max)) {
-    weights.set(prior.weights); // epsilon = 0 and everything ruled out: keep the prior
+    weights.set(prior.weights); // eps = 0 and everything ruled out: keep the prior
   } else {
     let sum = 0;
     for (let i = 0; i < n; i++) {
@@ -147,6 +156,11 @@ export const replay: Replay = (prior, log, likelihood, epsilon = DEFAULT_EPSILON
   }
   return { n, theta: prior.theta, archetype: prior.archetype, weights, scale: prior.scale };
 };
+
+/** Lapse rate of one item: by who produced it, text when unstated (R4). */
+export function itemEpsilon(e: { source?: EvidenceSource }): number {
+  return SOURCE_EPSILON[e.source ?? 'text'];
+}
 
 /** Weighted quantiles of one parameter: smallest value whose cumulative weight reaches q. */
 function weightedQuantiles(belief: Belief, p: number, qs: readonly number[]): number[] {

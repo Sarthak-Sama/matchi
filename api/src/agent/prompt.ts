@@ -25,7 +25,7 @@ Rules:
 - Every area id, station id or point you use must come from lookup or another tool result.
 - When next_question is present and should_stop is false, ask that question in one short sentence. For an area choice, the UI displays the real areas and figures as selectable cards; do not list them in the question. Otherwise recommend.
 - When an observe item comes back surprising, say what it conflicts with and ask which is right.
-- Say what is estimated. Rent is modelled at ward level; travel times are estimates.
+- Say what is estimated. Rent is modelled from the housing survey and adjusted to listings; travel times are estimates.
 - Station and area names in this database are in Japanese. Convert a Latin name to Japanese before calling lookup (Shinjuku -> 新宿, Shibuya -> 渋谷, Waseda -> 早稲田), and look up each place once.
 - Be brief. The cards on the page carry the detail.
 
@@ -72,6 +72,7 @@ export function buildStateSummary(view: AgentStateView, questionsAsked: number):
         station_id: a.stationId ?? null,
         trips_per_week: a.tripsPerWeek,
         period: a.period,
+        cap_minutes: a.cap ? { value: a.cap.value, firm: a.cap.firm } : null,
       })),
       layout: p.layout ?? null,
       budget_yen: p.budget ? { value: p.budget.value, firm: p.budget.firm } : null,

@@ -67,9 +67,9 @@ describe('replay', () => {
     expect(Array.from(b.weights)).toEqual(Array.from(a.weights));
   });
 
-  it('strength scales the exponent', () => {
+  it('strength scales the exponent (R4: strong is 1.5)', () => {
     const strong = replay(prior, [{ ...item('a'), strength: 'strong' }], halfOut, 0.05);
-    expect(strong.weights[prior.n - 1]! / strong.weights[0]!).toBeCloseTo(0.0025, 12);
+    expect(strong.weights[prior.n - 1]! / strong.weights[0]!).toBeCloseTo(Math.pow(0.05, 1.5), 12);
   });
 });
 

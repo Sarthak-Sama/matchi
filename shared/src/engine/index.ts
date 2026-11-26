@@ -1,11 +1,11 @@
 // createEngine: the stateful wrapper over the pure engine modules
 // (docs/plans/engine-spec.md, "Interface, defaults and tests"). The belief is
 // always prior x likelihoods of the current log, recomputed, never stored.
-import { replay, samplePrior, summarizeBelief } from './belief.js';
+import { itemEpsilon, replay, samplePrior, summarizeBelief } from './belief.js';
 import { bindLikelihood, likelihood, predictive, surpriseThreshold, validateEvidence } from './evidence.js';
 import { explainCompare, explainRelax, explainWhyNot } from './explain.js';
 import { buildAreaContext } from './features.js';
-import { DEFAULTS, buildUtilities, missingFacts, noisyUtilities, recommend as recommendFn, refreshNoisy } from './recommend.js';
+import { DEFAULTS, attachNoisy, missingFacts, noiseFreeUtilities, noisyUtilities, recommend as recommendFn } from './recommend.js';
 import {
   EvidenceSchema,
   ProfileSchema,
@@ -45,6 +45,11 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
   let prior!: Belief;
   let belief!: Belief;
   let util!: UtilityMatrix;
+  // R5: the noisy matrix over C is built on first use and kept until the
+  // belief, the profile or the shortlist size changes.
+  let beliefVersion = 0;
+  let profileVersion = 0;
+  let noisyCache: { versions: string; k: number; util: UtilityMatrix } | null = null;
 
   const newId = (): string => {
     let id: string;
@@ -53,15 +58,31 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
     return id;
   };
 
-  const doReplay = (items: readonly LoggedEvidence[]): Belief =>
-    replay(prior, items, bindLikelihood(util, ctx, profile), DEFAULTS.epsilon);
+  const doReplay = (items: readonly LoggedEvidence[]): Belief => replay(prior, items, bindLikelihood(util, ctx, profile));
+
+  /** Every change of the current belief goes through here, so the noisy cache sees it. */
+  const setBelief = (b: Belief): void => {
+    belief = b;
+    beliefVersion++;
+  };
+
+  /** util with the noisy matrix over C for the current belief and a shortlist of k; without k, any cached size will do. */
+  const noisyUtil = (k?: number): UtilityMatrix => {
+    const versions = `${profileVersion}:${beliefVersion}`;
+    const fresh = noisyCache?.versions === versions && (k === undefined || noisyCache.k === k);
+    if (!fresh || !noisyCache) {
+      const size = k ?? DEFAULTS.shortlistSize;
+      noisyCache = { versions, k: size, util: attachNoisy(util, belief, ctx, profile, sessionSeed, size) };
+    }
+    return noisyCache.util;
+  };
 
   const rebuild = (): void => {
     ctx = buildAreaContext(areas, params, profile, anchorTimes);
     prior = samplePrior(ctx.scale, sessionSeed, DEFAULTS.samples);
-    util = buildUtilities(prior, ctx, profile, sessionSeed);
-    belief = doReplay(log);
-    util = refreshNoisy(util, belief, ctx, profile, sessionSeed);
+    util = noiseFreeUtilities(prior, ctx, profile);
+    profileVersion++;
+    setBelief(doReplay(log));
   };
 
   const applyProfile = (p: Profile, times: AnchorTimes): void => {
@@ -111,7 +132,8 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
 
       const L = new Float64Array(belief.n);
       likelihood(item, before, util, ctx, profile, L);
-      const p = predictive(before.weights, L, DEFAULTS.epsilon);
+      const eps = itemEpsilon(item);
+      const p = predictive(before.weights, L, eps);
       const surprising = p < surpriseThreshold(item);
 
       let conflictsWith: string | undefined;
@@ -119,7 +141,7 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
         let bestGain = 0;
         for (const o of others) {
           const without = doReplay(others.filter((x) => x.id !== o.id));
-          const gain = predictive(without.weights, L, DEFAULTS.epsilon) - p;
+          const gain = predictive(without.weights, L, eps) - p;
           if (gain > bestGain) {
             bestGain = gain;
             conflictsWith = o.id;
@@ -129,8 +151,7 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
 
       log = [...others, item];
       if (ANSWER_TYPES.has(item.type)) questionsAsked++;
-      belief = doReplay(log);
-      util = refreshNoisy(util, belief, ctx, profile, sessionSeed);
+      setBelief(doReplay(log));
       return conflictsWith !== undefined
         ? { ok: true, id, predictive: p, surprising, conflictsWith }
         : { ok: true, id, predictive: p, surprising };
@@ -139,12 +160,11 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
     removeEvidence(id) {
       if (!log.some((x) => x.id === id)) return;
       log = log.filter((x) => x.id !== id);
-      belief = doReplay(log);
-      util = refreshNoisy(util, belief, ctx, profile, sessionSeed);
+      setBelief(doReplay(log));
     },
 
     recommend(k = DEFAULTS.shortlistSize) {
-      const rec = recommendFn(belief, util, ctx, profile, { k, questionsAsked, defaults: DEFAULTS });
+      const rec = recommendFn(belief, noisyUtil(k), ctx, profile, { k, questionsAsked, defaults: DEFAULTS });
       if (rec.feasibleCount < k) rec.relax = explainRelax(areas, params, profile, anchorTimes, belief, sessionSeed);
       return rec;
     },
@@ -162,8 +182,11 @@ export const createEngine: CreateEngine = (areas: AreaFeatures[], params: ModelP
       requireArea(b);
       const ia = ctx.index.get(a)!;
       const ib = ctx.index.get(b)!;
-      const noisy = noisyUtilities(belief, ctx, profile, sessionSeed, [ia, ib]);
-      return explainCompare(a, b, belief, { ...util, noisy }, ctx, profile);
+      // The pair's noisy values are the same whichever matrix holds them (per-area seeds), so a pair outside C is drawn alone.
+      const shared = noisyUtil();
+      const covered = shared.noisy.areaIdx.includes(ia) && shared.noisy.areaIdx.includes(ib);
+      const pairUtil = covered ? shared : { ...util, noisy: noisyUtilities(belief, ctx, profile, sessionSeed, [ia, ib]) };
+      return explainCompare(a, b, belief, pairUtil, ctx, profile);
     },
 
     beliefSummary() {
