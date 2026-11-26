@@ -9,3 +9,6 @@ export * from "./config/access.js";
 export * from './engine/types.js';
 export { createRng } from './engine/rng.js';
 export { createEngine, DEFAULTS } from './engine/index.js';
+// The simulation values areas for a hidden person with the engine's own area model, rent and travel-time noise included.
+export { buildAreaContext } from './engine/features.js';
+export { noisyUtilities } from './engine/recommend.js';

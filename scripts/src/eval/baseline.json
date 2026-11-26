@@ -1,0 +1,18 @@
+{
+  "kind": "matchi-eval-baseline",
+  "data": "synthetic",
+  "config": {
+    "people": 60,
+    "seeds": 5,
+    "questions": 6,
+    "seed": 20260117
+  },
+  "meanRegretAtLastQuestionYen": 2245.622755533854,
+  "ece": 0.02465579867143441,
+  "formMeanRegretYen": 18324.52972222222,
+  "gate": {
+    "regretFactor": 1.1,
+    "eceTolerance": 0.03,
+    "note": "CI fails if mean regret after the last question exceeds meanRegretAtLastQuestionYen x regretFactor, or ECE exceeds ece + eceTolerance (absolute). Rerecord with: pnpm eval:sim --synthetic --write-baseline"
+  }
+}

@@ -1,26 +1,39 @@
 // Scripted personas: does the whole agent behave? (docs/plans/agent-harness-plan.md,
 // "Evaluation", "Scripted personas".)
 //
-// Seven personas as data (user messages plus checks), checks that apply to every
-// transcript, and a runner that replays each persona against a RUNNING API:
+// Twelve personas as data (user messages plus checks), checks that apply to every
+// transcript, and a runner that replays each persona --repeat times against a RUNNING API:
 //   POST /v1/agent/session            -> { sessionId }
 //   POST /v1/agent/turn {sessionId, message}   -> text/event-stream of AgentStreamEvent frames
 // It needs a live model behind the API, so it is not run in CI or by the unit tests.
 // The check functions are pure and are unit-tested on hand-built (synthetic) transcripts.
 //
 // Usage:
-//   npx tsx scripts/src/eval/personas.ts [--base-url http://localhost:4000] [--persona id] [--out path]
+//   pnpm eval:personas [--repeat 5] [--base-url http://localhost:4000] [--persona id] [--out path] [--allow-prod]
 //   Base URL: --base-url, else AGENT_BASE_URL, else http://localhost:4000 (the API's PORT default).
-import { mkdirSync, writeFileSync } from 'node:fs';
+//   Production needs --allow-prod; local and staging do not (see personas/run-info.ts).
+//   DATABASE_URL (the database behind the API under test) lets the run read the server's turn records
+//   for the markup-leak check; without it that check is n/a. AGENT_MODEL names the model in the run summary.
+//   Output: a timestamped file in scripts/src/eval/out/ and one summary line appended to history.jsonl.
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AgentStreamEventSchema } from '@tokyo/shared';
 import type { AgentStateView, AgentStreamEvent, Profile, ShortlistItem } from '@tokyo/shared';
+import type { Pool } from 'pg';
+
+import { createPool } from '../lib/db.js';
+import { assertMayTarget, collectRunInfo, type RunInfo } from './personas/run-info.js';
+import { wilsonInterval, type Interval } from './personas/stats.js';
+import { fetchTurnRecords, type TurnRecordPayload } from './personas/turn-records.js';
 
 export const DEFAULT_BASE_URL = 'http://localhost:4000';
 /** Harness limit from api/src/agent/loop.ts (MAX_TOOL_CALLS_PER_TURN). */
 export const TOOL_BUDGET_PER_TURN = 6;
+/** Turns the agent keeps verbatim (api/src/agent/loop.ts CONTEXT_TURNS); a longer persona must still hold its turn-1 limits. */
+export const CONTEXT_TURNS = 8;
+export const DEFAULT_REPEAT = 5;
 
 // ---------- Transcript model ----------
 
@@ -38,9 +51,11 @@ export interface Transcript {
   /** Facts fetched after the conversation by Persona.afterRun (e.g. a compare call). */
   probes: Record<string, unknown>;
 }
+export type CheckStatus = 'pass' | 'fail' | 'n/a';
 export interface CheckResult {
   name: string;
-  pass: boolean;
+  /** 'n/a' = the check had nothing to judge (its precondition did not occur, or its data source is absent). */
+  status: CheckStatus;
   /** 'must' = a failure fails the persona; 'expected' = reported, heuristic or implied by the persona's wording. */
   severity: 'must' | 'expected';
   detail: string;
@@ -72,7 +87,13 @@ export function toolResults(t: Transcript, name?: string): unknown[] {
   return out;
 }
 const isHarnessCall = (id: string): boolean => id.startsWith('harness_');
-const ok = (name: string, pass: boolean, detail: string, severity: CheckResult['severity'] = 'must'): CheckResult => ({ name, pass, severity, detail });
+const ok = (name: string, pass: boolean, detail: string, severity: CheckResult['severity'] = 'must'): CheckResult => ({
+  name,
+  status: pass ? 'pass' : 'fail',
+  severity,
+  detail,
+});
+const notApplicable = (name: string, detail: string, severity: CheckResult['severity'] = 'must'): CheckResult => ({ name, status: 'n/a', severity, detail });
 
 const ANSWER_EVIDENCE = new Set(['pick_from_set', 'prefer_area', 'reject_area']);
 /** Error codes that mean the model sent a bad call (as opposed to a legitimate "no" such as a refused anchor). */
@@ -102,30 +123,66 @@ export const groundingPassesEveryReply: Check = (t) => {
   return ok('grounding passes on every reply', bad.length === 0, bad.join('; ') || 'final grounding event passed on every reply');
 };
 
+/** The firm limits in force at some moment: monthly rent, and one-way minutes to the main anchor. */
+interface FirmLimits {
+  budgetYen: number | null;
+  mainCommuteMinutes: number | null;
+}
+const NO_LIMITS: FirmLimits = { budgetYen: null, mainCommuteMinutes: null };
+
+const firmValue = (limit: { value: number; firm: boolean } | undefined): number | null => (limit?.firm ? limit.value : null);
+/** The main anchor's own cap wins over the older profile-level commuteCap (shared/src/engine/types.ts). */
+export const mainAnchorCap = (p: Profile): Profile['commuteCap'] => p.anchors[0]?.cap ?? p.commuteCap;
+const firmLimitsOf = (p: Profile): FirmLimits => ({ budgetYen: firmValue(p.budget), mainCommuteMinutes: firmValue(mainAnchorCap(p)) });
+
+/** Reads the profile as set_profile reports it (api/src/agent/tools.ts formatProfile). */
+function firmLimitsOfSetProfile(result: unknown): FirmLimits {
+  const profile = asRecord(asRecord(result)?.['profile']);
+  const firm = (raw: unknown, key: string): number | null => {
+    const limit = asRecord(raw);
+    const value = limit?.[key];
+    return limit?.['firm'] === true && typeof value === 'number' ? value : null;
+  };
+  const anchors = profile?.['anchors'];
+  const cap = (Array.isArray(anchors) ? asRecord(asRecord(anchors[0])?.['cap']) : null) ?? asRecord(profile?.['commute_cap']);
+  return { budgetYen: firm(profile?.['budget'], 'yen'), mainCommuteMinutes: firm(cap, 'minutes') };
+}
+
+function limitBreaches(limits: FirmLimits, item: { id: string; rentYen: number | null; commuteMinutes: number | null }, slack: { yen: number; minutes: number }): string[] {
+  const out: string[] = [];
+  if (limits.budgetYen !== null && item.rentYen !== null && item.rentYen > limits.budgetYen + slack.yen) out.push(`${item.id} rent ${Math.round(item.rentYen)} over firm budget ${limits.budgetYen}`);
+  if (limits.mainCommuteMinutes !== null && item.commuteMinutes !== null && item.commuteMinutes > limits.mainCommuteMinutes + slack.minutes) {
+    out.push(`${item.id} commute ${Math.round(item.commuteMinutes)} over firm cap ${limits.mainCommuteMinutes}`);
+  }
+  return out;
+}
+
+const numberOrNull = (x: unknown): number | null => (typeof x === 'number' ? x : null);
+
+/**
+ * State cards are judged against the profile in the same state. A recommend result is judged against the profile as the
+ * latest set_profile left it, replayed in event order, so a limit that was loosened or dropped mid-turn is not held against it.
+ * Cards and results carry only the commute to the main anchor, so the cap of a second anchor cannot be seen here.
+ */
 export const noFirmLimitViolation: Check = (t) => {
   const bad: string[] = [];
+  let limits = NO_LIMITS;
   t.turns.forEach((turn, i) => {
-    const state = turnState(turn);
-    if (!state) return;
-    const { budget, commuteCap } = state.profile;
-    for (const item of shortlistOf(state)) {
-      if (budget?.firm && item.rentYen > budget.value) bad.push(`turn ${i + 1}: ${item.localityId} rent ${Math.round(item.rentYen)} over firm budget ${budget.value}`);
-      if (commuteCap?.firm && item.commuteMinutes !== null && item.commuteMinutes > commuteCap.value) {
-        bad.push(`turn ${i + 1}: ${item.localityId} commute ${Math.round(item.commuteMinutes)} over firm cap ${commuteCap.value}`);
+    const where = `turn ${i + 1}`;
+    for (const e of turn.events) {
+      if (e.type === 'tool_result' && e.ok && e.name === 'set_profile') limits = firmLimitsOfSetProfile(e.result);
+      if (e.type === 'state') {
+        const stateLimits = firmLimitsOf(e.state.profile);
+        for (const item of shortlistOf(e.state)) bad.push(...limitBreaches(stateLimits, { id: item.localityId, rentYen: item.rentYen, commuteMinutes: item.commuteMinutes }, { yen: 0, minutes: 0 }).map((m) => `${where}: ${m}`));
       }
-    }
-    // recommend tool results carry rounded figures (rent to 1,000 yen, whole minutes): allow the rounding.
-    for (const r of eventsOfType(turn, 'tool_result')) {
-      if (!r.ok || r.name !== 'recommend') continue;
-      const list = asRecord(r.result)?.['shortlist'];
-      if (!Array.isArray(list)) continue;
-      for (const raw of list) {
-        const item = asRecord(raw);
-        const rent = item?.['rent_yen'];
-        const commute = item?.['commute_minutes'];
-        const id = String(item?.['area_id'] ?? '?');
-        if (budget?.firm && typeof rent === 'number' && rent > budget.value + 500) bad.push(`turn ${i + 1}: recommend result ${id} rent ${rent} over firm budget ${budget.value}`);
-        if (commuteCap?.firm && typeof commute === 'number' && commute > commuteCap.value + 0.5) bad.push(`turn ${i + 1}: recommend result ${id} commute ${commute} over firm cap ${commuteCap.value}`);
+      if (e.type === 'tool_result' && e.ok && e.name === 'recommend') {
+        const list = asRecord(e.result)?.['shortlist'];
+        // recommend tool results carry rounded figures (rent to 1,000 yen, whole minutes): allow the rounding.
+        for (const raw of Array.isArray(list) ? list : []) {
+          const item = asRecord(raw);
+          const found = { id: `recommend result ${String(item?.['area_id'] ?? '?')}`, rentYen: numberOrNull(item?.['rent_yen']), commuteMinutes: numberOrNull(item?.['commute_minutes']) };
+          bad.push(...limitBreaches(limits, found, { yen: 500, minutes: 0.5 }).map((m) => `${where}: ${m}`));
+        }
       }
     }
   });
@@ -164,7 +221,23 @@ export const toolBudgetRespected: Check = (t) => {
   return ok('tool budget respected (6 per turn)', bad.length === 0, bad.join('; ') || `within budget${notes.length ? ` (${notes.join('; ')})` : ''}`);
 };
 
-export const GENERIC_CHECKS: readonly Check[] = [streamCompleted, groundingPassesEveryReply, noFirmLimitViolation, everyToolCallValidated, toolBudgetRespected];
+/** Needs probes.turnRecords from the runner (the session's agent_events turn rows); n/a without a database to read. */
+export const noMarkupLeaks: Check = (t) => {
+  const name = 'no tool-call markup leaked (server turn records)';
+  const error = t.probes['turnRecordsError'];
+  if (typeof error === 'string') return ok(name, false, `turn records could not be read: ${error}`);
+  const records = t.probes['turnRecords'] as TurnRecordPayload[] | undefined;
+  if (records === undefined) return notApplicable(name, 'DATABASE_URL not set, so the server turn records were not read');
+  const answered = t.turns.filter((turn) => turn.httpStatus === 200).length;
+  const leaked = records.filter((r) => r.markupLeaked || r.finalGrounding?.markup).length;
+  const firstFailed = records.filter((r) => r.firstGrounding && !r.firstGrounding.pass).length;
+  const finalFailed = records.filter((r) => r.finalGrounding && !r.finalGrounding.pass).length;
+  const fallbacks = records.filter((r) => r.fallbackUsed).length;
+  const detail = `${records.length} record(s) for ${answered} answered turn(s); leaks ${leaked}; first-pass grounding failed ${firstFailed}, final ${finalFailed}; fallback replies ${fallbacks}`;
+  return ok(name, leaked === 0 && records.length >= answered, detail);
+};
+
+export const GENERIC_CHECKS: readonly Check[] = [streamCompleted, groundingPassesEveryReply, noFirmLimitViolation, everyToolCallValidated, toolBudgetRespected, noMarkupLeaks];
 
 // ---------- Per-persona check helpers ----------
 
@@ -199,6 +272,33 @@ export const budgetSetFirm =
     const b = profileOf(t)?.budget;
     return ok('budget stored as a firm limit', !!b && b.firm && b.value <= maxYen, b ? `budget ${b.value} firm=${b.firm}` : 'no budget in the profile');
   };
+
+export const commuteCapSetFirm =
+  (maxMinutes: number): Check =>
+  (t) => {
+    const profile = profileOf(t);
+    const cap = profile ? mainAnchorCap(profile) : undefined;
+    return ok('commute cap stored as a firm limit', !!cap && cap.firm && cap.value <= maxMinutes, cap ? `cap ${cap.value} min firm=${cap.firm}` : 'no commute cap in the profile');
+  };
+
+export const anchorInProfile: Check = (t) => {
+  const anchors = profileOf(t)?.anchors ?? [];
+  return ok('the workplace is an anchor in the profile', anchors.length > 0, `${anchors.length} anchor(s)`);
+};
+
+/** A reply to a Japanese message should be Japanese; kana is what distinguishes a Japanese sentence from one that only names places in kanji. */
+export const repliesInJapanese: Check = (t) => {
+  const replies = t.turns.map((turn, i) => ({ i, text: replyText(turn) })).filter((r) => r.text !== '');
+  const english = replies.filter((r) => !/[\u3040-\u30ff]/.test(r.text)).map((r) => r.i + 1);
+  return ok('every reply is in Japanese', replies.length > 0 && english.length === 0, english.length ? `no kana in the reply of turn(s) ${english.join(', ')}` : `${replies.length} reply(ies) in Japanese`, 'expected');
+};
+
+/** After a long conversation the shortlist is still being served, not lost with the turns that fell out of context. */
+export const shortlistInFinalTurn: Check = (t) => {
+  const last = t.turns.at(-1);
+  const count = last ? shortlistOf(turnState(last)).length : 0;
+  return ok('the last turn still shows a shortlist', count > 0, `${count} shortlisted in the last turn`);
+};
 
 export const evidenceMentions =
   (features: readonly string[]): Check =>
@@ -267,17 +367,19 @@ export function areaIdsNamed(t: Transcript, pattern: RegExp): string[] {
   return [...ids];
 }
 
+/** The like_area item for an area that a lookup actually returned under that name; null when the lookup found nothing. */
 export const likedAreaId = (t: Transcript, pattern: RegExp = SHIMOKITAZAWA_NAME): string | null => {
   const named = new Set(areaIdsNamed(t, pattern));
-  const logged = (finalState(t)?.evidence ?? []).filter((e) => e.type === 'like_area');
-  for (const e of logged) if (e.type === 'like_area' && (named.size === 0 || named.has(e.area))) return e.area;
+  for (const e of finalState(t)?.evidence ?? []) if (e.type === 'like_area' && named.has(e.area)) return e.area;
   return null;
 };
 export const topPickId = (t: Transcript): string | null => shortlistOf(finalState(t))[0]?.localityId ?? null;
 
 export const likeAreaItemExists: Check = (t) => {
+  const name = 'a like_area item exists for the named area';
+  if (areaIdsNamed(t, SHIMOKITAZAWA_NAME).length === 0) return ok(name, false, 'no lookup returned an area matching the name');
   const id = likedAreaId(t);
-  return ok('a like_area item exists for the named area', id !== null, id ? `like_area ${id}` : 'no like_area evidence for an area matching the name');
+  return ok(name, id !== null, id ? `like_area ${id}` : 'no like_area evidence for the area the lookup found');
 };
 
 /** The runner stores probes.compareTopVsLiked = { a, b, diffRent } from POST /compare (a = top pick, b = liked area). */
@@ -311,6 +413,9 @@ export const agentRaisesIt: Check = (t) => {
 };
 
 export const anchorRefusedWithReason: Check = (t) => {
+  const name = 'the anchor is refused with a reason';
+  const setProfileRan = t.turns.some((turn) => eventsOfType(turn, 'tool_call').some((c) => c.name === 'set_profile'));
+  if (!setProfileRan) return notApplicable(name, 'set_profile never ran, so no anchor was offered for refusal');
   const refused = toolResults(t, 'set_profile').flatMap((r) => {
     const x = asRecord(r)?.['refused_anchors'];
     return Array.isArray(x) ? x : [];
@@ -322,7 +427,7 @@ export const anchorRefusedWithReason: Check = (t) => {
   });
   const anchors = profileOf(t)?.anchors ?? [];
   const pass = anchors.length === 0 && (reasoned.length > 0 || lookupEmpty);
-  return ok('the anchor is refused with a reason', pass, `${reasoned.length} refusal(s) with reason; empty lookup: ${lookupEmpty}; anchors left in profile: ${anchors.length}`);
+  return ok(name, pass, `${reasoned.length} refusal(s) with reason; empty lookup: ${lookupEmpty}; anchors left in profile: ${anchors.length}`);
 };
 
 const COMMUTE_FIGURE = /\d+(?:\.\d+)?\s*(?:minutes?|mins?|min\b|分|hours?|hrs?|時間)/i;
@@ -387,6 +492,11 @@ const livelyMessage =
 const firstCardMessage = (prior: Transcript): string => {
   const card = shortlistOf(finalState(prior))[0];
   return card ? `The first one, ${cardName(card)}, looks good.` : 'The first one looks good.';
+};
+
+const firstCardMessageJa = (prior: Transcript): string => {
+  const card = shortlistOf(finalState(prior))[0];
+  return card ? `最初の${card.nameJa}がよさそうです。` : '最初のものがよさそうです。';
 };
 
 export const PERSONAS: readonly Persona[] = [
@@ -463,12 +573,77 @@ export const PERSONAS: readonly Persona[] = [
     ],
     checks: [emptyShortlistWithRelax, neverNothingFoundAlone],
   },
+  {
+    id: 'ja_student',
+    title: 'Japanese: student, one campus',
+    messages: [
+      '早稲田大学に通う学生です。高田馬場駅の近くで、週5日通学します。1Kで家賃は7万円以下、これは絶対に超えられません。',
+      '静かで住みやすいところがいいです。おすすめはどこですか？',
+    ],
+    checks: [noShortlistedOver(70_000), budgetSetFirm(70_000), anchorInProfile, repliesInJapanese],
+  },
+  {
+    id: 'ja_commuter',
+    title: 'Japanese: commute limit and budget',
+    messages: [
+      '渋谷で働いていて、週5日出勤します。1LDKで家賃は12万円まで、通勤は片道30分以内が絶対条件です。',
+      '買い物に便利で、夜遅くまで開いているお店が近くにあると嬉しいです。',
+    ],
+    checks: [noShortlistedOver(120_000), budgetSetFirm(120_000), commuteCapSetFirm(30), repliesInJapanese],
+  },
+  {
+    id: 'ja_like_area',
+    title: 'Japanese: "like Shimokitazawa but cheaper"',
+    messages: [
+      '下北沢が好きですが、もう少し安いところがいいです。新宿に週5日通っていて、1Kで家賃は10万円が上限です。',
+      firstCardMessageJa,
+    ],
+    checks: [likeAreaItemExists, noShortlistedOver(100_000), budgetSetFirm(100_000), repliesInJapanese],
+  },
+  {
+    id: 'mixed_language',
+    title: 'Mixed Japanese and English',
+    messages: [
+      'I work in 新宿 five days a week and want a 1K. 家賃は8万円まで、that is a hard limit です。',
+      'Which one is the quietest? 静かなところがいいです。',
+    ],
+    checks: [noShortlistedOver(80_000), budgetSetFirm(80_000), anchorInProfile],
+  },
+  {
+    id: 'long_conversation',
+    title: `Twelve turns, past the ${CONTEXT_TURNS}-turn context window`,
+    messages: [
+      'I work in Shinjuku five days a week and want a 1K. 75,000 yen a month is my hard limit; I will not go above it.',
+      'I like having a supermarket close by.',
+      'A bit of greenery nearby would be nice too, a park or a river.',
+      'Late-night food matters less to me than quiet streets.',
+      'Actually I cook a lot, so good groceries matter more than restaurants.',
+      'I do not mind a slightly longer commute if the area is calmer.',
+      'What does the shortlist look like now?',
+      'Which of those would be the safest to walk home in?',
+      'I would also like a gym within walking distance.',
+      'Honestly, I am flexible on most things now.',
+      'Show me the best few options again.',
+      'Any of these would work. Which is the single best pick?',
+    ],
+    checks: [noShortlistedOver(75_000), budgetSetFirm(75_000), shortlistInFinalTurn],
+  },
 ];
 
 export function runChecks(t: Transcript, persona: Persona): CheckResult[] {
   return [...GENERIC_CHECKS.map((c) => c(t)), ...persona.checks.map((c) => c(t))];
 }
-export const personaPasses = (results: readonly CheckResult[]): boolean => results.every((r) => r.pass || r.severity === 'expected');
+export const personaPasses = (results: readonly CheckResult[]): boolean => results.every((r) => r.status !== 'fail' || r.severity === 'expected');
+
+export interface ExpectedScore {
+  passed: number;
+  total: number;
+}
+/** The heuristic checks, scored apart from the pass/fail verdict; n/a checks are not counted. */
+export function expectedScore(results: readonly CheckResult[]): ExpectedScore {
+  const scored = results.filter((r) => r.severity === 'expected' && r.status !== 'n/a');
+  return { passed: scored.filter((r) => r.status === 'pass').length, total: scored.length };
+}
 
 // ---------- Runner ----------
 
@@ -525,10 +700,58 @@ export async function runPersona(persona: Persona, baseUrl: string, fetchImpl: t
   return transcript;
 }
 
+const reportTag = (r: CheckResult): string => (r.status === 'pass' ? 'ok' : r.status === 'n/a' ? 'n/a' : r.severity === 'must' ? 'FAIL' : 'warn');
+
 export function formatReport(persona: Persona, results: readonly CheckResult[]): string {
   const lines = [`${personaPasses(results) ? 'PASS' : 'FAIL'}  ${persona.title} (${persona.id})`];
-  for (const r of results) lines.push(`  [${r.pass ? 'ok' : r.severity === 'must' ? 'FAIL' : 'warn'}] ${r.name}: ${r.detail}`);
+  for (const r of results) lines.push(`  [${reportTag(r)}] ${r.name}: ${r.detail}`);
   return lines.join('\n');
+}
+
+// ---------- Repeated runs ----------
+
+export interface PersonaRun {
+  persona: string;
+  run: number;
+  pass: boolean;
+  expected: ExpectedScore;
+  checks: CheckResult[];
+  transcript: Transcript;
+}
+export interface PersonaSummary {
+  persona: string;
+  runs: number;
+  passes: number;
+  /** Wilson 95% interval on passes / runs. */
+  interval: Interval;
+  expectedPassed: number;
+  expectedTotal: number;
+}
+
+export function summarise(persona: string, runs: readonly PersonaRun[]): PersonaSummary {
+  const passes = runs.filter((r) => r.pass).length;
+  return {
+    persona,
+    runs: runs.length,
+    passes,
+    interval: wilsonInterval(passes, runs.length),
+    expectedPassed: runs.reduce((n, r) => n + r.expected.passed, 0),
+    expectedTotal: runs.reduce((n, r) => n + r.expected.total, 0),
+  };
+}
+
+const percent = (x: number): string => `${Math.round(x * 100)}%`;
+export const formatSummary = (s: PersonaSummary): string =>
+  `${s.persona}: ${s.passes}/${s.runs} passed (${percent(s.passes / s.runs)}), 95% interval ${percent(s.interval.low)} to ${percent(s.interval.high)}; expected checks ${s.expectedPassed}/${s.expectedTotal}`;
+
+/** Reads the session's server-side turn records into the transcript's probes; a failed read is recorded, not thrown. */
+async function attachTurnRecords(transcript: Transcript, pool: Pool | null): Promise<void> {
+  if (pool === null || transcript.sessionId === null) return;
+  try {
+    transcript.probes['turnRecords'] = await fetchTurnRecords(pool, transcript.sessionId);
+  } catch (err) {
+    transcript.probes['turnRecordsError'] = err instanceof Error ? err.message : String(err);
+  }
 }
 
 // ---------- CLI ----------
@@ -538,24 +761,59 @@ function arg(name: string, argv: readonly string[]): string | undefined {
   return i >= 0 ? argv[i + 1] : undefined;
 }
 
+function parseRepeat(raw: string | undefined): number {
+  const repeat = raw === undefined ? DEFAULT_REPEAT : Number(raw);
+  if (!Number.isInteger(repeat) || repeat < 1) throw new Error(`--repeat must be a whole number of at least 1, got "${raw}"`);
+  return repeat;
+}
+
+const evalDir = dirname(fileURLToPath(import.meta.url));
+const HISTORY_PATH = resolve(evalDir, 'history.jsonl');
+
+function historyLine(info: RunInfo, startedAt: Date, repeat: number, summaries: readonly PersonaSummary[]): string {
+  const personas = Object.fromEntries(
+    summaries.map((s) => [s.persona, { passes: s.passes, runs: s.runs, low: s.interval.low, high: s.interval.high, expectedPassed: s.expectedPassed, expectedTotal: s.expectedTotal }]),
+  );
+  return JSON.stringify({ at: startedAt.toISOString(), ...info, repeat, personas });
+}
+
 export async function main(argv: readonly string[]): Promise<void> {
   const baseUrl = (arg('--base-url', argv) ?? process.env['AGENT_BASE_URL'] ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+  assertMayTarget(baseUrl, argv.includes('--allow-prod'));
+  const repeat = parseRepeat(arg('--repeat', argv));
   const only = arg('--persona', argv);
-  const out = resolve(arg('--out', argv) ?? resolve(dirname(fileURLToPath(import.meta.url)), 'out/personas.json'));
+  const startedAt = new Date();
+  const out = resolve(arg('--out', argv) ?? resolve(evalDir, `out/personas-${startedAt.toISOString().replace(/[:.]/g, '-')}.json`));
   const personas = PERSONAS.filter((p) => only === undefined || p.id === only);
   if (personas.length === 0) throw new Error(`No persona "${only}". Known: ${PERSONAS.map((p) => p.id).join(', ')}`);
 
-  const report: { persona: string; pass: boolean; checks: CheckResult[]; transcript: Transcript }[] = [];
-  for (const persona of personas) {
-    const transcript = await runPersona(persona, baseUrl);
-    const results = runChecks(transcript, persona);
-    console.log(formatReport(persona, results));
-    report.push({ persona: persona.id, pass: personaPasses(results), checks: results, transcript });
+  const info = await collectRunInfo(baseUrl);
+  const pool = process.env['DATABASE_URL'] ? createPool() : null;
+  if (pool === null) console.warn('warning: DATABASE_URL is not set, so the markup-leak check on the server turn records is n/a in every run.');
+
+  const runs: PersonaRun[] = [];
+  try {
+    for (const persona of personas) {
+      for (let run = 1; run <= repeat; run++) {
+        const transcript = await runPersona(persona, baseUrl);
+        await attachTurnRecords(transcript, pool);
+        const checks = runChecks(transcript, persona);
+        const pass = personaPasses(checks);
+        console.log(pass ? `PASS  ${persona.id} run ${run}/${repeat}` : `run ${run}/${repeat}\n${formatReport(persona, checks)}`);
+        runs.push({ persona: persona.id, run, pass, expected: expectedScore(checks), checks, transcript });
+      }
+    }
+  } finally {
+    await pool?.end();
   }
+
+  const summaries = personas.map((p) => summarise(p.id, runs.filter((r) => r.persona === p.id)));
+  console.log(`\n${summaries.map(formatSummary).join('\n')}`);
   mkdirSync(dirname(out), { recursive: true });
-  writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
-  console.log(`Wrote ${out}`);
-  if (report.some((r) => !r.pass)) process.exitCode = 1;
+  writeFileSync(out, JSON.stringify({ startedAt: startedAt.toISOString(), info, repeat, summaries, runs }, null, 2) + '\n');
+  appendFileSync(HISTORY_PATH, historyLine(info, startedAt, repeat, summaries) + '\n');
+  console.log(`Wrote ${out} and appended to ${HISTORY_PATH}`);
+  if (runs.some((r) => !r.pass)) process.exitCode = 1;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

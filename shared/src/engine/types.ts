@@ -149,7 +149,7 @@ export interface EngineDefaults {
   stopRiskShare: number; // 0.01
   maxQuestions: number; // 6
   /** Stop once the best question is worth less than this share of scale (R3). */
-  minEvoiShare: number; // 0.003
+  minEvoiShare: number; // 0.001
   surpriseThreshold: number; // 0.15
   sigmaRentNear: number; // 0.08
   sigmaRentFar: number; // 0.12

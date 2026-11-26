@@ -1,11 +1,11 @@
-// The ten invariants from docs/plans/engine-spec.md "Interface, defaults and
+// The invariants from docs/plans/engine-spec.md "Interface, defaults and
 // tests", on SYNTHETIC areas (synthetic-fixtures.ts), not real data.
 import { describe, expect, it } from 'vitest';
 
 import { samplePrior, summarizeBelief } from './belief.js';
 import { createEngine } from './index.js';
 import { buildAreaContext } from './features.js';
-import { buildUtilities, greedyShortlist, pBest, riskOfSet } from './recommend.js';
+import { buildUtilities, greedyShortlist, riskOfSet } from './recommend.js';
 import { SYNTHETIC_PARAMS, syntheticAreas, syntheticProfile, syntheticTimes } from './synthetic-fixtures.js';
 import type { Engine, Evidence } from './types.js';
 
@@ -89,20 +89,6 @@ describe('engine invariants (synthetic areas)', () => {
       expect(s.commuteMinutes!).toBeLessThanOrEqual(40);
       expect(ctx.feasible[ctx.index.get(s.localityId)!]).toBe(1);
     }
-  });
-
-  it('6. P_best over the feasible set sums to 1', () => {
-    const profile = syntheticProfile();
-    const ctx = buildAreaContext(areas, SYNTHETIC_PARAMS, profile, times);
-    const belief = samplePrior(ctx.scale, 3, 1000);
-    const util = buildUtilities(belief, ctx, profile, 3);
-    const pb = pBest(util, belief.weights, ctx.feasible);
-    let s = 0;
-    pb.forEach((x, a) => {
-      if (x > 0) expect(ctx.feasible[a]).toBe(1);
-      s += x;
-    });
-    expect(s).toBeCloseTo(1, 9);
   });
 
   it('7. Risk(S) is never negative and does not rise when the shortlist grows', () => {

@@ -38,7 +38,7 @@ export const DEFAULTS: EngineDefaults = {
   shortlistSize: 5,
   stopRiskShare: 0.01,
   maxQuestions: 6,
-  minEvoiShare: 0.003,
+  minEvoiShare: 0.001,
   surpriseThreshold: 0.15,
   sigmaRentNear: 0.08,
   sigmaRentFar: 0.12,

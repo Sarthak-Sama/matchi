@@ -24,7 +24,7 @@ import {
  * when ModelParams carries none. The values in use come from model_params
  * (evidence_beta_share, evidence_tau_share) via AreaContext.
  */
-export const BETA_SHARE = 0.03;
+export const BETA_SHARE = 0.04;
 export const TAU_SHARE = 0.01;
 /** Width of the magnitude kernel in log space. */
 export const MAGNITUDE_LOG_SD = 0.6;

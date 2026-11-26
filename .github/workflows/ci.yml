@@ -39,6 +39,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @tokyo/shared build
       - run: pnpm typecheck
       - run: pnpm lint
       # The POSTGRES_USER is a superuser, so 0001 can create postgis and pg_trgm.

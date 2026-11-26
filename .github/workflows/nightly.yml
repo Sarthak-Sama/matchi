@@ -20,6 +20,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @tokyo/shared build
       # The personas script only talks to the staging API over HTTP; the model key lives there.
       - run: pnpm eval:personas --repeat 5
       - uses: actions/upload-artifact@v4
