@@ -101,11 +101,13 @@ describe.skipIf(!isLocal)("PgSessionStore against the local database", () => {
     const session = await store.create();
     created.push(session.id);
 
-    expect(await store.acquire(session.id, 60_000)).toBe(0);
+    const first = await store.acquire(session.id, 60_000);
+    expect(first?.version).toBe(0);
     expect(await store.acquire(session.id, 60_000)).toBeNull();
-    await store.release(session.id);
-    expect(await store.acquire(session.id, 60_000)).toBe(0);
-    await store.release(session.id);
+    await store.release(session.id, first!);
+    const second = await store.acquire(session.id, 60_000);
+    expect(second?.version).toBe(0);
+    await store.release(session.id, second!);
 
     const stale = await store.get(session.id);
     await store.save(session);

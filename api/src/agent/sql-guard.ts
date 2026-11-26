@@ -96,12 +96,7 @@ export function guardAgentSql(input: unknown): SqlGuardResult {
     return fail("forbidden_reference", `"${target}" is not in the agent schema; use agent.<table>`);
   }
   // A comma join could bring in a table the FROM/JOIN scan never sees.
-  if (/\b(?:from|join)\s+[a-z_][\w.]*(?:\s+(?:as\s+)?[a-z_]\w*)?\s*,/.test(bare)) {
-    return fail("forbidden_reference", "comma joins are not allowed; use JOIN");
-  }
-  if (/\)\s*(?:as\s+)?[a-z_]\w*\s*,\s*(?:lateral\s+)?[a-z_]\w*\s*\.\s*[a-z_]\w*\s+(?:as\s+)?[a-z_]\w*\s+(?:where|join|on|group|order|limit|left|right|inner|cross)\b/.test(bare)) {
-    return fail("forbidden_reference", "comma joins are not allowed; use JOIN");
-  }
+  if (hasCommaJoin(bare)) return fail("forbidden_reference", "comma joins are not allowed; use JOIN");
 
   for (const match of bare.matchAll(/([a-z_][\w]*(?:\s*\.\s*[a-z_]\w*)?)\s*\(/g)) {
     const name = (match[1] ?? "").replace(/\s+/g, "");
@@ -112,4 +107,30 @@ export function guardAgentSql(input: unknown): SqlGuardResult {
   }
 
   return { ok: true, sql: `SELECT * FROM (${query}) q LIMIT ${AGENT_SQL_ROW_LIMIT}` };
+}
+
+const FROM_CLAUSE_END = /^(?:where|group|order|limit|having|union|except|intersect|window|offset|fetch|for)\b/;
+
+/**
+ * True when a FROM clause lists tables with commas. A comma at paren depth 0
+ * between FROM and the clause's end is always a join in SQL (commas inside
+ * ON conditions or function calls sit inside parentheses), so this needs no
+ * pattern for each place a table name can appear.
+ */
+function hasCommaJoin(sql: string): boolean {
+  for (const match of sql.matchAll(/\bfrom\b/g)) {
+    let depth = 0;
+    for (let i = match.index + 4; i < sql.length; i++) {
+      const ch = sql[i];
+      if (ch === "(") depth++;
+      else if (ch === ")") {
+        if (depth === 0) break; // end of the subquery this FROM belongs to
+        depth--;
+      } else if (depth === 0) {
+        if (ch === ",") return true;
+        if (/\s/.test(sql[i - 1] ?? "") && FROM_CLAUSE_END.test(sql.slice(i))) break;
+      }
+    }
+  }
+  return false;
 }

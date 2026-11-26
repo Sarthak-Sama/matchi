@@ -34,13 +34,19 @@ describe("MemorySessionStore", () => {
   it("leases a session to one holder at a time until it is released or expires", async () => {
     const store = new MemorySessionStore((() => ({}) as Engine) as CreateEngine, { areas, params });
     const { id } = await store.create();
-    expect(await store.acquire(id, 1000)).toBe(0);
+    const first = await store.acquire(id, 1000);
+    expect(first?.version).toBe(0);
     expect(await store.acquire(id, 1000)).toBeNull();
-    await store.release(id);
-    expect(await store.acquire(id, 1000)).toBe(0);
-    await store.release(id);
-    expect(await store.acquire(id, -1)).toBe(0);
-    expect(await store.acquire(id, 1000)).toBe(0);
+    await store.release(id, first!);
+    const second = await store.acquire(id, 1000);
+    expect(second?.version).toBe(0);
+    await store.release(id, second!);
+    const expired = await store.acquire(id, -1);
+    const successor = await store.acquire(id, 1000);
+    expect(successor?.version).toBe(0);
+    // The expired holder finishing late must not free its successor's lease.
+    await store.release(id, expired!);
+    expect(await store.acquire(id, 1000)).toBeNull();
     expect(await store.acquire("nope", 1000)).toBeNull();
   });
 });
@@ -123,10 +129,10 @@ describe("PgSessionStore", () => {
   });
 
   it("acquire returns the version when the lease is taken and null when it is not", async () => {
-    const rows: { version: number }[][] = [[{ version: 5 }], []];
+    const rows: { version: number; token: string }[][] = [[{ version: 5, token: "t1" }], []];
     const query = vi.fn(async () => ({ rows: rows.shift() }));
     const store = new PgSessionStore({ query }, () => fakeEngine(), { areas, params });
-    expect(await store.acquire(ID, 1000)).toBe(5);
+    expect(await store.acquire(ID, 1000)).toEqual({ version: 5, token: "t1" });
     expect(await store.acquire(ID, 1000)).toBeNull();
     expect(query.mock.calls[0]).toEqual([expect.stringContaining("lease_until"), [ID, 1000]]);
     expect(await store.acquire("nope", 1000)).toBeNull();

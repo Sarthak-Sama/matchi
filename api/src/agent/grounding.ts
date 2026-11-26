@@ -152,7 +152,19 @@ function mentions(line: string, name: string): boolean {
 }
 
 function areasNamedIn(line: string, areaNames: readonly AreaName[]): Set<string> {
-  return new Set(areaNames.filter((n) => mentions(line, n.name)).map((n) => n.areaId));
+  const hits = areaNames.filter((n) => mentions(line, n.name));
+  return new Set(hits.filter((n) => !onlyInsideLongerName(line, n, hits)).map((n) => n.areaId));
+}
+
+const fold = (name: string) => name.normalize("NFKC").toLowerCase();
+
+/** 中野 inside 東中野 is not a mention of 中野: true when every occurrence sits inside a longer matched name. */
+function onlyInsideLongerName(line: string, area: AreaName, hits: readonly AreaName[]): boolean {
+  const name = fold(area.name);
+  const longer = hits.map((h) => fold(h.name)).filter((h) => h.length > name.length && h.includes(name));
+  if (longer.length === 0) return false;
+  const rest = longer.reduce((text, h) => text.split(h).join(" "), line.toLowerCase());
+  return !mentions(rest, area.name);
 }
 
 function unmatchedFigures(line: string, collected: CollectedNumbers): Figure[] {

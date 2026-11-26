@@ -102,9 +102,15 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
       return reply;
     }
 
+    // Listen for a disconnect before the first await, so one during setup still aborts the turn.
+    const abort = new AbortController();
+    reply.raw.on("close", () => {
+      if (!reply.raw.writableFinished) abort.abort();
+    });
+
     // Lease, runtime and session errors answer as ordinary JSON errors, like the direct routes.
     const runtime = await deps.getRuntime();
-    await acquireLease(runtime.sessions, sessionId, TURN_DEADLINE_MS + LEASE_MARGIN_MS);
+    const lease = await acquireLease(runtime.sessions, sessionId, TURN_DEADLINE_MS + LEASE_MARGIN_MS);
     let session: AgentSession;
     try {
       const found = await runtime.sessions.get(sessionId);
@@ -112,15 +118,11 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
       session = found;
       await enforceDailyLimit(deps.pool, request.ip, "turn");
     } catch (err) {
-      await releaseLease(runtime.sessions, sessionId, request.log);
+      await releaseLease(runtime.sessions, sessionId, lease, request.log);
       throw err;
     }
 
     const tools = createAgentTools(() => Object.keys(runtime.features.params.layoutAreaSqm), { queryAreasEnabled });
-    const abort = new AbortController();
-    reply.raw.on("close", () => {
-      if (!reply.raw.writableFinished) abort.abort();
-    });
     const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(TURN_DEADLINE_MS)]);
 
     sendStream();
@@ -167,7 +169,7 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
             message: "This turn could not be saved; the next message may not see it.",
           });
         }
-        await releaseLease(runtime.sessions, sessionId, request.log);
+        await releaseLease(runtime.sessions, sessionId, lease, request.log);
         emit({ type: "done" });
         if (record !== undefined) {
           await recordTurn(request, deps.pool, session.id, record);

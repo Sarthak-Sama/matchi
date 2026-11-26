@@ -83,7 +83,7 @@ export interface RunTurnInput {
 
 function sentenceAround(text: string, raw: string): string {
   const sentences = text.split(/(?<=[.!?。！？])\s*/);
-  return (sentences.find((s) => s.includes(raw)) ?? raw).trim();
+  return (sentences.find((s) => s.normalize("NFKC").includes(raw)) ?? raw).trim();
 }
 
 function toFailures(text: string, unmatched: readonly Figure[]): GroundingFailure[] {
@@ -92,7 +92,9 @@ function toFailures(text: string, unmatched: readonly Figure[]): GroundingFailur
 
 /** Second miss: drop the sentences carrying unmatched figures; the cards still show. */
 function dropSentences(text: string, unmatched: readonly Figure[]): string {
-  const bad = (s: string) => unmatched.some((f) => s.includes(f.raw));
+  // Figures are found in the NFKC form of the reply, so compare in that form:
+  // full-width "￥８５，０００" in the text is "¥85,000" in f.raw.
+  const bad = (s: string) => unmatched.some((f) => s.normalize("NFKC").includes(f.raw));
   // Line by line so Markdown structure survives: a table row or list item with
   // an unmatched figure goes whole; prose lines lose only those sentences.
   return text

@@ -11,7 +11,7 @@ import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify
 import { z } from "zod";
 
 import { ApiError } from "../application.js";
-import type { AgentRuntime, AgentSession, SessionStore } from "../agent/session.js";
+import type { AgentRuntime, AgentSession, Lease, SessionStore } from "../agent/session.js";
 import { SessionConflictError } from "../agent/session.js";
 import { checkAndCount } from "../agent/usage.js";
 import type { UsageKind } from "../agent/usage.js";
@@ -48,17 +48,23 @@ async function requireSession(sessions: SessionStore, id: string): Promise<Agent
 const BUSY_MESSAGE = "Another request is using this session; try again in a moment.";
 
 /** Takes the session's lease, or throws 404 for an unknown session and 409 SESSION_BUSY for a busy one. */
-export async function acquireLease(sessions: SessionStore, id: string, ttlMs: number): Promise<void> {
-  if ((await sessions.acquire(id, ttlMs)) !== null) return;
+export async function acquireLease(sessions: SessionStore, id: string, ttlMs: number): Promise<Lease> {
+  const lease = await sessions.acquire(id, ttlMs);
+  if (lease !== null) return lease;
   // acquire answers null for both cases; only a missing session is a 404.
   await requireSession(sessions, id);
   throw new ApiError(409, "SESSION_BUSY", BUSY_MESSAGE);
 }
 
 /** Frees the lease. A failure is not worth failing the request: the lease expires on its own. */
-export async function releaseLease(sessions: SessionStore, id: string, log: FastifyBaseLogger): Promise<void> {
+export async function releaseLease(
+  sessions: SessionStore,
+  id: string,
+  lease: Lease,
+  log: FastifyBaseLogger,
+): Promise<void> {
   try {
-    await sessions.release(id);
+    await sessions.release(id, lease);
   } catch (err) {
     log.warn({ err, sessionId: id }, "agent session lease release failed");
   }
@@ -130,14 +136,14 @@ export function registerAgentDirectRoute(app: FastifyInstance, deps: AgentDirect
   /** Runs a read-modify-write on one session under its lease. */
   const withLease = async <T>(sessionId: string, run: (runtime: AgentRuntime) => Promise<T>, log: FastifyBaseLogger): Promise<T> => {
     const runtime = await deps.getRuntime();
-    await acquireLease(runtime.sessions, sessionId, DIRECT_LEASE_TTL_MS);
+    const lease = await acquireLease(runtime.sessions, sessionId, DIRECT_LEASE_TTL_MS);
     try {
       return await run(runtime);
     } catch (err) {
       if (err instanceof SessionConflictError) throw new ApiError(409, "SESSION_BUSY", BUSY_MESSAGE);
       throw err;
     } finally {
-      await releaseLease(runtime.sessions, sessionId, log);
+      await releaseLease(runtime.sessions, sessionId, lease, log);
     }
   };
 

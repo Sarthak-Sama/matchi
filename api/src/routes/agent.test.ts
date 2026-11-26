@@ -67,7 +67,7 @@ function runtimeWith(session: AgentSession, save: AgentRuntime["sessions"]["save
     sessions: {
       create: () => Promise.reject(new Error("not used")),
       get: async (id: string) => (id === session.id ? session : undefined),
-      acquire: async (id: string) => (id === session.id ? 0 : null),
+      acquire: async (id: string) => (id === session.id ? { version: 0, token: "t" } : null),
       release: async () => undefined,
       save,
     },

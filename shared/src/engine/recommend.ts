@@ -425,7 +425,9 @@ export const recommend: Recommend = (belief, util, ctx, profile, opts) => {
   const evoiLow = (best === null || best.evoiYen < defaults.minEvoiShare * scale) && preMoveEss(belief) >= defaults.essFloor;
   let stopReason: Recommendation['stopReason'] = null;
   let shouldStop = false;
-  if (opts.questionsAsked >= defaults.maxQuestions) {
+  if (missing.length > 0) {
+    // A missing profile fact is always asked for: no stop rule applies without the brief.
+  } else if (opts.questionsAsked >= defaults.maxQuestions) {
     stopReason = riskLow ? 'risk_below_threshold' : 'question_limit';
     shouldStop = true;
   } else if (evoiLow) {

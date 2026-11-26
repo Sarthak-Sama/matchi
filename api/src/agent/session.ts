@@ -41,12 +41,19 @@ export interface SessionStoreOptions {
  * A request that changes a session holds its lease: `acquire` before `get`,
  * `release` when done. `save` throws SessionConflictError if the version moved.
  */
+/** A held lease. `token` identifies the holder; it is the lease's expiry, which each acquire sets anew. */
+export interface Lease {
+  version: number;
+  token: string;
+}
+
 export interface SessionStore {
   create(): Promise<AgentSession>;
   get(id: string): Promise<AgentSession | undefined>;
-  /** The session's version, or null when it is leased by someone else or does not exist. */
-  acquire(id: string, ttlMs: number): Promise<number | null>;
-  release(id: string): Promise<void>;
+  /** The lease, or null when the session is leased by someone else or does not exist. */
+  acquire(id: string, ttlMs: number): Promise<Lease | null>;
+  /** Frees the lease only if it is still this holder's: an expired holder must not free its successor's. */
+  release(id: string, lease: Lease): Promise<void>;
   save(session: AgentSession): Promise<void>;
 }
 
@@ -107,15 +114,16 @@ export class MemorySessionStore implements SessionStore {
     return Promise.resolve(this.sessions.get(id));
   }
 
-  acquire(id: string, ttlMs: number): Promise<number | null> {
+  acquire(id: string, ttlMs: number): Promise<Lease | null> {
     const session = this.sessions.get(id);
     if (session === undefined || (this.leases.get(id) ?? 0) > Date.now()) return Promise.resolve(null);
-    this.leases.set(id, Date.now() + ttlMs);
-    return Promise.resolve(session.version ?? 0);
+    const expiry = Math.max(Date.now() + ttlMs, (this.leases.get(id) ?? 0) + 1);
+    this.leases.set(id, expiry);
+    return Promise.resolve({ version: session.version ?? 0, token: String(expiry) });
   }
 
-  release(id: string): Promise<void> {
-    this.leases.delete(id);
+  release(id: string, lease: Lease): Promise<void> {
+    if (String(this.leases.get(id)) === lease.token) this.leases.delete(id);
     return Promise.resolve();
   }
 
@@ -225,21 +233,26 @@ export class PgSessionStore implements SessionStore {
     return { id, seed: state.data.seed, engine, anchorTimes, turns: decodeTurns(row.turns), version: row.version };
   }
 
-  async acquire(id: string, ttlMs: number): Promise<number | null> {
+  async acquire(id: string, ttlMs: number): Promise<Lease | null> {
     if (!UUID.test(id)) return null;
+    // clock_timestamp() rather than now(): two acquires in one transaction would share now().
     const result = (await this.pool.query(
       `UPDATE public.agent_sessions
-       SET lease_until = now() + $2::int * interval '1 millisecond'
+       SET lease_until = clock_timestamp() + $2::int * interval '1 millisecond'
        WHERE id = $1::uuid AND (lease_until IS NULL OR lease_until < now())
-       RETURNING version`,
+       RETURNING version, lease_until::text AS token`,
       [id, ttlMs],
-    )) as { rows: { version: number }[] };
-    return result.rows[0]?.version ?? null;
+    )) as { rows: { version: number; token: string }[] };
+    const row = result.rows[0];
+    return row === undefined ? null : { version: row.version, token: row.token };
   }
 
-  async release(id: string): Promise<void> {
+  async release(id: string, lease: Lease): Promise<void> {
     if (!UUID.test(id)) return;
-    await this.pool.query(`UPDATE public.agent_sessions SET lease_until = NULL WHERE id = $1::uuid`, [id]);
+    await this.pool.query(
+      `UPDATE public.agent_sessions SET lease_until = NULL WHERE id = $1::uuid AND lease_until::text = $2`,
+      [id, lease.token],
+    );
   }
 
   async save(session: AgentSession): Promise<void> {

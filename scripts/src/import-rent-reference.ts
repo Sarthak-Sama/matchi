@@ -3,8 +3,8 @@ import path from "node:path";
 
 import type { PoolClient } from "pg";
 
-import { LAYOUTS, pickRentStat } from "@tokyo/shared";
-import type { LayoutId, RentStatRow } from "@tokyo/shared";
+import { LAYOUTS, pickRentStat, sizeFactor } from "@tokyo/shared";
+import type { LayoutId, ModelParams, RentStatRow } from "@tokyo/shared";
 
 import { DATA_DIR } from "./data-catalog.js";
 import { parseFlagValue, runImportCliIfMain } from "./lib/cli.js";
@@ -96,19 +96,27 @@ function clampFactor(factor: number): number {
   return Math.min(MARKET_FACTOR_MAX, Math.max(MARKET_FACTOR_MIN, factor));
 }
 
+/** Modelled monthly rent split the way the engine builds it: the factor scales `perSqmPart` only, never the fee. */
+export interface ModelledRent {
+  readonly perSqmPart: number;
+  readonly feeYen: number;
+}
+
 /**
- * Per ward: median(reference / modelled) over its references, clamped. Wards
- * without references get the median of the fitted wards' factors.
+ * Per ward: median((reference − fee) / perSqmPart) over its references,
+ * clamped, so a perfect fit reproduces the reference. Wards without
+ * references get the median of the fitted wards' factors.
  */
 export function fitMarketFactors(
   references: readonly RentReference[],
-  modelledRentYen: (wardCode: string, layout: LayoutId) => number,
+  modelledRent: (wardCode: string, layout: LayoutId) => ModelledRent,
   wardCodes: readonly string[],
 ): Map<string, MarketFactor> {
   const ratios = new Map<string, number[]>();
   for (const ref of references) {
     const list = ratios.get(ref.wardCode) ?? [];
-    list.push(ref.medianRentYen / modelledRentYen(ref.wardCode, ref.layout));
+    const { perSqmPart, feeYen } = modelledRent(ref.wardCode, ref.layout);
+    list.push((ref.medianRentYen - feeYen) / perSqmPart);
     ratios.set(ref.wardCode, list);
   }
   const fitted = [...ratios].map(([ward, list]): [string, MarketFactor] => [
@@ -127,11 +135,27 @@ interface WardRentStat extends RentStatRow {
   readonly ward_code: string;
 }
 
-// Modelled ward rent for a layout: the survey rent the derive step starts from,
-// before the land-value multiplier and the market factor.
+// The size curve the engine applies to per-sqm rent (same query as the API's feature store).
+const RENT_SIZE_CURVE_SQL = `
+  SELECT tatami_min AS "tatamiMin", tatami_max AS "tatamiMax", relative_to_all AS "relativeToAll"
+  FROM agent.rent_size_curve
+  WHERE tenure = 'private_rental' AND size_class_code <> '0' AND relative_to_all IS NOT NULL
+    AND period = (SELECT max(period) FROM agent.rent_size_curve)
+  ORDER BY tatami_min
+`;
+
+// Modelled ward rent for a layout as the engine computes it, before the
+// land-value multiplier and the market factor: per-sqm rent × size-curve
+// factor × area, plus the fee. Leaving the size factor out would make the
+// fitted market factor absorb the small-unit premium the engine adds again.
 async function loadModelledRent(
   client: PoolClient,
-): Promise<(wardCode: string, layout: LayoutId) => number> {
+): Promise<(wardCode: string, layout: LayoutId) => ModelledRent> {
+  const { rows: curve } = await client.query<NonNullable<ModelParams["rentSizeCurve"]>[number]>(
+    RENT_SIZE_CURVE_SQL,
+  );
+  // sizeFactor reads only the curve; the other ModelParams fields are unused here.
+  const curveParams: ModelParams = { rentElasticity: 0, layoutAreaSqm: {}, rentSizeCurve: curve };
   const { rows } = await client.query<WardRentStat>(
     "SELECT ward_code, period, source, rent_per_sqm_yen, management_fee_yen FROM rent_stats",
   );
@@ -146,14 +170,18 @@ async function loadModelledRent(
       );
     }
     const { stat } = pickRentStat(stats, { currentYear });
-    return stat.rent_per_sqm_yen * LAYOUTS[layout].midSqm + stat.management_fee_yen;
+    const sqm = LAYOUTS[layout].midSqm;
+    return {
+      perSqmPart: stat.rent_per_sqm_yen * sizeFactor(sqm, curveParams) * sqm,
+      feeYen: stat.management_fee_yen,
+    };
   };
 }
 
 async function writeReferences(
   client: PoolClient,
   references: readonly RentReference[],
-  modelledRentYen: (wardCode: string, layout: LayoutId) => number,
+  modelledRent: (wardCode: string, layout: LayoutId) => ModelledRent,
 ): Promise<void> {
   await client.query("DELETE FROM rent_reference");
   for (const ref of references) {
@@ -167,11 +195,13 @@ async function writeReferences(
         ref.medianRentYen,
         ref.sourceNote,
         ref.collectedOn,
-        modelledRentYen(ref.wardCode, ref.layout),
+        modelledRentTotal(modelledRent(ref.wardCode, ref.layout)),
       ],
     );
   }
 }
+
+const modelledRentTotal = (m: ModelledRent) => m.perSqmPart + m.feeYen;
 
 async function writeFactors(
   client: PoolClient,

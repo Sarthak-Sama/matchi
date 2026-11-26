@@ -170,6 +170,7 @@ function minutesForLink(distance: number, speedKmh: number): number {
 
 function lineWarnings(
   railLineId: string,
+  members: readonly TopologyStation[],
   links: readonly LineLink[],
   overrides: TopologyOverrides,
 ): string[] {
@@ -180,7 +181,17 @@ function lineWarnings(
         `rail_line "${railLineId}": edge ${l.fromId} - ${l.toId} is ` +
         `${(l.distanceM / 1000).toFixed(1)} km, over ${String(LONG_EDGE_WARNING_M / 1000)} km.`,
     );
-  if (railLineId in overrides.ordered) return warnings;
+  if (railLineId in overrides.ordered) {
+    // An ordered line links only the listed stations, so an unlisted member would be cut off silently.
+    const linked = new Set(links.flatMap((l) => [l.fromId, l.toId]));
+    for (const m of members.filter((m) => !linked.has(m.stationGroupId))) {
+      warnings.push(
+        `rail_line "${railLineId}": member ${m.stationGroupId} is missing from its ordered override ` +
+          `in data/rail-topology-overrides.json, so this line gives it no edges.`,
+      );
+    }
+    return warnings;
+  }
   for (const [stationGroupId, degree] of degrees(links)) {
     if (degree >= BRANCH_DEGREE) {
       warnings.push(
@@ -277,7 +288,7 @@ export async function computeFallbackEdges(client: PoolClient): Promise<Fallback
     }
 
     const links = planLineLinks(line.rail_line_id, members, allStations, overrides);
-    warnings.push(...lineWarnings(line.rail_line_id, links, overrides));
+    warnings.push(...lineWarnings(line.rail_line_id, members, links, overrides));
 
     for (const { fromId, toId, distanceM: distance } of links) {
       const minutes = minutesForLink(distance, speeds[line.mode]);
