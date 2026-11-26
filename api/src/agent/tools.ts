@@ -28,7 +28,7 @@ import { guardAgentSql } from "./sql-guard.js";
 
 // ---------- Context and result types ----------
 
-/** A pg Pool satisfies this; connect() is needed only by query_areas. */
+/** A pg Pool satisfies this; connect() is needed only by query_areas (on agentReadPool). */
 export interface AgentPool extends DbPool {
   connect?: () => Promise<{ query(text: string, params?: unknown[]): Promise<unknown>; release(): void }>;
 }
@@ -40,6 +40,8 @@ export interface ToolContext {
   pool: AgentPool;
   /** AGENT_QUERY_AREAS === "1". */
   queryAreasEnabled: boolean;
+  /** Single-connection pool of the read-only agent role; without it query_areas is disabled. */
+  agentReadPool?: AgentPool;
 }
 
 export type ToolErrorCode =
@@ -609,15 +611,18 @@ function defineTools(layouts: () => readonly string[]) {
       "answers. No semicolons or comments. Up to 50 rows. Text values come back as untrusted_text.",
     schema: querySchema,
     async run({ sql }, ctx) {
-      if (!ctx.queryAreasEnabled) return fail("disabled", "query_areas is turned off on this server.");
+      const pool = ctx.agentReadPool;
+      if (!ctx.queryAreasEnabled || pool?.connect === undefined) {
+        return fail("disabled", "query_areas is turned off on this server.");
+      }
       const guarded = guardAgentSql(sql);
       if (!guarded.ok) return fail("sql_rejected", guarded.reason, { guard_code: guarded.code });
-      if (ctx.pool.connect === undefined) return fail("query_failed", "No dedicated connection is available.");
       let client: Awaited<ReturnType<NonNullable<AgentPool["connect"]>>> | null = null;
       try {
-        client = await ctx.pool.connect();
+        client = await pool.connect();
         await client.query("BEGIN READ ONLY");
-        await client.query("SET LOCAL statement_timeout = 5000");
+        await client.query("SET LOCAL search_path = agent");
+        await client.query("SET LOCAL statement_timeout = '5s'");
         const result = (await client.query(guarded.sql)) as { rows: Record<string, unknown>[] };
         const rows = result.rows.map((row) => {
           const out: Record<string, unknown> = {};
@@ -652,7 +657,8 @@ export interface AgentTools {
 /**
  * `layouts`: allowed layout ids (ModelParams.layoutAreaSqm keys). With
  * `queryAreasEnabled: false`, query_areas is not offered to the model (it stays
- * callable and answers "disabled"). Defaults to enabled.
+ * callable and answers "disabled"). Defaults to enabled; callers pass false
+ * when there is no agent read pool.
  */
 export function createAgentTools(layouts: () => readonly string[], options: { queryAreasEnabled?: boolean } = {}): AgentTools {
   const defs = defineTools(layouts);

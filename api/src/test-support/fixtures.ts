@@ -15,6 +15,8 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     DATABASE_POOL_MAX: 2,
     DATABASE_POOL_IDLE_TIMEOUT_MS: 5_000,
     TRUST_PROXY: false,
+    AGENT_DAILY_TURNS_PER_IP: 200,
+    AGENT_DAILY_SESSIONS_PER_IP: 30,
     ...overrides,
   };
 }

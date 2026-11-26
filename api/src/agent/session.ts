@@ -15,6 +15,16 @@ export interface AgentSession {
   engine: Engine;
   anchorTimes: AnchorTimes;
   turns: { role: "user" | "assistant"; content: string }[];
+  /** The stored version this session was read at; `save` only succeeds if it is still current. */
+  version?: number;
+}
+
+/** Another writer saved the session since it was read. */
+export class SessionConflictError extends Error {
+  constructor(id: string) {
+    super(`Session "${id}" changed since it was read`);
+    this.name = "SessionConflictError";
+  }
 }
 
 export interface SessionStoreOptions {
@@ -27,10 +37,16 @@ export interface SessionStoreOptions {
  * change to the engine, anchorTimes or turns: with the database store, `get`
  * returns a fresh object rebuilt from the row, so unsaved changes are lost
  * when the request ends.
+ *
+ * A request that changes a session holds its lease: `acquire` before `get`,
+ * `release` when done. `save` throws SessionConflictError if the version moved.
  */
 export interface SessionStore {
   create(): Promise<AgentSession>;
   get(id: string): Promise<AgentSession | undefined>;
+  /** The session's version, or null when it is leased by someone else or does not exist. */
+  acquire(id: string, ttlMs: number): Promise<number | null>;
+  release(id: string): Promise<void>;
   save(session: AgentSession): Promise<void>;
 }
 
@@ -58,6 +74,7 @@ type Features = Pick<FeatureStore, "areas" | "params">;
  */
 export class MemorySessionStore implements SessionStore {
   private readonly sessions = new Map<string, AgentSession>();
+  private readonly leases = new Map<string, number>();
   private readonly makeSeed: () => number;
   private readonly makeId: () => string;
   /** Number of save calls, so tests can assert that routes persist. */
@@ -80,6 +97,7 @@ export class MemorySessionStore implements SessionStore {
       engine: this.createEngine(this.features.areas, this.features.params, seed),
       anchorTimes: {},
       turns: [],
+      version: 0,
     };
     this.sessions.set(session.id, session);
     return Promise.resolve(session);
@@ -89,8 +107,21 @@ export class MemorySessionStore implements SessionStore {
     return Promise.resolve(this.sessions.get(id));
   }
 
+  acquire(id: string, ttlMs: number): Promise<number | null> {
+    const session = this.sessions.get(id);
+    if (session === undefined || (this.leases.get(id) ?? 0) > Date.now()) return Promise.resolve(null);
+    this.leases.set(id, Date.now() + ttlMs);
+    return Promise.resolve(session.version ?? 0);
+  }
+
+  release(id: string): Promise<void> {
+    this.leases.delete(id);
+    return Promise.resolve();
+  }
+
   save(session: AgentSession): Promise<void> {
     this.saves++;
+    session.version = (session.version ?? 0) + 1;
     this.sessions.set(session.id, session);
     return Promise.resolve();
   }
@@ -127,13 +158,15 @@ interface SessionRow {
   state: unknown;
   anchor_times: unknown;
   turns: unknown;
+  version: number;
 }
 
 /**
  * Sessions in public.agent_sessions, so a chat survives across serverless
  * instances. Each `get` rebuilds the engine from the stored seed and replays
- * the stored state; `save` writes the engine snapshot back. Concurrent
- * requests on one session are last-write-wins.
+ * the stored state; `save` writes the engine snapshot back. The lease keeps
+ * concurrent requests off one session; the version check catches a lease that
+ * expired mid-request.
  */
 export class PgSessionStore implements SessionStore {
   private readonly makeSeed: () => number;
@@ -157,6 +190,7 @@ export class PgSessionStore implements SessionStore {
       engine: this.createEngine(this.features.areas, this.features.params, seed),
       anchorTimes: {},
       turns: [],
+      version: 0,
     };
     await this.pool.query(
       `INSERT INTO public.agent_sessions (id, state, anchor_times, turns)
@@ -177,7 +211,7 @@ export class PgSessionStore implements SessionStore {
   async get(id: string): Promise<AgentSession | undefined> {
     if (!UUID.test(id)) return undefined;
     const result = (await this.pool.query(
-      `SELECT state, anchor_times, turns FROM public.agent_sessions WHERE id = $1::uuid`,
+      `SELECT state, anchor_times, turns, version FROM public.agent_sessions WHERE id = $1::uuid`,
       [id],
     )) as { rows: SessionRow[] };
     const row = result.rows[0];
@@ -188,21 +222,42 @@ export class PgSessionStore implements SessionStore {
     const anchorTimes = decodeAnchorTimes(row.anchor_times);
     const engine = this.createEngine(this.features.areas, this.features.params, state.data.seed);
     engine.restore(state.data, anchorTimes);
-    return { id, seed: state.data.seed, engine, anchorTimes, turns: decodeTurns(row.turns) };
+    return { id, seed: state.data.seed, engine, anchorTimes, turns: decodeTurns(row.turns), version: row.version };
+  }
+
+  async acquire(id: string, ttlMs: number): Promise<number | null> {
+    if (!UUID.test(id)) return null;
+    const result = (await this.pool.query(
+      `UPDATE public.agent_sessions
+       SET lease_until = now() + $2::int * interval '1 millisecond'
+       WHERE id = $1::uuid AND (lease_until IS NULL OR lease_until < now())
+       RETURNING version`,
+      [id, ttlMs],
+    )) as { rows: { version: number }[] };
+    return result.rows[0]?.version ?? null;
+  }
+
+  async release(id: string): Promise<void> {
+    if (!UUID.test(id)) return;
+    await this.pool.query(`UPDATE public.agent_sessions SET lease_until = NULL WHERE id = $1::uuid`, [id]);
   }
 
   async save(session: AgentSession): Promise<void> {
-    await this.pool.query(
+    const version = session.version ?? 0;
+    const result = (await this.pool.query(
       `UPDATE public.agent_sessions
-       SET state = $2::jsonb, anchor_times = $3::jsonb, turns = $4::jsonb, updated_at = now()
-       WHERE id = $1::uuid`,
+       SET state = $2::jsonb, anchor_times = $3::jsonb, turns = $4::jsonb, version = version + 1, updated_at = now()
+       WHERE id = $1::uuid AND version = $5::int`,
       [
         session.id,
         JSON.stringify(session.engine.snapshot()),
         JSON.stringify(encodeAnchorTimes(session.anchorTimes)),
         JSON.stringify(session.turns.slice(-MAX_STORED_TURNS)),
+        version,
       ],
-    );
+    )) as { rowCount: number | null };
+    if (result.rowCount === 0) throw new SessionConflictError(session.id);
+    session.version = version + 1;
   }
 }
 

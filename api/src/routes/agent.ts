@@ -9,9 +9,13 @@ import type { TurnRecord } from "../agent/loop.js";
 import { runTurn } from "../agent/loop.js";
 import type { ModelClient } from "../agent/model-client.js";
 import { createModelClientFromEnv } from "../agent/model-client.js";
-import type { AgentRuntime } from "../agent/session.js";
+import type { AgentRuntime, AgentSession } from "../agent/session.js";
+import { SessionConflictError } from "../agent/session.js";
 import type { AgentPool } from "../agent/tools.js";
 import { createAgentTools } from "../agent/tools.js";
+import { addTokens } from "../agent/usage.js";
+import type { DbPool } from "../db.js";
+import { acquireLease, enforceDailyLimit, releaseLease } from "./agent-direct.js";
 import { parseOrThrow } from "./lib/validation.js";
 
 export interface AgentRouteDeps {
@@ -22,12 +26,19 @@ export interface AgentRouteDeps {
   model?: ModelClient | null;
   /** Defaults to process.env.AGENT_QUERY_AREAS === "1". */
   queryAreasEnabled?: boolean;
+  /** Single-connection pool on the read-only agent role; query_areas stays off without it. */
+  agentReadPool?: AgentPool;
 }
 
 const TurnBodySchema = z.object({
   sessionId: z.string().min(1).max(100),
   message: z.string().min(1).max(4000),
 });
+
+/** No turn runs longer than this; the abort reaches the model calls. */
+export const TURN_DEADLINE_MS = 60_000;
+/** Slack on top of the deadline, so the lease outlasts the turn's final save. */
+const LEASE_MARGIN_MS = 15_000;
 
 /** Lower than the global ceiling: every turn costs model calls. */
 const TURN_RATE_LIMIT = { max: 20, timeWindow: "1 minute" };
@@ -45,13 +56,27 @@ async function recordTurn(request: FastifyRequest, pool: AgentPool, sessionId: s
   }
 }
 
+function totalTokens(record: TurnRecord): number {
+  return record.modelCalls.reduce((sum, call) => sum + (call.promptTokens ?? 0) + (call.completionTokens ?? 0), 0);
+}
+
+/** Adds the turn's tokens to the day's budget. Best effort: the turn already answered. */
+async function recordTokens(request: FastifyRequest, pool: DbPool, record: TurnRecord): Promise<void> {
+  try {
+    await addTokens(pool, request.ip, totalTokens(record));
+  } catch (err) {
+    request.log.warn({ err }, "agent token usage write failed");
+  }
+}
+
 export function formatSse(event: AgentStreamEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
 export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): void {
   const model = deps.model === undefined ? createModelClientFromEnv() : deps.model;
-  const queryAreasEnabled = deps.queryAreasEnabled ?? process.env["AGENT_QUERY_AREAS"] === "1";
+  const queryAreasEnabled =
+    (deps.queryAreasEnabled ?? process.env["AGENT_QUERY_AREAS"] === "1") && deps.agentReadPool !== undefined;
 
   app.post("/v1/agent/turn", { config: { rateLimit: TURN_RATE_LIMIT } }, async (request, reply) => {
     const { sessionId, message } = parseOrThrow(TurnBodySchema, request.body);
@@ -77,16 +102,26 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
       return reply;
     }
 
-    // Runtime and session errors answer as ordinary JSON errors, like the direct routes.
+    // Lease, runtime and session errors answer as ordinary JSON errors, like the direct routes.
     const runtime = await deps.getRuntime();
-    const session = await runtime.sessions.get(sessionId);
-    if (session === undefined) throw new ApiError(404, "SESSION_NOT_FOUND", `Unknown session "${sessionId}"`);
+    await acquireLease(runtime.sessions, sessionId, TURN_DEADLINE_MS + LEASE_MARGIN_MS);
+    let session: AgentSession;
+    try {
+      const found = await runtime.sessions.get(sessionId);
+      if (found === undefined) throw new ApiError(404, "SESSION_NOT_FOUND", `Unknown session "${sessionId}"`);
+      session = found;
+      await enforceDailyLimit(deps.pool, request.ip, "turn");
+    } catch (err) {
+      await releaseLease(runtime.sessions, sessionId, request.log);
+      throw err;
+    }
 
     const tools = createAgentTools(() => Object.keys(runtime.features.params.layoutAreaSqm), { queryAreasEnabled });
     const abort = new AbortController();
     reply.raw.on("close", () => {
       if (!reply.raw.writableFinished) abort.abort();
     });
+    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(TURN_DEADLINE_MS)]);
 
     sendStream();
     // runTurn ends with `done`. It is held back until the session is saved, so
@@ -111,10 +146,11 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
             computeAnchorTimes: runtime.computeAnchorTimes,
             pool: deps.pool,
             queryAreasEnabled,
+            ...(deps.agentReadPool ? { agentReadPool: deps.agentReadPool } : {}),
           },
           columnComments: runtime.features.columnComments,
           emit: turnEmit,
-          signal: abort.signal,
+          signal,
         });
       } catch (err) {
         // runTurn reports its own failures as events; this is a last resort.
@@ -123,15 +159,19 @@ export function registerAgentRoute(app: FastifyInstance, deps: AgentRouteDeps): 
         try {
           await runtime.sessions.save(session);
         } catch (err) {
-          request.log.error({ err, sessionId }, "agent session save failed");
+          request.log.error({ err, sessionId, conflict: err instanceof SessionConflictError }, "agent session save failed");
           emit({
             type: "error",
             code: "SESSION_SAVE_FAILED",
             message: "This turn could not be saved; the next message may not see it.",
           });
         }
+        await releaseLease(runtime.sessions, sessionId, request.log);
         emit({ type: "done" });
-        if (record !== undefined) await recordTurn(request, deps.pool, session.id, record);
+        if (record !== undefined) {
+          await recordTurn(request, deps.pool, session.id, record);
+          await recordTokens(request, deps.pool, record);
+        }
         stream.end();
       }
     })();

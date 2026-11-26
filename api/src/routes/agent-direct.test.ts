@@ -17,6 +17,12 @@ import type { DbPool } from "../db.js";
 import { emptyGraphs, testConfig } from "../test-support/fixtures.js";
 import { registerAgentDirectRoute } from "./agent-direct.js";
 
+// The usage counters need a real database; the limits have their own tests.
+vi.mock("../agent/usage.js", () => ({
+  checkAndCount: vi.fn(async () => ({ ok: true })),
+  addTokens: vi.fn(async () => undefined),
+}));
+
 const areas = [{ locality_id: "a" }, { locality_id: "b" }] as AreaFeatures[];
 const features: FeatureStore = {
   areas,
@@ -95,6 +101,7 @@ function build() {
   });
   registerAgentDirectRoute(app, {
     getRuntime: async () => ({ features, sessions, computeAnchorTimes }),
+    pool: { query: vi.fn() },
   });
   return { app, engines, computeAnchorTimes, sessions };
 }

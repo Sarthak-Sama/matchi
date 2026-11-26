@@ -4,12 +4,14 @@ import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
+import type { Pool } from "pg";
 import { ZodError } from "zod";
 
 import { createEngine } from "@tokyo/shared";
 
 import { createAgentRuntimeGetter } from "./agent/session.js";
 import type { Config } from "./config.js";
+import { createPool } from "./db.js";
 import type { DbPool } from "./db.js";
 import type { TransitGraphs } from "./domain/transit/graph.js";
 import { registerAgentRoute } from "./routes/agent.js";
@@ -47,6 +49,16 @@ const REQUEST_ID_HEADER = "x-request-id";
 
 export const RATE_LIMIT_WINDOW = "1 minute";
 
+// query_areas gets its own single-connection pool on the read-only role, so the
+// database, not the SQL guard, is what keeps the model out of private tables.
+function createAgentReadPool(config: Config): Pool | undefined {
+  if (!config.AGENT_DATABASE_URL) return undefined;
+  return createPool(config.AGENT_DATABASE_URL, {
+    maxConnections: 1,
+    idleTimeoutMs: config.DATABASE_POOL_IDLE_TIMEOUT_MS,
+  });
+}
+
 export function buildApp(deps: AppDeps): FastifyInstance {
   const app = Fastify({
     logger: { level: deps.config.LOG_LEVEL },
@@ -55,6 +67,13 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     genReqId: () => randomUUID(),
     trustProxy: deps.config.TRUST_PROXY,
   });
+
+  const agentReadPool = createAgentReadPool(deps.config);
+  if (agentReadPool) {
+    app.addHook("onClose", async () => {
+      await agentReadPool.end();
+    });
+  }
 
   void app.register(helmet, {
     crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -118,8 +137,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     registerLocalityRoute(instance, deps);
     registerDataStatusRoute(instance, deps);
     const getAgentRuntime = createAgentRuntimeGetter(deps, createEngine);
-    registerAgentDirectRoute(instance, { getRuntime: getAgentRuntime });
-    registerAgentRoute(instance, { getRuntime: getAgentRuntime, pool: deps.pool });
+    registerAgentDirectRoute(instance, { getRuntime: getAgentRuntime, pool: deps.pool });
+    registerAgentRoute(instance, { getRuntime: getAgentRuntime, pool: deps.pool, agentReadPool });
     registerAgentEventsRoute(instance, { pool: deps.pool });
     done();
   });

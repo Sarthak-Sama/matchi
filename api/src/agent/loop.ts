@@ -10,7 +10,7 @@ import type {
 import { buildView } from "../routes/agent-direct.js";
 import type { Figure } from "./grounding.js";
 import type { GroundingResult } from "./grounding.js";
-import { checkGrounding } from "./grounding.js";
+import { TOOL_MARKUP, checkGrounding, hasToolMarkup } from "./grounding.js";
 import type {
   ChatMessage,
   ModelClient,
@@ -46,6 +46,8 @@ export interface GroundingRecord {
   pass: boolean;
   /** The figures no tool result backed. */
   unmatched: string[];
+  /** The reply carried tool-call markup. */
+  markup: boolean;
 }
 
 /** `ok`, or the code of the error event the turn ended on. */
@@ -114,17 +116,9 @@ function correctionMessage(unmatched: readonly Figure[]): string {
   );
 }
 
-// Model tool-call markup written as plain text (DeepSeek DSML and similar):
-// "<｜DSML｜ ...", fullwidth "＜", zero-width characters or spaces in between,
-// "<tool_call>", "<function_calls>", "<｜tool▁calls▁begin｜>".
-const MARKUP =
-  /[<＜][\s\u200B-\u200D\uFEFF]*[｜|]|[｜|][\s\u200B-\u200D\uFEFF]*DSML|<[\s\u200B-\u200D\uFEFF]*\/?[\s\u200B-\u200D\uFEFF]*(?:tool_?calls?|function_?calls?|invoke)\b|tool[▁_ ]calls?[▁_ ]begin/i;
-
-export const hasToolMarkup = (text: string): boolean => MARKUP.test(text);
-
 /** Cuts from the first tool-call marker to the end; `flagged` says one was found. */
 export function sanitizeReply(text: string): { text: string; flagged: boolean } {
-  const at = text.search(MARKUP);
+  const at = text.search(TOOL_MARKUP);
   if (at === -1) return { text: text.trim(), flagged: false };
   return { text: text.slice(0, at).trim(), flagged: true };
 }
@@ -198,8 +192,8 @@ export function fallbackReply(
 
 const groundingRecord = (check: GroundingResult): GroundingRecord =>
   check.pass
-    ? { pass: true, unmatched: [] }
-    : { pass: false, unmatched: check.unmatched.map((f) => f.raw) };
+    ? { pass: true, unmatched: [], markup: check.markup }
+    : { pass: false, unmatched: check.unmatched.map((f) => f.raw), markup: check.markup };
 
 /** Never throws: a failure becomes an `error` event, and `done` is always last. Returns what the turn did. */
 export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
@@ -386,6 +380,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
       profile: profile(),
     });
     record.firstGrounding = groundingRecord(check);
+    record.markupLeaked ||= check.markup;
     if (!check.pass && extraFigures.length === 0) {
       emit({ type: "grounding", pass: false, failures: toFailures(text, check.unmatched) });
       if (modelCalls < MAX_MODEL_CALLS_PER_TURN) {
@@ -416,6 +411,7 @@ export async function runTurn(input: RunTurnInput): Promise<TurnRecord> {
       }
     }
     record.finalGrounding = groundingRecord(check);
+    record.markupLeaked ||= check.markup;
     if (!check.pass) text = dropSentences(text, check.unmatched);
 
     if (text !== "") emit({ type: "text", delta: text });

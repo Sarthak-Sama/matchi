@@ -3,6 +3,15 @@ import { z } from "zod";
 const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace", "silent"] as const;
 const NODE_ENVS = ["development", "production", "test"] as const;
 
+// Daily agent limits live in their own schema so usage.ts can read them from the
+// environment without needing the rest of the API configuration.
+const agentLimitsShape = {
+  AGENT_DAILY_TURNS_PER_IP: z.coerce.number().int().positive().default(200),
+  AGENT_DAILY_SESSIONS_PER_IP: z.coerce.number().int().positive().default(30),
+  // Global across all IPs; unset means unlimited.
+  AGENT_DAILY_TOKEN_BUDGET: z.coerce.number().int().positive().optional(),
+};
+
 const envSchema = z
   .object({
     DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
@@ -27,12 +36,25 @@ const envSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
+
+    ...agentLimitsShape,
+    // Read-only role for query_areas (see `pnpm db:agent-role`). Unset keeps
+    // the tool disabled.
+    AGENT_DATABASE_URL: z.string().min(1).optional(),
   })
   .refine((env) => !(env.NODE_ENV === "production" && env.CORS_ORIGIN === "*"), {
     path: ["CORS_ORIGIN"],
     message:
       'must name explicit origins in production (e.g. "https://matchi.app") — "*" is development-only',
   });
+
+const agentLimitsSchema = z.object(agentLimitsShape);
+
+export type AgentLimits = z.infer<typeof agentLimitsSchema>;
+
+export function loadAgentLimits(env: NodeJS.ProcessEnv = process.env): AgentLimits {
+  return agentLimitsSchema.parse(env);
+}
 
 export type Config = z.infer<typeof envSchema>;
 

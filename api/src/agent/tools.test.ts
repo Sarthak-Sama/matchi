@@ -206,7 +206,7 @@ describe("agent tools", () => {
       }),
       release,
     };
-    const { context } = ctx({ queryAreasEnabled: true, pool: { query: vi.fn(), connect: vi.fn(async () => client) } });
+    const { context } = ctx({ queryAreasEnabled: true, agentReadPool: { query: vi.fn(), connect: vi.fn(async () => client) } });
     expect(await tools.run("query_areas", { sql: "DELETE FROM agent.area_features" }, context)).toMatchObject({
       ok: false,
       error: { code: "sql_rejected" },
@@ -215,7 +215,8 @@ describe("agent tools", () => {
     expect(r).toMatchObject({ ok: true, result: { rows: [{ locality_id: { untrusted_text: "L1" }, n: 3 }] } });
     expect(queries).toEqual([
       "BEGIN READ ONLY",
-      "SET LOCAL statement_timeout = 5000",
+      "SET LOCAL search_path = agent",
+      "SET LOCAL statement_timeout = '5s'",
       "SELECT * FROM (SELECT locality_id, 3 AS n FROM agent.area_features) q LIMIT 50",
       "ROLLBACK",
     ]);

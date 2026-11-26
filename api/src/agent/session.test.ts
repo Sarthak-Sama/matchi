@@ -3,7 +3,7 @@ import type { AreaFeatures, CreateEngine, Engine, ModelParams, SessionState } fr
 import { describe, expect, it, vi } from "vitest";
 
 import type { DbPool } from "../db.js";
-import { MAX_STORED_TURNS, MemorySessionStore, PgSessionStore } from "./session.js";
+import { MAX_STORED_TURNS, MemorySessionStore, PgSessionStore, SessionConflictError } from "./session.js";
 
 const areas = [{ locality_id: "a" }] as AreaFeatures[];
 const params: ModelParams = { rentElasticity: 0.36, layoutAreaSqm: {} };
@@ -29,6 +29,19 @@ describe("MemorySessionStore", () => {
     expect(await store.get("nope")).toBeUndefined();
     await store.save(s1);
     expect(store.saves).toBe(1);
+  });
+
+  it("leases a session to one holder at a time until it is released or expires", async () => {
+    const store = new MemorySessionStore((() => ({}) as Engine) as CreateEngine, { areas, params });
+    const { id } = await store.create();
+    expect(await store.acquire(id, 1000)).toBe(0);
+    expect(await store.acquire(id, 1000)).toBeNull();
+    await store.release(id);
+    expect(await store.acquire(id, 1000)).toBe(0);
+    await store.release(id);
+    expect(await store.acquire(id, -1)).toBe(0);
+    expect(await store.acquire(id, 1000)).toBe(0);
+    expect(await store.acquire("nope", 1000)).toBeNull();
   });
 });
 
@@ -81,20 +94,42 @@ describe("PgSessionStore", () => {
   });
 
   it("save writes the snapshot, anchor times with NaN as null, and the last turns", async () => {
-    const query = vi.fn(async () => ({ rows: [] }));
+    const query = vi.fn(async () => ({ rows: [], rowCount: 1 }));
     const store = new PgSessionStore({ query }, () => fakeEngine(), { areas, params });
     const turns = Array.from({ length: MAX_STORED_TURNS + 4 }, (_, i) => ({
       role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
       content: String(i),
     }));
-    await store.save({ id: ID, seed: 42, engine: fakeEngine(), anchorTimes: { work: Float64Array.from([5, Number.NaN]) }, turns });
+    const session = { id: ID, seed: 42, engine: fakeEngine(), anchorTimes: { work: Float64Array.from([5, Number.NaN]) }, turns, version: 3 };
+    await store.save(session);
     const [sql, values] = query.mock.calls[0] as unknown as [string, string[]];
     expect(sql).toContain("UPDATE public.agent_sessions");
+    expect(values[4]).toBe(3);
+    expect(session.version).toBe(4);
     expect(values[0]).toBe(ID);
     expect(JSON.parse(values[1]!)).toEqual(STATE);
     expect(JSON.parse(values[2]!)).toEqual({ work: [5, null] });
     const saved = JSON.parse(values[3]!) as { content: string }[];
     expect(saved).toHaveLength(MAX_STORED_TURNS);
     expect(saved[0]!.content).toBe("4");
+  });
+
+  it("save throws a conflict when the stored version has moved on", async () => {
+    const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+    const store = new PgSessionStore({ query }, () => fakeEngine(), { areas, params });
+    const session = { id: ID, seed: 42, engine: fakeEngine(), anchorTimes: {}, turns: [], version: 1 };
+    await expect(store.save(session)).rejects.toBeInstanceOf(SessionConflictError);
+    expect(session.version).toBe(1);
+  });
+
+  it("acquire returns the version when the lease is taken and null when it is not", async () => {
+    const rows: { version: number }[][] = [[{ version: 5 }], []];
+    const query = vi.fn(async () => ({ rows: rows.shift() }));
+    const store = new PgSessionStore({ query }, () => fakeEngine(), { areas, params });
+    expect(await store.acquire(ID, 1000)).toBe(5);
+    expect(await store.acquire(ID, 1000)).toBeNull();
+    expect(query.mock.calls[0]).toEqual([expect.stringContaining("lease_until"), [ID, 1000]]);
+    expect(await store.acquire("nope", 1000)).toBeNull();
+    expect(query).toHaveBeenCalledTimes(2);
   });
 });

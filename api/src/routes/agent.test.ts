@@ -2,12 +2,19 @@ import type { AgentStreamEvent, AreaFeatures, Engine, Evidence, LoggedEvidence, 
 import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { buildApp } from "../application.js";
+import { ApiError, buildApp } from "../application.js";
 import { createScriptedModel } from "../agent/model-client.js";
-import type { ScriptedStep } from "../agent/model-client.js";
+import type { ModelClient, ScriptedStep } from "../agent/model-client.js";
+import { MemorySessionStore } from "../agent/session.js";
 import type { AgentRuntime, AgentSession } from "../agent/session.js";
 import { emptyGraphs, testConfig } from "../test-support/fixtures.js";
 import { registerAgentRoute } from "./agent.js";
+
+// The usage counters need a real database; the limits have their own tests.
+vi.mock("../agent/usage.js", () => ({
+  checkAndCount: vi.fn(async () => ({ ok: true })),
+  addTokens: vi.fn(async () => undefined),
+}));
 
 const REC: Recommendation = {
   shortlist: [
@@ -60,6 +67,8 @@ function runtimeWith(session: AgentSession, save: AgentRuntime["sessions"]["save
     sessions: {
       create: () => Promise.reject(new Error("not used")),
       get: async (id: string) => (id === session.id ? session : undefined),
+      acquire: async (id: string) => (id === session.id ? 0 : null),
+      release: async () => undefined,
       save,
     },
     computeAnchorTimes: vi.fn(async (anchors: readonly { id: string }[]) => ({
@@ -195,6 +204,43 @@ describe("POST /v1/agent/turn", () => {
       { type: "error", code: "MODEL_NOT_CONFIGURED", message: "no model configured" },
       { type: "done" },
     ]);
+  });
+
+  it("answers 409 SESSION_BUSY to a second turn while the first is running", async () => {
+    const sessions = new MemorySessionStore(stubEngine, { areas: [], params: { rentElasticity: 0.356, layoutAreaSqm: {} } });
+    const { id } = await sessions.create();
+    let modelCalled!: () => void;
+    const firstTurnRunning = new Promise<void>((resolve) => (modelCalled = resolve));
+    let finishFirstTurn!: () => void;
+    const hold = new Promise<void>((resolve) => (finishFirstTurn = resolve));
+    const model: ModelClient = {
+      complete: async () => {
+        modelCalled();
+        await hold;
+        return { text: "Noted.", toolCalls: [], ms: 1, finishReason: "stop", usage: null };
+      },
+    };
+    const unused: AgentSession = { id: "unused", seed: 1, engine: stubEngine(), anchorTimes: {}, turns: [] };
+    const app = Fastify();
+    app.setErrorHandler((err, _request, reply) => {
+      if (err instanceof ApiError) void reply.status(err.statusCode).send({ error: { code: err.code } });
+      else void reply.status(500).send({ error: { code: "INTERNAL_ERROR" } });
+    });
+    registerAgentRoute(app, { getRuntime: async () => ({ ...runtimeWith(unused, vi.fn()), sessions }), pool: { query: vi.fn() }, model, queryAreasEnabled: false });
+    const turn = { method: "POST", url: "/v1/agent/turn", payload: { sessionId: id, message: "hi" } } as const;
+
+    const first = app.inject(turn);
+    await firstTurnRunning;
+    const second = await app.inject(turn);
+    finishFirstTurn();
+    const firstDone = await first;
+    const third = await app.inject(turn);
+    await app.close();
+
+    expect(second.statusCode).toBe(409);
+    expect((second.json() as { error: { code: string } }).error.code).toBe("SESSION_BUSY");
+    expect(firstDone.statusCode).toBe(200);
+    expect(third.statusCode).toBe(200);
   });
 
   it("rejects a bad body and an unknown session", async () => {

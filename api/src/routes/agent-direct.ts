@@ -7,17 +7,26 @@ import type {
   ProfileResult,
   Recommendation,
 } from "@tokyo/shared";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { ApiError } from "../application.js";
 import type { AgentRuntime, AgentSession, SessionStore } from "../agent/session.js";
+import { SessionConflictError } from "../agent/session.js";
+import { checkAndCount } from "../agent/usage.js";
+import type { UsageKind } from "../agent/usage.js";
+import type { DbPool } from "../db.js";
 import { parseOrThrow } from "./lib/validation.js";
 
 export interface AgentDirectDeps {
   /** Resolves the shared runtime (feature store, sessions, anchor times); see createAgentRuntimeGetter. */
   getRuntime: () => Promise<AgentRuntime>;
+  /** Where the daily usage counters live. */
+  pool: DbPool;
 }
+
+/** A direct mutation is one quick read-modify-write; the lease only has to outlast that. */
+const DIRECT_LEASE_TTL_MS = 5_000;
 
 const EvidenceBodySchema = z.object({ items: z.array(EvidenceSchema).min(1).max(50) });
 const RecommendBodySchema = z.object({ k: z.number().int().min(1).max(20).optional() });
@@ -33,6 +42,36 @@ async function requireSession(sessions: SessionStore, id: string): Promise<Agent
     throw new ApiError(404, "SESSION_NOT_FOUND", `Unknown session "${id}"`);
   }
   return session;
+}
+
+const BUSY_MESSAGE = "Another request is using this session; try again in a moment.";
+
+/** Takes the session's lease, or throws 404 for an unknown session and 409 SESSION_BUSY for a busy one. */
+export async function acquireLease(sessions: SessionStore, id: string, ttlMs: number): Promise<void> {
+  if ((await sessions.acquire(id, ttlMs)) !== null) return;
+  // acquire answers null for both cases; only a missing session is a 404.
+  await requireSession(sessions, id);
+  throw new ApiError(409, "SESSION_BUSY", BUSY_MESSAGE);
+}
+
+/** Frees the lease. A failure is not worth failing the request: the lease expires on its own. */
+export async function releaseLease(sessions: SessionStore, id: string, log: FastifyBaseLogger): Promise<void> {
+  try {
+    await sessions.release(id);
+  } catch (err) {
+    log.warn({ err, sessionId: id }, "agent session lease release failed");
+  }
+}
+
+/** Counts the request against the caller's daily limits and throws the API error when one is hit. */
+export async function enforceDailyLimit(pool: DbPool, ip: string, kind: UsageKind): Promise<void> {
+  const decision = await checkAndCount(pool, { ip, kind });
+  if (decision.ok) return;
+  const message =
+    decision.code === "DAILY_LIMIT"
+      ? "Daily limit reached; try again tomorrow."
+      : "The agent has used its budget for today; try again tomorrow.";
+  throw new ApiError(decision.status, decision.code, message);
 }
 
 /**
@@ -73,7 +112,22 @@ export function registerAgentDirectRoute(app: FastifyInstance, deps: AgentDirect
     return { session: await requireSession(runtime.sessions, id), runtime };
   };
 
-  app.post("/v1/agent/session", async (_request, reply) => {
+  /** Runs a read-modify-write on one session under its lease. */
+  const withLease = async <T>(sessionId: string, run: (runtime: AgentRuntime) => Promise<T>, log: FastifyBaseLogger): Promise<T> => {
+    const runtime = await deps.getRuntime();
+    await acquireLease(runtime.sessions, sessionId, DIRECT_LEASE_TTL_MS);
+    try {
+      return await run(runtime);
+    } catch (err) {
+      if (err instanceof SessionConflictError) throw new ApiError(409, "SESSION_BUSY", BUSY_MESSAGE);
+      throw err;
+    } finally {
+      await releaseLease(runtime.sessions, sessionId, log);
+    }
+  };
+
+  app.post("/v1/agent/session", async (request, reply) => {
+    await enforceDailyLimit(deps.pool, request.ip, "session");
     const session = await (await deps.getRuntime()).sessions.create();
     reply.status(200).send({ sessionId: session.id, view: buildView(session.engine) });
   });
@@ -84,46 +138,56 @@ export function registerAgentDirectRoute(app: FastifyInstance, deps: AgentDirect
   });
 
   app.put("/v1/agent/session/:id/profile", async (request, reply) => {
-    const { session, runtime } = await sessionFor(request);
-    const profile = parseOrThrow(ProfileSchema, request.body);
+    const { id } = parseOrThrow(SessionParamsSchema, request.params);
+    const payload = await withLease(id, async (runtime) => {
+      const session = await requireSession(runtime.sessions, id);
+      const profile = parseOrThrow(ProfileSchema, request.body);
 
-    const { times, refused } = await runtime.computeAnchorTimes(profile.anchors, runtime.features.areas);
-    session.anchorTimes = times;
-    const engineResult = session.engine.setProfile(profile, times);
-    await runtime.sessions.save(session);
+      const { times, refused } = await runtime.computeAnchorTimes(profile.anchors, runtime.features.areas);
+      session.anchorTimes = times;
+      const engineResult = session.engine.setProfile(profile, times);
+      await runtime.sessions.save(session);
 
-    // The engine flags anchors with no vector as 'no_times'; ours carry the real reason.
-    const ours = new Set(refused.map((r) => r.anchorId));
-    const result: ProfileResult = {
-      ...engineResult,
-      refusedAnchors: [
-        ...refused,
-        ...engineResult.refusedAnchors.filter((r) => !(r.reason === "no_times" && ours.has(r.anchorId))),
-      ],
-    };
-    reply.status(200).send({ result, view: buildView(session.engine) });
+      // The engine flags anchors with no vector as 'no_times'; ours carry the real reason.
+      const ours = new Set(refused.map((r) => r.anchorId));
+      const result: ProfileResult = {
+        ...engineResult,
+        refusedAnchors: [
+          ...refused,
+          ...engineResult.refusedAnchors.filter((r) => !(r.reason === "no_times" && ours.has(r.anchorId))),
+        ],
+      };
+      return { result, view: buildView(session.engine) };
+    }, request.log);
+    reply.status(200).send(payload);
   });
 
   app.post("/v1/agent/session/:id/evidence", async (request, reply) => {
-    const { session, runtime } = await sessionFor(request);
-    const { items } = parseOrThrow(EvidenceBodySchema, request.body);
-    // Direct routes carry the person's taps (R4); the client cannot claim otherwise.
-    const results: ObserveResult[] = items.map((item) => session.engine.observe({ ...item, source: "tap" }));
-    await runtime.sessions.save(session);
-    reply.status(200).send({ results, view: buildView(session.engine) });
+    const { id } = parseOrThrow(SessionParamsSchema, request.params);
+    const payload = await withLease(id, async (runtime) => {
+      const session = await requireSession(runtime.sessions, id);
+      const { items } = parseOrThrow(EvidenceBodySchema, request.body);
+      // Direct routes carry the person's taps (R4); the client cannot claim otherwise.
+      const results: ObserveResult[] = items.map((item) => session.engine.observe({ ...item, source: "tap" }));
+      await runtime.sessions.save(session);
+      return { results, view: buildView(session.engine) };
+    }, request.log);
+    reply.status(200).send(payload);
   });
 
   app.delete("/v1/agent/evidence/:id", async (request, reply) => {
     const { id } = parseOrThrow(EvidenceParamsSchema, request.params);
     const { sessionId } = parseOrThrow(EvidenceQuerySchema, request.query);
-    const { sessions } = await deps.getRuntime();
-    const session = await requireSession(sessions, sessionId);
-    if (!session.engine.snapshot().evidence.some((e) => e.id === id)) {
-      throw new ApiError(404, "EVIDENCE_NOT_FOUND", `Unknown evidence "${id}" in this session`);
-    }
-    session.engine.removeEvidence(id);
-    await sessions.save(session);
-    reply.status(200).send({ view: buildView(session.engine) });
+    const payload = await withLease(sessionId, async ({ sessions }) => {
+      const session = await requireSession(sessions, sessionId);
+      if (!session.engine.snapshot().evidence.some((e) => e.id === id)) {
+        throw new ApiError(404, "EVIDENCE_NOT_FOUND", `Unknown evidence "${id}" in this session`);
+      }
+      session.engine.removeEvidence(id);
+      await sessions.save(session);
+      return { view: buildView(session.engine) };
+    }, request.log);
+    reply.status(200).send(payload);
   });
 
   app.post("/v1/agent/session/:id/recommend", async (request, reply) => {

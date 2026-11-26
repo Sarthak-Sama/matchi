@@ -4,7 +4,7 @@ import { Pool } from "pg";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { buildView } from "../routes/agent-direct.js";
-import { PgSessionStore } from "./session.js";
+import { PgSessionStore, SessionConflictError } from "./session.js";
 
 // Writes and deletes its own rows in public.agent_sessions (migration 0019).
 // Runs only when DATABASE_URL points at a local database; the repo-wide vitest
@@ -94,6 +94,23 @@ describe.skipIf(!isLocal)("PgSessionStore against the local database", () => {
     expect(loaded!.engine.snapshot()).toEqual(session.engine.snapshot());
     expect(buildView(loaded!.engine)).toEqual(buildView(session.engine));
     expect(buildView(loaded!.engine).evidence).toHaveLength(2);
+  });
+
+  it("leases a session to one holder and rejects a save from a stale version", async () => {
+    const store = new PgSessionStore(pool, createEngine, { areas: syntheticAreas(3), params });
+    const session = await store.create();
+    created.push(session.id);
+
+    expect(await store.acquire(session.id, 60_000)).toBe(0);
+    expect(await store.acquire(session.id, 60_000)).toBeNull();
+    await store.release(session.id);
+    expect(await store.acquire(session.id, 60_000)).toBe(0);
+    await store.release(session.id);
+
+    const stale = await store.get(session.id);
+    await store.save(session);
+    expect(session.version).toBe(1);
+    await expect(store.save(stale!)).rejects.toBeInstanceOf(SessionConflictError);
   });
 
   it("returns undefined for an unknown or malformed id", async () => {

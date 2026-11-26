@@ -16,7 +16,7 @@ const check = (reply: string) => checkGrounding({ reply, toolResults: results, p
 describe("collectNumbers", () => {
   it("walks nested values, strings and array lengths", () => {
     const collected = collectNumbers([...results, profile, null, undefined]);
-    expect(collected.values).toEqual(expect.arrayContaining([82000, 24, 0.27, 12000, 150000, 1, 2, 3]));
+    expect(collected.facts.map((f) => f.value)).toEqual(expect.arrayContaining([82000, 24, 0.27, 12000, 150000]));
     expect(collected.counts).toContain(3);
   });
 });
@@ -49,21 +49,22 @@ describe("checkGrounding", () => {
   it("passes figures copied from tool results and the profile", () => {
     expect(
       check("Of 3 areas, the first is ¥82,000 at 24 minutes with a 41% chance; your budget is 15万円 and cap 45分."),
-    ).toEqual({ pass: true });
+    ).toEqual({ pass: true, markup: false });
   });
 
   it("matches after rounding: rent to 1,000 yen, whole minutes, whole percent", () => {
-    expect(check("The second is 118,000 yen, 90 minutes (1.5 hours), 27% likely.")).toEqual({ pass: true });
+    expect(check("The second is 118,000 yen, 90 minutes (1.5 hours), 27% likely.")).toEqual({ pass: true, markup: false });
   });
 
   it("matches numbers quoted inside result strings", () => {
-    expect(check("It is 12,000 yen cheaper.")).toEqual({ pass: true });
+    expect(check("It is 12,000 yen cheaper.")).toEqual({ pass: true, markup: false });
   });
 
   it("returns the unmatched figures", () => {
     const outcome = check("Rent is ¥79,000 and the ride is 24 minutes, 55% likely, across 7 areas.");
     expect(outcome).toEqual({
       pass: false,
+      markup: false,
       unmatched: [
         { raw: "¥79,000", value: 79000, unit: "yen" },
         { raw: "55%", value: 55, unit: "percent" },
@@ -77,7 +78,27 @@ describe("checkGrounding", () => {
   });
 
   it("passes a reply with no figures and fails any figure with no results", () => {
-    expect(check("Tell me where you work.")).toEqual({ pass: true });
+    expect(check("Tell me where you work.")).toEqual({ pass: true, markup: false });
     expect(checkGrounding({ reply: "About 20 minutes.", toolResults: [] }).pass).toBe(false);
+  });
+
+  it("rejects a right number quoted for the wrong area", () => {
+    const named = [
+      {
+        shortlist: [
+          { area_id: "a", names: { untrusted_text: { name_en: "Nakano", name_ja: "中野" } }, rent_yen: 82000 },
+          { area_id: "b", names: { untrusted_text: { name_en: "Koenji", name_ja: "高円寺" } }, rent_yen: 95000 },
+        ],
+      },
+    ];
+    const run = (reply: string) => checkGrounding({ reply, toolResults: named });
+    expect(run("Nakano is ¥82,000. Koenji is ¥95,000.").pass).toBe(true);
+    expect(run("| Nakano | ¥82,000 |\n| Koenji | ¥95,000 |").pass).toBe(true);
+    expect(run("Koenji is ¥82,000 a month.")).toMatchObject({
+      pass: false,
+      unmatched: [{ raw: "¥82,000" }],
+    });
+    expect(run("中野は¥95,000です。").pass).toBe(false);
+    expect(run("The cheapest option is ¥82,000.").pass).toBe(true);
   });
 });
