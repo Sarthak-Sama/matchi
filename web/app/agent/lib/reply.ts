@@ -1,6 +1,6 @@
 import type { AgentStateView } from "./types";
 import { plainText, splitName, splitQuestion, parseBlocks, type Block } from "./markdown";
-import { yen } from "./format";
+import { aboutYen, yen } from "./format";
 
 export interface QuickChoice {
   /** Japanese name. Also the key that matches a row in the model's comparison table. */
@@ -32,7 +32,7 @@ export function choicesFor(view: AgentStateView | null): QuickChoice[] {
       sublabel: [...new Set([english, s!.wardNameEn].filter(Boolean))].join(" · ") || null,
       message: `I'd pick ${s!.nameJa}${english ? ` (${english})` : ""}${s!.wardNameEn ? `, ${s!.wardNameEn}` : ""}.`,
       metrics: [
-        { label: "Rent / month", value: yen(Math.round(s!.rentYen / 1000) * 1000) },
+        { label: "Rent / month", value: aboutYen(s!.rentYen) },
         {
           label: "One-way trip",
           value:

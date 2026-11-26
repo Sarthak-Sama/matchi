@@ -80,7 +80,7 @@ describe("guide choice presentation", () => {
       },
     } as unknown as AgentStateView;
     const result = choicesFor(view);
-    expect(result[0]?.metrics.map((m) => m.value)).toEqual(["¥62,000", "22 min"]);
+    expect(result[0]?.metrics.map((m) => m.value)).toEqual(["about ¥62k", "22 min"]);
     expect(result[1]?.metrics[1]?.value).toBe("Not set");
     view.recommendation!.shortlist.pop();
     expect(choicesFor(view)).toEqual([]);

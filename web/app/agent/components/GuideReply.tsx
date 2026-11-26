@@ -586,7 +586,7 @@ export function GuideReply({
             })}
           </div>
           <p className="mt-2 text-[11px] leading-relaxed text-ink-muted">
-            Rent is a ward-level estimate; travel times are one way.
+            Rent is modelled from the housing survey, not a listing; travel times are one way.
             {!inactive && " Or tell me what you’d change below."}
           </p>
         </section>
