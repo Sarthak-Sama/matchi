@@ -503,3 +503,10 @@ Retest of commit 48c0d94, live model deepseek-ai/deepseek-v4.1-flash-1017, local
   - Personas (not about markup): 4 pass, 3 fail: student (recommend rent 75-76k over firm budget 70k), school_late_shift ("late-night flag" not mentioned in a reply text), out_of_coverage (anchor not refused with reason). These look unrelated to the DSML fix; not investigated.
   - MISTAKE to disclose: at cleanup I ran `pkill -f "next dev"` to stop my web app; it also killed a Next dev server outside this repo (pid 36104, /Users/yato_sar/hackathon/daytona/liveshot, `next dev --hostname 0.0.0.0 --port 4000`). Port 4000 is now not listening. It needs restarting from that directory by the user.
 - Verified: node --env-file=.env URL check -> localhost:5432/tokyo for both; pnpm dev:api on 4100 /health -> ok, db reachable; 8 curl sessions x3 turns -> table above; pnpm dev:web with NEXT_PUBLIC_API_BASE_URL=http://localhost:4100 + Chrome new tab, 3 turns -> clean; AGENT_BASE_URL=http://localhost:4100 pnpm exec tsx scripts/src/eval/personas.ts -> exit 1 (3 persona check failures, 0 markup, 7/7 anchors); API and web stopped, port 4100 and 3000 no longer listening, tab closed. No code or config edited.
+
+## 2026-11-26 — Agent shipped to production
+
+- Sessions now live in `public.agent_sessions` (migration 0019) instead of memory, so chats survive across Vercel instances.
+- Neon `neondb` was replaced with a dump of the local DB (all 19 migrations, counts match local, `data:validate` ok). No separate branch.
+- Vercel production branch is `main` for matchi-api and matchi-web. Vercel's type check saw an empty `Response` type, fixed in `53eb28f`.
+- Prod checks: `/health` ok, agent session create/reload ok, 8 sessions saved on Neon (7 with turns), persona eval 4/7 pass with no markup leaks (fails: school_late_shift off-peak anchor, like_shimokitazawa like_area, contradictor surprising flag — model behaviour, same kind as earlier local runs). Optimizer, stations, places, neighborhood and locality endpoints return 200. Browser flow not yet run on prod.
