@@ -39,11 +39,21 @@ export interface ModelClient {
   complete(request: ModelRequest): Promise<ModelResponse>;
 }
 
+/**
+ * The part of fetch this client uses. Declared here rather than taken from
+ * `typeof fetch`: Vercel's build type-checks with a setup where the global
+ * Response type resolves to an empty interface (no ok/status/body).
+ */
+export type FetchLike = (
+  url: string,
+  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
+) => Promise<{ ok: boolean; status: number; body: ReadableStream<Uint8Array> | null }>;
+
 export interface OpenAiCompatibleOptions {
   baseUrl: string;
   apiKey: string;
   model: string;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
   /** Per model call. */
   timeoutMs?: number;
 }
@@ -119,7 +129,7 @@ export async function readChatStream(
 }
 
 export function createOpenAiCompatibleModel(options: OpenAiCompatibleOptions): ModelClient {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? (fetch as unknown as FetchLike);
   const url = `${options.baseUrl.replace(/\/+$/, "")}/chat/completions`;
   return {
     async complete(request) {
