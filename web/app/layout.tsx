@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Analytics } from "@vercel/analytics/next";
+import Script from "next/script";
 import { Archivo, IBM_Plex_Mono, Newsreader } from "next/font/google";
 
 import "./globals.css";
@@ -41,6 +42,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className={`${newsreader.variable} ${archivo.variable} ${plexMono.variable}`}>
       <body>
         <ExperienceFrame>{children}</ExperienceFrame>
+        <Script
+          src="https://perxona-site-companion.vercel.app/sdk/operator.js"
+          data-voice="CwhRBWXzGAHq8TQ4Fs17"
+          strategy="afterInteractive"
+        />
         <Analytics />
       </body>
     </html>
